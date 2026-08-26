@@ -3,7 +3,7 @@ package io.heapy.ktctogradle
 import okio.FileSystem
 import okio.Path
 
-class Converter(private val fileSystem: FileSystem = FileSystem.SYSTEM) {
+class Converter(private val fileSystem: FileSystem = systemFileSystem) {
     fun convert(start: Path, force: Boolean = false, dryRun: Boolean = false): ConversionResult {
         val project = ProjectLoader(fileSystem).load(start)
         val (generated, diagnostics) = GradleGenerator(fileSystem).generate(project)

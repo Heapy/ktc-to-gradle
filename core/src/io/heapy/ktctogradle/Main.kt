@@ -1,7 +1,6 @@
 package io.heapy.ktctogradle
 
 import okio.Path.Companion.toPath
-import kotlin.system.exitProcess
 
 fun runCli(args: Array<String>) {
     val options = try {
@@ -9,7 +8,7 @@ fun runCli(args: Array<String>) {
     } catch (error: ConversionException) {
         println("ktc-to-gradle: ${error.message}")
         println("Try 'ktc-to-gradle --help'.")
-        exitProcess(2)
+        exitWith(2)
     }
     if (options.help) {
         println(helpText())
@@ -30,10 +29,10 @@ fun runCli(args: Array<String>) {
         if (result.writtenFiles.isEmpty()) println("Gradle files are already up to date.")
     } catch (error: ConversionException) {
         println("ktc-to-gradle: ${error.message}")
-        exitProcess(1)
+        exitWith(1)
     } catch (error: Exception) {
         println("ktc-to-gradle: unexpected failure: ${error.message}")
-        exitProcess(1)
+        exitWith(1)
     }
 }
 
