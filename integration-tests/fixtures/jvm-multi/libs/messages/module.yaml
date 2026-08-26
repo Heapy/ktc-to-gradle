@@ -1,0 +1,8 @@
+product: jvm/lib
+
+apply:
+  - //common.module-template.yaml
+
+dependencies:
+  - $libs.serialization.json
+

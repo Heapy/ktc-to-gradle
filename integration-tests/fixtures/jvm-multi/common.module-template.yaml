@@ -1,0 +1,8 @@
+settings:
+  kotlin:
+    version: 2.4.10
+  jvm:
+    jdk:
+      version: 25
+    release: 17
+

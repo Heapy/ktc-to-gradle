@@ -1,0 +1,8 @@
+product: jvm/app
+
+apply:
+  - //common.module-template.yaml
+
+dependencies:
+  - //libs/messages
+

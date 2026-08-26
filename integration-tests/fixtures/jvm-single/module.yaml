@@ -1,0 +1,11 @@
+product: jvm/app
+
+settings:
+  kotlin:
+    version: 2.4.10
+    allWarningsAsErrors: true
+  jvm:
+    jdk:
+      version: 25
+    release: 17
+
