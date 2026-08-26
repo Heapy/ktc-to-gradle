@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Run Kotlin Toolchain unit tests
+        run: ./kotlin test -m core -p jvm
+      - name: Build Linux native executable
+        run: ./kotlin build -m linux -p linuxX64 -v release
+
+  integration-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Convert and build Kotlin Toolchain fixtures with Gradle 9.7.1
+        run: ./kotlin test -m integration-tests -p jvm
+
+  test-run-sh:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            module: linux
+            platform: linuxX64
+            binary: build/tasks/_linux_linkLinuxX64Release/linux.kexe
+            asset: ktc-to-gradle-linux-x64.tar.gz
+          - runner: macos-26
+            module: macos
+            platform: macosArm64
+            binary: build/tasks/_macos_linkMacosArm64Release/macos.kexe
+            asset: ktc-to-gradle-macos-arm64.tar.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build native executable
+        run: ./kotlin build -m "${{ matrix.module }}" -p "${{ matrix.platform }}" -v release
+      - name: Create mock release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0"
+          staging_dir="$RUNNER_TEMP/mock-staging"
+          mkdir -p "$release_dir" "$staging_dir"
+          cp "${{ matrix.binary }}" "$staging_dir/ktc-to-gradle"
+          tar -C "$staging_dir" -czf "$release_dir/${{ matrix.asset }}" ktc-to-gradle
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$release_dir" && sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          else
+            (cd "$release_dir" && shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          fi
+      - name: Run through curl, verify cache, and reject a bad checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          script_url="file://$GITHUB_WORKSPACE/run.sh"
+          download_root="file://$RUNNER_TEMP/mock-site/releases"
+          cache_root="$RUNNER_TEMP/run-cache"
+
+          output="$(
+            curl -fsSL "$script_url" |
+              env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                  KTC_TO_GRADLE_VERSION=0.12.0 \
+                  XDG_CACHE_HOME="$cache_root" \
+                  bash -s -- --version
+          )"
+          grep -F "ktc-to-gradle 0.12.0 (Gradle 9.7.1)" <<<"$output"
+
+          mv "$RUNNER_TEMP/mock-site/releases" "$RUNNER_TEMP/mock-site/releases-offline"
+          output="$(
+            curl -fsSL "$script_url" |
+              env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                  KTC_TO_GRADLE_VERSION=0.12.0 \
+                  XDG_CACHE_HOME="$cache_root" \
+                  bash -s -- --version
+          )"
+          grep -F "ktc-to-gradle 0.12.0 (Gradle 9.7.1)" <<<"$output"
+
+          mv "$RUNNER_TEMP/mock-site/releases-offline" "$RUNNER_TEMP/mock-site/releases"
+          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0/${{ matrix.asset }}.sha256"
+          printf '%064d  %s\n' 0 "${{ matrix.asset }}" > "$checksum"
+          if curl -fsSL "$script_url" |
+            env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                KTC_TO_GRADLE_VERSION=0.12.0 \
+                XDG_CACHE_HOME="$RUNNER_TEMP/bad-run-cache" \
+                bash -s -- --version; then
+            echo "run.sh accepted an invalid checksum" >&2
+            exit 1
+          fi
+
+  test-install-sh:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            module: linux
+            platform: linuxX64
+            binary: build/tasks/_linux_linkLinuxX64Release/linux.kexe
+            asset: ktc-to-gradle-linux-x64.tar.gz
+          - runner: macos-26
+            module: macos
+            platform: macosArm64
+            binary: build/tasks/_macos_linkMacosArm64Release/macos.kexe
+            asset: ktc-to-gradle-macos-arm64.tar.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build native executable
+        run: ./kotlin build -m "${{ matrix.module }}" -p "${{ matrix.platform }}" -v release
+      - name: Create mock release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0"
+          staging_dir="$RUNNER_TEMP/mock-staging"
+          mkdir -p "$release_dir" "$staging_dir"
+          cp "${{ matrix.binary }}" "$staging_dir/ktc-to-gradle"
+          tar -C "$staging_dir" -czf "$release_dir/${{ matrix.asset }}" ktc-to-gradle
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$release_dir" && sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          else
+            (cd "$release_dir" && shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          fi
+      - name: Install through curl, reinstall, and reject a bad checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          script_url="file://$GITHUB_WORKSPACE/install.sh"
+          download_root="file://$RUNNER_TEMP/mock-site/releases"
+          install_dir="$RUNNER_TEMP/install"
+
+          curl -fsSL "$script_url" |
+            env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                KTC_TO_GRADLE_VERSION=0.12.0 \
+                KTC_TO_GRADLE_INSTALL_DIR="$install_dir" \
+                sh
+          test -x "$install_dir/ktc-to-gradle"
+          "$install_dir/ktc-to-gradle" --version |
+            grep -F "ktc-to-gradle 0.12.0 (Gradle 9.7.1)"
+
+          curl -fsSL "$script_url" |
+            env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                KTC_TO_GRADLE_VERSION=0.12.0 \
+                KTC_TO_GRADLE_INSTALL_DIR="$install_dir" \
+                sh
+
+          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0/${{ matrix.asset }}.sha256"
+          printf '%064d  %s\n' 0 "${{ matrix.asset }}" > "$checksum"
+          if curl -fsSL "$script_url" |
+            env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
+                KTC_TO_GRADLE_VERSION=0.12.0 \
+                KTC_TO_GRADLE_INSTALL_DIR="$RUNNER_TEMP/bad-install" \
+                sh; then
+            echo "install.sh accepted an invalid checksum" >&2
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/bad-install/ktc-to-gradle"
+
+  test-install-ps1:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build native executable
+        shell: bash
+        run: ./kotlin build -m windows -p mingwX64 -v release
+      - name: Install through irm, reinstall, and reject a bad checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asset = "ktc-to-gradle-windows-x64.tar.gz"
+          $siteRoot = Join-Path $env:RUNNER_TEMP "mock-site"
+          $releaseDir = Join-Path $siteRoot "releases\download\v0.12.0"
+          $stagingDir = Join-Path $env:RUNNER_TEMP "mock-staging"
+          New-Item -ItemType Directory -Force -Path $releaseDir, $stagingDir | Out-Null
+          Copy-Item "build\tasks\_windows_linkMingwX64Release\windows.exe" (Join-Path $stagingDir "ktc-to-gradle.exe")
+          Copy-Item "install.ps1" (Join-Path $siteRoot "install.ps1")
+
+          $releaseArchive = Join-Path $releaseDir $asset
+          $releaseChecksum = "$releaseArchive.sha256"
+          & tar.exe -C $stagingDir -czf $releaseArchive "ktc-to-gradle.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Could not create mock release archive" }
+          $hash = (Get-FileHash $releaseArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content -Encoding ascii $releaseChecksum
+
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+          $listener.Stop()
+          $server = Start-Process python -ArgumentList "-m", "http.server", "$port", "--bind", "127.0.0.1" -WorkingDirectory $siteRoot -PassThru
+          $serverRoot = "http://127.0.0.1:$port"
+
+          try {
+              $ready = $false
+              for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                  try {
+                      Invoke-WebRequest -UseBasicParsing "$serverRoot/install.ps1" | Out-Null
+                      $ready = $true
+                      break
+                  } catch {
+                      Start-Sleep -Milliseconds 200
+                  }
+              }
+              if (-not $ready) { throw "Mock release server did not start" }
+
+              $env:KTC_TO_GRADLE_DOWNLOAD_ROOT = "$serverRoot/releases"
+              $env:KTC_TO_GRADLE_VERSION = "0.12.0"
+              $env:KTC_TO_GRADLE_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "install"
+              Invoke-RestMethod "$serverRoot/install.ps1" | Invoke-Expression
+
+              $destination = Join-Path $env:KTC_TO_GRADLE_INSTALL_DIR "ktc-to-gradle.exe"
+              if (-not (Test-Path $destination)) { throw "install.ps1 did not install the executable" }
+              $output = & $destination --version
+              if ($output -notcontains "ktc-to-gradle 0.12.0 (Gradle 9.7.1)") {
+                  throw "Unexpected installed binary output: $output"
+              }
+
+              Invoke-RestMethod "$serverRoot/install.ps1" | Invoke-Expression
+
+              (("0" * 64) + "  $asset") | Set-Content -Encoding ascii $releaseChecksum
+              $env:KTC_TO_GRADLE_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "bad-install"
+              $checksumRejected = $false
+              try {
+                  Invoke-RestMethod "$serverRoot/install.ps1" | Invoke-Expression
+              } catch {
+                  $checksumRejected = $true
+                  Write-Host "Expected checksum failure: $($_.Exception.Message)"
+              }
+              if (-not $checksumRejected) { throw "install.ps1 accepted an invalid checksum" }
+              if (Test-Path (Join-Path $env:KTC_TO_GRADLE_INSTALL_DIR "ktc-to-gradle.exe")) {
+                  throw "install.ps1 installed an executable after checksum failure"
+              }
+          } finally {
+              Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }

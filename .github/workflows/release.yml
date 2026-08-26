@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            module: macos
+            platform: macosArm64
+            binary: build/tasks/_macos_linkMacosArm64Release/macos.kexe
+            asset: ktc-to-gradle-macos-arm64.tar.gz
+            output: ktc-to-gradle
+          - runner: ubuntu-24.04
+            module: linux
+            platform: linuxX64
+            binary: build/tasks/_linux_linkLinuxX64Release/linux.kexe
+            asset: ktc-to-gradle-linux-x64.tar.gz
+            output: ktc-to-gradle
+          - runner: ubuntu-24.04-arm
+            module: linux
+            platform: linuxArm64
+            binary: build/tasks/_linux_linkLinuxArm64Release/linux.kexe
+            asset: ktc-to-gradle-linux-arm64.tar.gz
+            output: ktc-to-gradle
+          - runner: windows-2025
+            module: windows
+            platform: mingwX64
+            binary: build/tasks/_windows_linkMingwX64Release/windows.exe
+            asset: ktc-to-gradle-windows-x64.tar.gz
+            output: ktc-to-gradle.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build native executable with Kotlin Toolchain
+        shell: bash
+        run: ./kotlin build -m "${{ matrix.module }}" -p "${{ matrix.platform }}" -v release
+      - name: Package and checksum
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp "${{ matrix.binary }}" "staging/${{ matrix.output }}"
+          tar -C staging -czf "${{ matrix.asset }}" "${{ matrix.output }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
