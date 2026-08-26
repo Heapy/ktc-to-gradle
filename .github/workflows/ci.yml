@@ -15,6 +15,7 @@ permissions:
 jobs:
   toolchain:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -28,6 +29,7 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -53,6 +55,7 @@ jobs:
             binary: build/tasks/_macos_linkMacosArm64Release/macos.kexe
             asset: ktc-to-gradle-macos-arm64.tar.gz
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -130,6 +133,7 @@ jobs:
             binary: build/tasks/_macos_linkMacosArm64Release/macos.kexe
             asset: ktc-to-gradle-macos-arm64.tar.gz
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -189,6 +193,7 @@ jobs:
 
   test-install-ps1:
     runs-on: windows-2025
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6

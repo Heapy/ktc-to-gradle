@@ -38,6 +38,7 @@ jobs:
             asset: ktc-to-gradle-windows-x64.tar.gz
             output: ktc-to-gradle.exe
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -69,6 +70,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v8
         with:
