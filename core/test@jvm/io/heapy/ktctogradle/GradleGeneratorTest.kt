@@ -145,6 +145,38 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun defaultRepositoriesWrittenAsUrlsAreNotDuplicated() {
+        val build = generate(
+            """
+            product: jvm/lib
+            repositories:
+              - https://repo1.maven.org/maven2
+              - url: https://maven.google.com
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("mavenCentral()" in build)
+        assertTrue("google()" in build)
+        assertFalse("url = uri(\"https://repo1.maven.org/maven2\")" in build)
+        assertFalse("url = uri(\"https://maven.google.com\")" in build)
+    }
+
+    @Test
+    fun aDefaultRepositoryIsDisabledByItsUrlToo() {
+        val build = generate(
+            """
+            product: jvm/lib
+            repositories:
+              - url: https://repo1.maven.org/maven2
+                resolve: false
+            """.trimIndent(),
+        ).buildFile()
+
+        assertFalse("mavenCentral()" in build)
+        assertTrue("google()" in build)
+    }
+
+    @Test
     fun testSettingsOverrideBaseJvmTestSettings() {
         val build = generate(
             """

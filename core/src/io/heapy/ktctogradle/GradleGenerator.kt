@@ -346,10 +346,20 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         appendLine("}")
     }
 
+    /**
+     * A repository written as a plain URL has no id of its own, so a module that repeats a default
+     * repository would otherwise be treated as a separate one and emitted next to it.
+     */
+    private fun defaultRepositoryId(url: String): String? = when (url.trimEnd('/')) {
+        MAVEN_CENTRAL_URL -> "mavenCentral"
+        GOOGLE_MAVEN_URL -> "mavenGoogle"
+        else -> null
+    }
+
     private fun resolutionRepositories(config: Value.Mapping): List<Repository> {
         val configured = config.value("repositories").asSequence("repositories").mapIndexed { index, value ->
             when (value) {
-                is Value.Scalar -> Repository(id = value.text, url = value.text)
+                is Value.Scalar -> Repository(id = defaultRepositoryId(value.text) ?: value.text, url = value.text)
                 is Value.Mapping -> {
                     val url = value.string("url")
                         ?: throw ConversionException("repositories[$index].url is required")
@@ -364,7 +374,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                         )
                     }
                     Repository(
-                        id = value.string("id") ?: url,
+                        id = value.string("id") ?: defaultRepositoryId(url) ?: url,
                         url = url,
                         resolve = value.boolean("resolve") ?: true,
                         credentials = credentials,
