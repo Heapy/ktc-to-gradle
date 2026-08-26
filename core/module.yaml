@@ -1,0 +1,16 @@
+product:
+  type: kmp/lib
+  platforms:
+    - jvm
+    - linuxArm64
+    - linuxX64
+    - macosArm64
+    - mingwX64
+
+dependencies:
+  - com.squareup.okio:okio:3.17.0: exported
+  - io.heapy.kotaml:kotaml:0.110.0
+
+settings:
+  kotlin:
+    version: 2.4.10
