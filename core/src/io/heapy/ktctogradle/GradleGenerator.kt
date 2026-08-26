@@ -774,7 +774,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         if not exist "%INSTALL_DIR%\bin\gradle.bat" (
           if not exist "%GRADLE_USER_HOME%\ktc-to-gradle" mkdir "%GRADLE_USER_HOME%\ktc-to-gradle"
           powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-%GRADLE_VERSION%-bin.zip' -OutFile '%ARCHIVE%'; if ((Get-FileHash '%ARCHIVE%' -Algorithm SHA256).Hash.ToLower() -ne '$${Versions.GRADLE_SHA256}') { throw 'Gradle SHA-256 checksum mismatch' }; Expand-Archive -Force '%ARCHIVE%' '%GRADLE_USER_HOME%\ktc-to-gradle'"
-          if errorlevel 1 exit /b %errorlevel%
+          if errorlevel 1 exit /b 1
         )
         call "%INSTALL_DIR%\bin\gradle.bat" %*
     """.trimIndent() + "\r\n"

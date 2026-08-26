@@ -201,6 +201,17 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun windowsLauncherPropagatesADownloadFailure() {
+        val launcher = generate("product: jvm/lib\n").first { it.path.name == "gradlew.bat" }.content
+
+        assertTrue("if errorlevel 1" in launcher)
+        assertFalse(
+            "%errorlevel%" in launcher,
+            "cmd.exe expands %errorlevel% when it parses the whole if-block, so it always reads 0 there",
+        )
+    }
+
+    @Test
     fun everyGeneratedFileHasOwnershipMarker() {
         val files = generate("product: jvm/lib\n")
         for (file in files) {
