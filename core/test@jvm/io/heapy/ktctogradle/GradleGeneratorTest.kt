@@ -1,6 +1,8 @@
 package io.heapy.ktctogradle
 
 import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.Path as OkioPath
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
@@ -142,6 +144,28 @@ class GradleGeneratorTest {
         assertTrue("file(\"../templates/credentials.properties\")" in build)
         assertTrue("getProperty(\"mirror.username\")" in build)
         assertTrue("getProperty(\"mirror.password\")" in build)
+    }
+
+    @Test
+    fun mainClassDetectionDoesNotDependOnDirectoryOrder() {
+        val root = Files.createTempDirectory("ktc-to-gradle-main-class-")
+        write(root.resolve("module.yaml"), "product: jvm/app\n")
+        write(root.resolve("src/zzz/main.kt"), "package zzz\n\nfun main() {}\n")
+        write(root.resolve("src/aaa/main.kt"), "package aaa\n\nfun main() {}\n")
+        write(root.resolve("src/mmm/main.kt"), "package mmm\n\nfun main() {}\n")
+
+        for (fileSystem in listOf(FileSystem.SYSTEM, ReversedListingFileSystem(FileSystem.SYSTEM))) {
+            val project = ProjectLoader(fileSystem).load(root.toString().toPath())
+            val build = GradleGenerator(fileSystem).generate(project).first.buildFile()
+            assertTrue(
+                "mainClass.set(\"aaa.MainKt\")" in build,
+                "Main class depends on the directory listing order:\n$build",
+            )
+        }
+    }
+
+    private class ReversedListingFileSystem(delegate: FileSystem) : ForwardingFileSystem(delegate) {
+        override fun list(dir: OkioPath): List<OkioPath> = super.list(dir).reversed()
     }
 
     @Test

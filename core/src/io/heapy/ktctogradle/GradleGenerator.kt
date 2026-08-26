@@ -713,7 +713,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     }
 
     private fun collectKotlinFiles(directory: Path, destination: MutableList<Path>) {
-        for (child in fileSystem.list(directory)) {
+        for (child in fileSystem.list(directory).sortedBy(Path::name)) {
             if (fileSystem.metadata(child).isDirectory) collectKotlinFiles(child, destination)
             else if (child.name.endsWith(".kt", ignoreCase = true)) destination += child
         }
