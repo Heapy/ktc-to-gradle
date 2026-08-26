@@ -1,4 +1,5 @@
 package example.multiplatform
 
-fun platformGreeting(name: String): String = "Hello from common code, $name"
+expect fun platformName(): String
 
+fun platformGreeting(name: String): String = "Hello from ${platformName()}, $name"
