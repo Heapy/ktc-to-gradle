@@ -145,6 +145,39 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun androidReportsAnIgnoredKotlinVersionPin() {
+        val diagnostics = generateAll(
+            """
+            product: android/app
+            settings:
+              android:
+                namespace: example.android
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        ).second
+
+        assertTrue(
+            diagnostics.any { "settings.kotlin.version" in it.message },
+            "Expected a diagnostic about the ignored Kotlin version pin, got $diagnostics",
+        )
+    }
+
+    @Test
+    fun jvmModulesDoNotReportAnIgnoredKotlinVersionPin() {
+        val diagnostics = generateAll(
+            """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        ).second
+
+        assertFalse(diagnostics.any { "settings.kotlin.version" in it.message })
+    }
+
+    @Test
     fun defaultRepositoriesWrittenAsUrlsAreNotDuplicated() {
         val build = generate(
             """
@@ -254,16 +287,24 @@ class GradleGeneratorTest {
         }
     }
 
-    private fun generate(moduleYaml: String, vararg files: Pair<String, String>): List<GeneratedFile> {
+    private fun generate(moduleYaml: String, vararg files: Pair<String, String>): List<GeneratedFile> =
+        generateAll(moduleYaml, *files).first
+
+    private fun generateAll(
+        moduleYaml: String,
+        vararg files: Pair<String, String>,
+    ): Pair<List<GeneratedFile>, List<Diagnostic>> {
         val root = Files.createTempDirectory("ktc-to-gradle-generator-")
         write(root.resolve("module.yaml"), moduleYaml)
         for ((path, content) in files) write(root.resolve(path), content)
-        return generate(root)
+        return generateAll(root)
     }
 
-    private fun generate(root: Path): List<GeneratedFile> {
+    private fun generate(root: Path): List<GeneratedFile> = generateAll(root).first
+
+    private fun generateAll(root: Path): Pair<List<GeneratedFile>, List<Diagnostic>> {
         val project = ProjectLoader(FileSystem.SYSTEM).load(root.toString().toPath())
-        return GradleGenerator(FileSystem.SYSTEM).generate(project).first
+        return GradleGenerator(FileSystem.SYSTEM).generate(project)
     }
 
     private fun List<GeneratedFile>.buildFile(): String = first { it.path.name == "build.gradle.kts" }.content

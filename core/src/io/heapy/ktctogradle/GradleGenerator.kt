@@ -151,7 +151,16 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
 
     private fun renderAndroidModule(project: ToolchainProject, module: ToolchainModule): String {
         val config = module.config
-        val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
+        val pinnedKotlinVersion = config.string("settings.kotlin.version")
+        if (pinnedKotlinVersion != null) {
+            diagnostics += Diagnostic(
+                Diagnostic.Severity.WARNING,
+                "${module.displayName}: settings.kotlin.version '$pinnedKotlinVersion' does not select the Kotlin " +
+                    "compiler for an Android module; the Android Gradle Plugin ${Versions.ANDROID_GRADLE_PLUGIN} " +
+                    "supplies its own Kotlin",
+            )
+        }
+        val kotlinVersion = pinnedKotlinVersion ?: Versions.KOTLIN
         val serialization = serializationSettings(config)
         val release = config.string("settings.jvm.release") ?: "17"
         val namespace = config.string("settings.android.namespace") ?: "org.example.namespace"
