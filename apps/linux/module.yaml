@@ -1,0 +1,10 @@
+product: linux/app
+
+dependencies:
+  - //core
+
+settings:
+  kotlin:
+    version: 2.4.10
+  native:
+    entryPoint: io.heapy.ktctogradle.app.main
