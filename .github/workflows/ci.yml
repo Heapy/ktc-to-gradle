@@ -28,6 +28,18 @@ jobs:
       - name: Build Linux native executable
         run: ./kotlin build -m linux -p linuxX64 -v release
 
+  cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Cross-compile Linux arm64 native executable
+        run: ./kotlin build -m linux -p linuxArm64 -v release
+
   integration-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
