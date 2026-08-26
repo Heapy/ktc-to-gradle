@@ -660,6 +660,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             if (value.entries.size != 1) throw ConversionException("Dependency objects must have one coordinate")
             val (key, details) = value.entries.entries.single()
             if (key == "bom") return Dependency(details.scalarOrNull() ?: throw ConversionException("bom must be a coordinate"), bom = true)
+            details.scalarOrNull()?.let { return shorthandDependency(key, it) }
             val detailMap = details as? Value.Mapping
             Dependency(
                 notation = key,
@@ -668,6 +669,13 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             )
         }
         else -> throw ConversionException("Dependencies must be strings or objects")
+    }
+
+    private fun shorthandDependency(notation: String, shorthand: String): Dependency = when (shorthand) {
+        "all" -> Dependency(notation)
+        "compile-only", "runtime-only" -> Dependency(notation, scope = shorthand)
+        "exported" -> Dependency(notation, exported = true)
+        else -> throw ConversionException("Dependency '$notation' has unknown scope '$shorthand'")
     }
 
     private fun detectMainClass(module: ToolchainModule): String? {

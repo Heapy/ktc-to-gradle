@@ -179,6 +179,28 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun scalarDependencyScopesSurviveTheSequenceForm() {
+        val build = generate(
+            """
+            product: jvm/lib
+            dependencies:
+              - com.squareup.okio:okio:3.17.0: exported
+              - org.example:compile:1.0: compile-only
+              - org.example:runtime:1.0: runtime-only
+              - org.example:plain:1.0: all
+            test-dependencies:
+              - org.example:test-exported:1.0: exported
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("api(\"com.squareup.okio:okio:3.17.0\")" in build)
+        assertTrue("compileOnly(\"org.example:compile:1.0\")" in build)
+        assertTrue("runtimeOnly(\"org.example:runtime:1.0\")" in build)
+        assertTrue("implementation(\"org.example:plain:1.0\")" in build)
+        assertTrue("testImplementation(\"org.example:test-exported:1.0\")" in build)
+    }
+
+    @Test
     fun everyGeneratedFileHasOwnershipMarker() {
         val files = generate("product: jvm/lib\n")
         for (file in files) {
