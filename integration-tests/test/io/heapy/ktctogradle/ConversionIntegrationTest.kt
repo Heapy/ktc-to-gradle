@@ -26,7 +26,10 @@ class ConversionIntegrationTest {
             if (!isWindows) assertTrue(Files.isExecutable(destination.resolve("gradlew")))
             assertEquals(Versions.GRADLE, wrapperVersion(destination))
 
-            if (fixture == "android-app") configureAndroidSdk(destination)
+            if (fixture == "android-app" && !configureAndroidSdk(destination)) {
+                println("Skipping the Gradle build for 'android-app': no Android SDK found (set ANDROID_HOME).")
+                continue
+            }
 
             val processBuilder = ProcessBuilder(gradleCommand(destination))
                 .directory(destination.toFile())
@@ -86,14 +89,15 @@ class ConversionIntegrationTest {
         assertEquals(expectedMajorVersion, majorVersion, "Unexpected JVM class-file version in $classFile")
     }
 
-    private fun configureAndroidSdk(directory: Path) {
+    private fun configureAndroidSdk(directory: Path): Boolean {
         val sdk = listOfNotNull(
             System.getenv("ANDROID_HOME"),
             System.getenv("ANDROID_SDK_ROOT"),
             Path.of(System.getProperty("user.home"), "Library/Android/sdk").toString(),
             Path.of(System.getProperty("user.home"), "Android/Sdk").toString(),
-        ).map(Path::of).firstOrNull(Files::isDirectory) ?: return
+        ).map(Path::of).firstOrNull(Files::isDirectory) ?: return false
         Files.writeString(directory.resolve("local.properties"), "sdk.dir=${sdk.toString().replace("\\", "\\\\")}\n")
+        return true
     }
 
     private fun gradleCommand(directory: Path, task: String = "build"): List<String> =
