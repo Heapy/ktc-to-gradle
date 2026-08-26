@@ -1,0 +1,6 @@
+modules:
+  - apps/linux
+  - apps/macos
+  - apps/windows
+  - core
+  - integration-tests
