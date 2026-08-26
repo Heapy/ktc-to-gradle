@@ -63,13 +63,30 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         var current = if (fileSystem.metadata(start).isDirectory) start else start.parent!!
         var moduleCandidate: Path? = null
         while (true) {
-            if (fileSystem.exists(current / "project.yaml")) return current
+            val projectFile = current / "project.yaml"
+            if (fileSystem.exists(projectFile)) {
+                if (moduleCandidate == null || selectsModule(projectFile, current, moduleCandidate)) return current
+                return moduleCandidate
+            }
             if (moduleCandidate == null && fileSystem.exists(current / "module.yaml")) moduleCandidate = current
             current = current.parent ?: break
         }
         return moduleCandidate ?: throw ConversionException(
             "No Kotlin Toolchain project found from $start (expected project.yaml or module.yaml)",
         )
+    }
+
+    /**
+     * The upward walk reaches the filesystem root, so it can meet a project.yaml that has nothing to
+     * do with the module it started from. Such a project would pull unrelated directories into the
+     * conversion and write Gradle files next to it, so it only counts as the root when its module
+     * globs actually select the module below.
+     */
+    private fun selectsModule(projectFile: Path, root: Path, module: Path): Boolean {
+        val patterns = runCatching { readYaml(projectFile).strings("modules") }.getOrElse { return true }
+        if (patterns.any { "**" in it }) return true
+        val relative = relativePath(root, module)
+        return relative.isEmpty() || patterns.any { globMatches(it, relative) }
     }
 
     private fun findModuleFiles(root: Path): List<Path> {
