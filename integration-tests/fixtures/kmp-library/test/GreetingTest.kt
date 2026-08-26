@@ -6,6 +6,6 @@ import kotlin.test.assertEquals
 class GreetingTest {
     @Test
     fun greetsFromCommonCode() {
-        assertEquals("Hello from JVM, Gradle", platformGreeting("Gradle"))
+        assertEquals("Hello from ${platformName()}, Gradle", platformGreeting("Gradle"))
     }
 }
