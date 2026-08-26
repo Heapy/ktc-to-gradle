@@ -5,6 +5,18 @@ REPOSITORY="${KTC_TO_GRADLE_REPOSITORY:-Heapy/ktc-to-gradle}"
 REQUESTED_VERSION="${KTC_TO_GRADLE_VERSION:-latest}"
 DOWNLOAD_ROOT="${KTC_TO_GRADLE_DOWNLOAD_ROOT:-https://github.com/$REPOSITORY/releases}"
 
+case "$REPOSITORY" in
+  ""|/*|*/|*//*|*/*/*|*..*|*[!A-Za-z0-9._/-]*)
+    echo "ktc-to-gradle: invalid repository '$REPOSITORY' (expected owner/name)" >&2
+    exit 1
+    ;;
+  */*) ;;
+  *)
+    echo "ktc-to-gradle: invalid repository '$REPOSITORY' (expected owner/name)" >&2
+    exit 1
+    ;;
+esac
+
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) ASSET="ktc-to-gradle-macos-arm64.tar.gz" ;;
   Darwin-x86_64)
@@ -39,7 +51,7 @@ case "$TAG" in
     ;;
 esac
 
-CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ktc-to-gradle/$TAG"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ktc-to-gradle/$REPOSITORY/$TAG/${ASSET%.tar.gz}"
 BINARY="$CACHE_ROOT/ktc-to-gradle"
 
 if [ ! -x "$BINARY" ]; then
