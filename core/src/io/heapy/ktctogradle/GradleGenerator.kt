@@ -83,12 +83,13 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
         val jdk = config.string("settings.jvm.jdk.version") ?: "25"
         val release = config.string("settings.jvm.release") ?: jdk
-        val serialization = serializationFormat(config)
+        val serialization = serializationSettings(config)
         val dependencies = dependenciesFor(module, listOf("dependencies", "dependencies@jvm"))
         val tests = dependenciesFor(module, listOf("test-dependencies", "test-dependencies@jvm"))
         val mainClass = config.string("settings.jvm.mainClass") ?: detectMainClass(module)
         return buildString {
             appendLine(header())
+            appendRepositoryCredentialsImport(config)
             appendLine("plugins {")
             appendLine("    kotlin(\"jvm\") version ${quote(kotlinVersion)}")
             if (product.type == "jvm/app") appendLine("    application")
@@ -122,7 +123,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine()
             appendLine("dependencies {")
             appendDependencies(project, module, dependencies, test = false, indent = "    ")
-            appendSerializationDependency(serialization, kotlinVersion, "    ")
+            appendSerializationDependencies(serialization, "    ")
             appendBuiltInDependencies(config, "    ")
             appendLine("    testImplementation(kotlin(${quote(testLibrary(config))}))")
             appendDependencies(project, module, tests, test = true, indent = "    ")
@@ -151,16 +152,17 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     private fun renderAndroidModule(project: ToolchainProject, module: ToolchainModule): String {
         val config = module.config
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
-        val serialization = serializationFormat(config)
+        val serialization = serializationSettings(config)
+        val release = config.string("settings.jvm.release") ?: "17"
         val namespace = config.string("settings.android.namespace") ?: "org.example.namespace"
         val compileSdk = config.string("settings.android.compileSdk") ?: config.string("settings.android.compileSdk.apiLevel") ?: "37"
         val minSdk = config.string("settings.android.minSdk") ?: "24"
         val targetSdk = config.string("settings.android.targetSdk") ?: compileSdk
         return buildString {
             appendLine(header())
+            appendRepositoryCredentialsImport(config)
             appendLine("plugins {")
             appendLine("    id(\"com.android.application\") version ${quote(Versions.ANDROID_GRADLE_PLUGIN)}")
-            appendLine("    kotlin(\"android\") version ${quote(kotlinVersion)}")
             if (serialization != null) appendLine("    kotlin(\"plugin.serialization\") version ${quote(kotlinVersion)}")
             appendLine("}")
             appendLine()
@@ -176,24 +178,28 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("        versionCode = ${config.string("settings.android.versionCode") ?: "1"}")
             appendLine("        versionName = ${quote(config.string("settings.android.versionName") ?: "unspecified")}")
             appendLine("    }")
+            appendLine("    compileOptions {")
+            appendLine("        sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
+            appendLine("        targetCompatibility = JavaVersion.toVersion(${quote(release)})")
+            appendLine("    }")
             appendLine("    sourceSets.named(\"main\") {")
-            appendLine("        java.srcDirs(\"src\", \"src@android\")")
+            appendLine("        kotlin.srcDirs(\"src\", \"src@android\")")
             appendLine("        resources.srcDirs(\"resources\", \"resources@android\")")
             appendLine("        manifest.srcFile(\"src/AndroidManifest.xml\")")
             appendLine("    }")
             appendLine("    sourceSets.named(\"test\") {")
-            appendLine("        java.srcDirs(\"test\", \"test@android\")")
+            appendLine("        kotlin.srcDirs(\"test\", \"test@android\")")
             appendLine("        resources.srcDirs(\"testResources\", \"testResources@android\")")
             appendLine("    }")
             appendLine("}")
             appendLine()
             appendLine("kotlin {")
-            appendCompilerOptions(config, "    ", jvmTarget = config.string("settings.jvm.release") ?: "17")
+            appendCompilerOptions(config, "    ", jvmTarget = release)
             appendLine("}")
             appendLine()
             appendLine("dependencies {")
             appendDependencies(project, module, dependenciesFor(module, listOf("dependencies", "dependencies@android")), false, "    ")
-            appendSerializationDependency(serialization, kotlinVersion, "    ")
+            appendSerializationDependencies(serialization, "    ")
             appendBuiltInDependencies(config, "    ")
             appendLine("    testImplementation(kotlin(${quote(testLibrary(config))}))")
             appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies", "test-dependencies@android")), true, "    ")
@@ -204,9 +210,11 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     private fun renderMultiplatformModule(project: ToolchainProject, module: ToolchainModule, product: Product): String {
         val config = module.config
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
-        val serialization = serializationFormat(config)
+        val serialization = serializationSettings(config)
+        val fragments = kmpFragments(module, product)
         return buildString {
             appendLine(header())
+            appendRepositoryCredentialsImport(config)
             appendLine("plugins {")
             appendLine("    kotlin(\"multiplatform\") version ${quote(kotlinVersion)}")
             if (serialization != null) appendLine("    kotlin(\"plugin.serialization\") version ${quote(kotlinVersion)}")
@@ -226,7 +234,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("            resources.srcDir(\"resources\")")
             appendLine("            dependencies {")
             appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, "                ", sourceSet = true)
-            appendSerializationDependency(serialization, kotlinVersion, "                ")
+            appendSerializationDependencies(serialization, "                ")
             appendBuiltInDependencies(config, "                ")
             appendLine("            }")
             appendLine("        }")
@@ -238,9 +246,9 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, "                ", sourceSet = true)
             appendLine("            }")
             appendLine("        }")
-            for (platform in product.platforms) {
-                appendQualifiedSourceSet(project, module, platform, false)
-                appendQualifiedSourceSet(project, module, platform, true)
+            for (fragment in fragments.filterNot { it.name == "common" }) {
+                appendQualifiedSourceSet(project, module, fragment, false)
+                appendQualifiedSourceSet(project, module, fragment, true)
             }
             appendLine("    }")
             appendLine("}")
@@ -250,7 +258,17 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     private fun StringBuilder.appendTarget(platform: String, productType: String, config: Value.Mapping) {
         val executable = productType.endsWith("/app")
         when (platform) {
-            "jvm" -> appendLine("    jvm()")
+            "jvm" -> {
+                val release = config.string("settings.jvm.release")
+                    ?: config.string("settings.jvm.jdk.version")
+                    ?: "25"
+                appendLine("    jvm {")
+                appendLine("        compilerOptions {")
+                appendLine("            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
+                appendLine("            freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
+                appendLine("        }")
+                appendLine("    }")
+            }
             "android" -> throw ConversionException("Android targets inside kmp/lib are not supported yet; convert that module manually")
             "js" -> appendLine("    js(IR) { ${if (executable) "binaries.executable(); " else ""}browser() }")
             "wasmJs" -> appendLine("    wasmJs { ${if (executable) "binaries.executable(); " else ""}browser() }")
@@ -271,20 +289,24 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     private fun StringBuilder.appendQualifiedSourceSet(
         project: ToolchainProject,
         module: ToolchainModule,
-        platform: String,
+        fragment: KmpFragment,
         test: Boolean,
     ) {
+        val qualifier = fragment.name
         val prefix = if (test) "test" else "src"
         val resources = if (test) "testResources" else "resources"
-        val dependencyKey = if (test) "test-dependencies@$platform" else "dependencies@$platform"
+        val dependencyKey = if (test) "test-dependencies@$qualifier" else "dependencies@$qualifier"
         val deps = dependenciesFor(module, listOf(dependencyKey))
-        val sourceExists = fileSystem.exists(module.directory / "$prefix@$platform")
-        val resourcesExist = fileSystem.exists(module.directory / "$resources@$platform")
-        if (!sourceExists && !resourcesExist && deps.isEmpty()) return
-        val sourceSet = "$platform${if (test) "Test" else "Main"}"
-        appendLine("        named(${quote(sourceSet)}) {")
-        if (sourceExists) appendLine("            kotlin.srcDir(${quote("$prefix@$platform")})")
-        if (resourcesExist) appendLine("            resources.srcDir(${quote("$resources@$platform")})")
+        val sourceExists = fileSystem.exists(module.directory / "$prefix@$qualifier")
+        val resourcesExist = fileSystem.exists(module.directory / "$resources@$qualifier")
+        val suffix = if (test) "Test" else "Main"
+        val sourceSet = "$qualifier$suffix"
+        appendLine("        maybeCreate(${quote(sourceSet)}).apply {")
+        for (parent in fragment.parents) {
+            appendLine("            dependsOn(getByName(${quote("${parent}$suffix")}))")
+        }
+        if (sourceExists) appendLine("            kotlin.srcDir(${quote("$prefix@$qualifier")})")
+        if (resourcesExist) appendLine("            resources.srcDir(${quote("$resources@$qualifier")})")
         if (deps.isNotEmpty()) {
             appendLine("            dependencies {")
             appendDependencies(project, module, deps, test, "                ", sourceSet = true)
@@ -295,19 +317,79 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
 
     private fun StringBuilder.appendRepositories(config: Value.Mapping) {
         appendLine("repositories {")
-        appendLine("    mavenCentral()")
-        appendLine("    google()")
-        val repositories = config.value("repositories").asSequence("repositories")
-        for (repository in repositories) {
-            val url = when (repository) {
-                is Value.Scalar -> repository.text
-                is Value.Mapping -> repository.string("url")
-                else -> null
-            } ?: continue
-            if (url == "mavenLocal") appendLine("    mavenLocal()")
-            else if (url !in defaultRepositoryUrls) appendLine("    maven(${quote(url)})")
+        for ((index, repository) in resolutionRepositories(config).withIndex()) {
+            when {
+                repository.url == "mavenLocal" -> appendLine("    mavenLocal()")
+                repository.id == "mavenCentral" && repository.url == MAVEN_CENTRAL_URL && repository.credentials == null -> {
+                    appendLine("    mavenCentral()")
+                }
+                repository.id == "mavenGoogle" && repository.url == GOOGLE_MAVEN_URL && repository.credentials == null -> {
+                    appendLine("    google()")
+                }
+                else -> {
+                    appendLine("    maven {")
+                    appendLine("        name = ${quote(repository.id)}")
+                    appendLine("        url = uri(${quote(repository.url)})")
+                    repository.credentials?.let { credentials ->
+                        val variable = "repositoryCredentials$index"
+                        appendLine("        val $variable = Properties()")
+                        appendLine("        file(${quote(credentials.file)}).inputStream().use($variable::load)")
+                        appendLine("        credentials {")
+                        appendLine("            username = $variable.getProperty(${quote(credentials.usernameKey)})")
+                        appendLine("            password = $variable.getProperty(${quote(credentials.passwordKey)})")
+                        appendLine("        }")
+                    }
+                    appendLine("    }")
+                }
+            }
         }
         appendLine("}")
+    }
+
+    private fun resolutionRepositories(config: Value.Mapping): List<Repository> {
+        val configured = config.value("repositories").asSequence("repositories").mapIndexed { index, value ->
+            when (value) {
+                is Value.Scalar -> Repository(id = value.text, url = value.text)
+                is Value.Mapping -> {
+                    val url = value.string("url")
+                        ?: throw ConversionException("repositories[$index].url is required")
+                    val credentials = (value.value("credentials") as? Value.Mapping)?.let { credentialValues ->
+                        RepositoryCredentials(
+                            file = credentialValues.string("file")
+                                ?: throw ConversionException("repositories[$index].credentials.file is required"),
+                            usernameKey = credentialValues.string("usernameKey")
+                                ?: throw ConversionException("repositories[$index].credentials.usernameKey is required"),
+                            passwordKey = credentialValues.string("passwordKey")
+                                ?: throw ConversionException("repositories[$index].credentials.passwordKey is required"),
+                        )
+                    }
+                    Repository(
+                        id = value.string("id") ?: url,
+                        url = url,
+                        resolve = value.boolean("resolve") ?: true,
+                        credentials = credentials,
+                    )
+                }
+                else -> throw ConversionException("repositories[$index] must be a URL string or object")
+            }
+        }
+        val configuredIds = configured.mapTo(mutableSetOf(), Repository::id)
+        val defaults = listOf(
+            Repository(id = "mavenCentral", url = MAVEN_CENTRAL_URL),
+            Repository(id = "mavenGoogle", url = GOOGLE_MAVEN_URL),
+        ).filterNot { it.id in configuredIds }
+        return defaults + configured.filter(Repository::resolve).asReversed().distinctBy(Repository::id).asReversed()
+    }
+
+    private fun StringBuilder.appendRepositoryCredentialsImport(config: Value.Mapping) {
+        val hasCredentials = config.value("repositories").asSequence("repositories").any { repository ->
+            (repository as? Value.Mapping)?.value("credentials") is Value.Mapping
+        }
+        if (hasCredentials) {
+            appendLine()
+            appendLine("import java.util.Properties")
+            appendLine()
+        }
     }
 
     private fun StringBuilder.appendCompilerOptions(config: Value.Mapping, indent: String, jvmTarget: String? = null) {
@@ -330,12 +412,16 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     }
 
     private fun StringBuilder.appendJvmTestSettings(config: Value.Mapping, indent: String) {
-        val args = config.strings("test-settings.jvm.freeJvmArgs") + config.strings("settings.jvm.test.freeJvmArgs")
+        val args = config.strings("settings.jvm.test.freeJvmArgs") + config.strings("test-settings.jvm.freeJvmArgs")
         if (args.isNotEmpty()) appendLine("${indent}jvmArgs(${args.joinToString(transform = ::quote)})")
-        for ((key, value) in mappingStrings(config.value("settings.jvm.test.systemProperties"))) {
+        val systemProperties = mappingStrings(config.value("settings.jvm.test.systemProperties")) +
+            mappingStrings(config.value("test-settings.jvm.systemProperties"))
+        for ((key, value) in systemProperties) {
             appendLine("${indent}systemProperty(${quote(key)}, ${quote(value)})")
         }
-        for ((key, value) in mappingStrings(config.value("settings.jvm.test.extraEnvironment"))) {
+        val environment = mappingStrings(config.value("settings.jvm.test.extraEnvironment")) +
+            mappingStrings(config.value("test-settings.jvm.extraEnvironment"))
+        for ((key, value) in environment) {
             appendLine("${indent}environment(${quote(key)}, ${quote(value)})")
         }
     }
@@ -382,7 +468,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 "project(${quote(target.gradlePath)})"
             }
             notation.startsWith("\$libs.") -> notation.removePrefix("\$")
-            notation.startsWith("\$kotlin.") -> kotlinCatalogExpression(notation.removePrefix("\$kotlin."))
+            notation.startsWith("\$kotlin.") -> kotlinCatalogExpression(module, notation.removePrefix("\$kotlin."))
             notation.startsWith("\$") -> throw ConversionException(
                 "${module.displayName}: built-in catalog dependency '$notation' needs technology-specific manual conversion",
             )
@@ -391,24 +477,29 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         return if (dependency.bom) "platform($expression)" else expression
     }
 
-    private fun kotlinCatalogExpression(key: String): String = when (key) {
+    private fun kotlinCatalogExpression(module: ToolchainModule, key: String): String = when (key) {
         "reflect" -> "kotlin(\"reflect\")"
         "test", "test.common" -> "kotlin(\"test\")"
         "test.junit", "test.junit5" -> "kotlin(\"test-junit5\")"
-        else -> quote("org.jetbrains.kotlin:kotlin-${key.replace('.', '-')}:${Versions.KOTLIN}")
+        else -> {
+            val serializationKey = key.removePrefix("serialization.")
+            if (serializationKey == key) {
+                throw ConversionException("${module.displayName}: unsupported Kotlin catalog alias '\$kotlin.$key'")
+            }
+            val serialization = serializationSettings(module.config)
+                ?: throw ConversionException(
+                    "${module.displayName}: '\$kotlin.$key' requires settings.kotlin.serialization to be enabled",
+                )
+            quote(serializationCoordinate(serializationKey, serialization.version))
+        }
     }
 
-    private fun StringBuilder.appendSerializationDependency(format: String?, kotlinVersion: String, indent: String) {
-        if (format == null) return
-        val artifact = when (format) {
-            "json", "json-io", "json-okio" -> "kotlinx-serialization-json"
-            "protobuf" -> "kotlinx-serialization-protobuf"
-            "cbor" -> "kotlinx-serialization-cbor"
-            "properties" -> "kotlinx-serialization-properties"
-            "hocon" -> "kotlinx-serialization-hocon"
-            else -> throw ConversionException("Unknown Kotlin serialization format '$format'")
+    private fun StringBuilder.appendSerializationDependencies(serialization: SerializationSettings?, indent: String) {
+        if (serialization == null) return
+        appendLine("${indent}implementation(${quote(serializationCoordinate("core", serialization.version))})")
+        serialization.format?.let { format ->
+            appendLine("${indent}implementation(${quote(serializationCoordinate(format, serialization.version))})")
         }
-        appendLine("${indent}implementation(\"org.jetbrains.kotlinx:$artifact:${serializationRuntimeVersion(kotlinVersion)}\")")
     }
 
     private fun StringBuilder.appendBuiltInDependencies(config: Value.Mapping, indent: String) {
@@ -418,16 +509,130 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         }
     }
 
-    private fun serializationRuntimeVersion(kotlinVersion: String): String =
-        if (kotlinVersion.substringBeforeLast('.') >= "2.4") "1.11.0" else "1.9.0"
-
-    private fun serializationFormat(config: Value.Mapping): String? {
+    private fun serializationSettings(config: Value.Mapping): SerializationSettings? {
         val node = config.value("settings.kotlin.serialization") ?: return null
         return when (node) {
-            is Value.Scalar -> if (node.text in setOf("disabled", "false")) null else node.text.let { if (it == "enabled") "json" else it }
-            is Value.Mapping -> if (node.boolean("enabled") == false) null else node.string("format") ?: "json"
-            else -> null
+            is Value.Scalar -> when (node.text) {
+                "disabled", "false" -> null
+                "enabled", "true" -> SerializationSettings(DEFAULT_SERIALIZATION_VERSION)
+                else -> SerializationSettings(DEFAULT_SERIALIZATION_VERSION, node.text)
+            }
+            is Value.Mapping -> if (node.boolean("enabled") == false) {
+                null
+            } else {
+                SerializationSettings(
+                    version = node.string("version") ?: DEFAULT_SERIALIZATION_VERSION,
+                    format = node.string("format"),
+                )
+            }
+            else -> throw ConversionException("settings.kotlin.serialization must be a string or object")
         }
+    }
+
+    private fun serializationCoordinate(key: String, version: String): String {
+        val artifact = serializationArtifacts[key]
+            ?: throw ConversionException("Unknown Kotlin serialization catalog alias '\$kotlin.serialization.$key'")
+        return "org.jetbrains.kotlinx:$artifact:$version"
+    }
+
+    private fun kmpFragments(module: ToolchainModule, product: Product): List<KmpFragment> {
+        val declaredPlatforms = product.platforms.toSet()
+        val aliases = aliases(module.config)
+        for ((alias, platforms) in aliases) {
+            val unknown = platforms - declaredPlatforms
+            if (unknown.isNotEmpty()) {
+                throw ConversionException(
+                    "${module.displayName}: alias '$alias' contains undeclared platforms ${unknown.sorted().joinToString()}",
+                )
+            }
+            if (alias == "common" || alias in naturalPlatformParents) {
+                throw ConversionException("${module.displayName}: alias '$alias' conflicts with the default platform hierarchy")
+            }
+        }
+
+        val naturalNames = buildSet {
+            add("common")
+            for (platform in declaredPlatforms) {
+                var current: String? = platform
+                while (current != null) {
+                    add(current)
+                    current = naturalPlatformParents[current]
+                }
+            }
+        }
+        val fragments = buildList {
+            for (name in naturalNames) {
+                add(
+                    KmpFragment(
+                        name = name,
+                        platforms = declaredPlatforms.filterTo(linkedSetOf()) { leaf ->
+                            leaf == name || isNaturalAncestor(name, leaf)
+                        },
+                        natural = true,
+                    ),
+                )
+            }
+            for ((name, platforms) in aliases) {
+                add(KmpFragment(name, platforms, natural = false))
+            }
+        }
+        val withParents = fragments.map { fragment ->
+            val candidates = fragments.filter { candidate -> candidate !== fragment && isBroader(candidate, fragment) }
+            val directParents = candidates.filter { candidate ->
+                candidates.none { other -> other !== candidate && isBroader(candidate, other) }
+            }.map(KmpFragment::name)
+            fragment.copy(parents = directParents)
+        }
+
+        val ordered = mutableListOf<KmpFragment>()
+        val remaining = withParents.toMutableList()
+        while (remaining.isNotEmpty()) {
+            val ready = remaining.filter { fragment -> fragment.parents.all { parent -> ordered.any { it.name == parent } } }
+            if (ready.isEmpty()) throw ConversionException("${module.displayName}: platform aliases form an invalid hierarchy")
+            ordered += ready.sortedBy(KmpFragment::name)
+            remaining.removeAll(ready.toSet())
+        }
+        return ordered
+    }
+
+    private fun aliases(config: Value.Mapping): Map<String, Set<String>> {
+        val node = config.value("aliases") ?: return emptyMap()
+        val entries = when (node) {
+            is Value.Mapping -> node.entries.entries.toList()
+            is Value.Sequence -> node.items.flatMapIndexed { index, item ->
+                val mapping = item as? Value.Mapping
+                    ?: throw ConversionException("aliases[$index] must be an object")
+                if (mapping.entries.size != 1) throw ConversionException("aliases[$index] must define exactly one alias")
+                mapping.entries.entries.toList()
+            }
+            else -> throw ConversionException("aliases must be an object or list")
+        }
+        return buildMap {
+            for ((name, value) in entries) {
+                if (name in this) throw ConversionException("Alias '$name' is declared more than once")
+                val platforms = value.asSequence("aliases.$name").mapIndexed { index, platform ->
+                    platform.scalarOrNull()
+                        ?: throw ConversionException("aliases.$name[$index] must be a platform name")
+                }.toSet()
+                if (platforms.isEmpty()) throw ConversionException("Alias '$name' must contain at least one platform")
+                put(name, platforms)
+            }
+        }
+    }
+
+    private fun isBroader(candidate: KmpFragment, fragment: KmpFragment): Boolean {
+        if (candidate.name == "common" && fragment.name != "common") return true
+        if (candidate.natural && fragment.natural && isNaturalAncestor(candidate.name, fragment.name)) return true
+        return candidate.platforms.size > fragment.platforms.size && candidate.platforms.containsAll(fragment.platforms)
+    }
+
+    private fun isNaturalAncestor(ancestor: String, descendant: String): Boolean {
+        var current = naturalPlatformParents[descendant]
+        while (current != null) {
+            if (current == ancestor) return true
+            current = naturalPlatformParents[current]
+        }
+        return false
     }
 
     private fun testLibrary(config: Value.Mapping): String = when (config.string("settings.junit") ?: "junit-5") {
@@ -509,6 +714,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     """.trimIndent() + "\n"
 
     private fun wrapperProperties(): String = """
+        # Generated by ktc-to-gradle. Safe to regenerate.
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
         distributionUrl=https\://services.gradle.org/distributions/gradle-${Versions.GRADLE}-bin.zip
@@ -551,6 +757,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
 
     private fun windowsGradleLauncher(): String = $$"""
         @echo off
+        rem Generated by ktc-to-gradle. This thin wrapper downloads Gradle automatically.
         setlocal
         set "GRADLE_VERSION=$${Versions.GRADLE}"
         if "%GRADLE_USER_HOME%"=="" set "GRADLE_USER_HOME=%USERPROFILE%\.gradle"
@@ -578,15 +785,89 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val bom: Boolean = false,
     )
 
+    private data class SerializationSettings(
+        val version: String,
+        val format: String? = null,
+    )
+
+    private data class RepositoryCredentials(
+        val file: String,
+        val usernameKey: String,
+        val passwordKey: String,
+    )
+
+    private data class Repository(
+        val id: String,
+        val url: String,
+        val resolve: Boolean = true,
+        val credentials: RepositoryCredentials? = null,
+    )
+
+    private data class KmpFragment(
+        val name: String,
+        val platforms: Set<String>,
+        val natural: Boolean,
+        val parents: List<String> = emptyList(),
+    )
+
     companion object {
-        private val nativeTargets = setOf(
-            "linuxX64", "linuxArm64", "macosX64", "macosArm64", "mingwX64",
-            "iosX64", "iosArm64", "iosSimulatorArm64", "watchosArm64", "watchosSimulatorArm64",
-            "tvosArm64", "tvosSimulatorArm64", "androidNativeArm32", "androidNativeArm64",
-            "androidNativeX86", "androidNativeX64",
+        private const val DEFAULT_SERIALIZATION_VERSION = "1.11.0"
+        private const val MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2"
+        private const val GOOGLE_MAVEN_URL = "https://maven.google.com"
+
+        private val serializationArtifacts = mapOf(
+            "core" to "kotlinx-serialization-core",
+            "cbor" to "kotlinx-serialization-cbor",
+            "hocon" to "kotlinx-serialization-hocon",
+            "json" to "kotlinx-serialization-json",
+            "json-io" to "kotlinx-serialization-json-io",
+            "json-okio" to "kotlinx-serialization-json-okio",
+            "properties" to "kotlinx-serialization-properties",
+            "protobuf" to "kotlinx-serialization-protobuf",
         )
-        private val defaultRepositoryUrls = setOf(
-            "https://repo1.maven.org/maven2", "https://maven.google.com", "mavenCentral", "mavenGoogle",
+
+        private val naturalPlatformParents = mapOf(
+            "jvm" to "common",
+            "android" to "common",
+            "web" to "common",
+            "js" to "web",
+            "wasmJs" to "web",
+            "wasmWasi" to "common",
+            "native" to "common",
+            "linux" to "native",
+            "linuxX64" to "linux",
+            "linuxArm64" to "linux",
+            "mingw" to "native",
+            "mingwX64" to "mingw",
+            "apple" to "native",
+            "macos" to "apple",
+            "macosX64" to "macos",
+            "macosArm64" to "macos",
+            "ios" to "apple",
+            "iosArm64" to "ios",
+            "iosSimulatorArm64" to "ios",
+            "iosX64" to "ios",
+            "watchos" to "apple",
+            "watchosArm32" to "watchos",
+            "watchosArm64" to "watchos",
+            "watchosDeviceArm64" to "watchos",
+            "watchosSimulatorArm64" to "watchos",
+            "tvos" to "apple",
+            "tvosArm64" to "tvos",
+            "tvosSimulatorArm64" to "tvos",
+            "tvosX64" to "tvos",
+            "androidNative" to "native",
+            "androidNativeArm32" to "androidNative",
+            "androidNativeArm64" to "androidNative",
+            "androidNativeX86" to "androidNative",
+            "androidNativeX64" to "androidNative",
+        )
+
+        private val nativeTargets = setOf(
+            "linuxX64", "linuxArm64", "macosX64", "macosArm64", "mingwX64", "iosX64", "iosArm64",
+            "iosSimulatorArm64", "watchosArm32", "watchosArm64", "watchosDeviceArm64",
+            "watchosSimulatorArm64", "tvosArm64", "tvosSimulatorArm64", "tvosX64", "androidNativeArm32",
+            "androidNativeArm64", "androidNativeX86", "androidNativeX64",
         )
     }
 }

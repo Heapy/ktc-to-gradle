@@ -88,7 +88,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
 
     private fun loadEffectiveConfig(root: Path, file: Path): Value.Mapping {
         val cache = mutableMapOf<Path, ConfigNode>()
-        val graphRoot = loadConfigGraph(root, file, cache, mutableSetOf())
+        val graphRoot = loadConfigGraph(root, file, file.parent!!, cache, mutableSetOf())
         val ordered = mutableListOf<ConfigNode>()
         val visited = mutableSetOf<Path>()
         fun visit(node: ConfigNode) {
@@ -122,6 +122,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
     private fun loadConfigGraph(
         root: Path,
         file: Path,
+        consumerDirectory: Path,
         cache: MutableMap<Path, ConfigNode>,
         active: MutableSet<Path>,
     ): ConfigNode {
@@ -130,16 +131,49 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         if (!active.add(canonical)) {
             throw ConversionException("Template cycle detected at ${canonical.relativeTo(root)}")
         }
-        val config = readYaml(canonical)
+        val config = normalizeRepositoryCredentialPaths(
+            readYaml(canonical),
+            root,
+            canonical.parent!!,
+            consumerDirectory,
+        )
         val applied = config.strings("apply").map { reference ->
             val template = resolveReference(root, canonical.parent!!, reference)
             if (!fileSystem.exists(template)) {
                 throw ConversionException("Template '$reference' referenced by ${canonical.relativeTo(root)} does not exist")
             }
-            loadConfigGraph(root, template, cache, active)
+            loadConfigGraph(root, template, consumerDirectory, cache, active)
         }
         active.remove(canonical)
         return ConfigNode(canonical, config.without("apply"), applied).also { cache[canonical] = it }
+    }
+
+    private fun normalizeRepositoryCredentialPaths(
+        config: Value.Mapping,
+        root: Path,
+        declaringDirectory: Path,
+        consumerDirectory: Path,
+    ): Value.Mapping {
+        val repositories = config.entries["repositories"] as? Value.Sequence ?: return config
+        val normalized = repositories.items.map { repository ->
+            val mapping = repository as? Value.Mapping ?: return@map repository
+            val credentials = mapping.entries["credentials"] as? Value.Mapping ?: return@map repository
+            val configuredFile = credentials.string("file") ?: return@map repository
+            val absoluteFile = if (configuredFile.startsWith("//")) {
+                root / configuredFile.removePrefix("//")
+            } else {
+                declaringDirectory / configuredFile.removePrefix("./")
+            }.normalized()
+            val consumerRelativeFile = absoluteFile.relativeTo(consumerDirectory).toString()
+            Value.Mapping(
+                mapping.entries + (
+                    "credentials" to Value.Mapping(
+                        credentials.entries + ("file" to Value.Scalar(consumerRelativeFile)),
+                    )
+                ),
+            )
+        }
+        return Value.Mapping(config.entries + ("repositories" to Value.Sequence(normalized)))
     }
 
     private fun collectScalarDeclarations(
