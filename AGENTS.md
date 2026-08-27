@@ -1,0 +1,1 @@
+docs/VERIFY.md – manual test cases
