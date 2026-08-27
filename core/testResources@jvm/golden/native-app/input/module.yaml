@@ -1,0 +1,5 @@
+product: linux/app
+
+settings:
+  native:
+    entryPoint: example.main

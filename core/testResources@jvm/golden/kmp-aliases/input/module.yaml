@@ -1,0 +1,25 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64, macosArm64]
+
+aliases:
+  - desktop: [jvm, linuxX64]
+  - posix: [linuxX64, macosArm64]
+
+dependencies:
+  - org.example:common:1.0
+
+dependencies@desktop:
+  - org.example:desktop:1.0
+
+dependencies@native:
+  - org.example:native-only:1.0
+
+test-dependencies@jvm:
+  - org.example:jvm-test:1.0
+
+settings:
+  jvm:
+    jdk:
+      version: 25
+    release: 17

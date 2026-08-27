@@ -1,0 +1,27 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+settings:
+  kotlin:
+    allWarningsAsErrors: true
+
+settings@jvm:
+  kotlin:
+    languageVersion: 2.2
+    optIns: [kotlin.ExperimentalStdlibApi]
+  jvm:
+    release: 21
+
+settings@linuxX64:
+  kotlin:
+    allWarningsAsErrors: false
+    progressiveMode: true
+
+settings@macosArm64:
+  kotlin:
+    allWarningsAsErrors: true
+
+test-settings@jvm:
+  kotlin:
+    allWarningsAsErrors: true

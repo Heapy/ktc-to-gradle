@@ -1,0 +1,5 @@
+product: jvm/app
+
+dependencies:
+  - //libs/messages
+  - ./../libs/messages: exported

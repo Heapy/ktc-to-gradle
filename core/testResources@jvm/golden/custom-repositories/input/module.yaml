@@ -1,0 +1,9 @@
+product: jvm/lib
+
+repositories:
+  - mavenLocal
+  - https://repo1.maven.org/maven2
+  - id: internal
+    url: https://repo.example/internal
+  - url: https://maven.google.com
+    resolve: false

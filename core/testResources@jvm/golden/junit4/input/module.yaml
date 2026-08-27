@@ -1,0 +1,19 @@
+product: jvm/lib
+
+settings:
+  junit: junit-4
+  jvm:
+    test:
+      freeJvmArgs: [-Dbase=true]
+      systemProperties:
+        shared: base
+      extraEnvironment:
+        SHARED: base
+
+test-settings:
+  jvm:
+    freeJvmArgs: [-Dtest=true]
+    systemProperties:
+      shared: test
+    extraEnvironment:
+      TEST_ONLY: present

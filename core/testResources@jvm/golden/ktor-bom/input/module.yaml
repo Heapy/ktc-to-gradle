@@ -1,0 +1,11 @@
+product: jvm/app
+
+settings:
+  ktor:
+    enabled: true
+    version: 3.4.0
+  jvm:
+    mainClass: example.ServerKt
+
+dependencies:
+  - io.ktor:ktor-server-netty

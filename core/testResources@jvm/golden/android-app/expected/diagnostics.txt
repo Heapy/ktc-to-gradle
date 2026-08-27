@@ -1,0 +1,1 @@
+WARNING: android-app: settings.kotlin.version '2.4.10' does not select the Kotlin compiler for an Android module; the Android Gradle Plugin 9.0.0 supplies its own Kotlin

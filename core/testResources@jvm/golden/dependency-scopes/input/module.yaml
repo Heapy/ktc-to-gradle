@@ -1,0 +1,14 @@
+product: jvm/lib
+
+dependencies:
+  - com.squareup.okio:okio:3.17.0: exported
+  - org.example:compile:1.0: compile-only
+  - org.example:runtime:1.0: runtime-only
+  - org.example:plain:1.0: all
+  - bom: org.example:platform:1.0
+  - $kotlin.reflect
+
+test-dependencies:
+  - org.example:test-exported:1.0: exported
+  - org.example:test-runtime:1.0: runtime-only
+  - $kotlin.test

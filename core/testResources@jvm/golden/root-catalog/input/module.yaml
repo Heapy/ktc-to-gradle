@@ -1,0 +1,8 @@
+product: jvm/lib
+
+dependencies:
+  - $libs.okio
+  - $kotlin.reflect
+
+test-dependencies:
+  - $libs.junit.jupiter.api
