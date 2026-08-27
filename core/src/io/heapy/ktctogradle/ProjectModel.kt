@@ -27,7 +27,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         val root = findRoot(requested)
         val projectFile = root / "project.yaml"
         val projectConfig = if (fileSystem.exists(projectFile)) readYaml(projectFile) else null
-        val patterns = projectConfig?.strings("modules").orEmpty()
+        val patterns = projectConfig?.strings("modules").orEmpty().map(::normalizeModulePattern)
         patterns.firstOrNull { "**" in it }?.let {
             throw ConversionException("project.yaml module glob '$it' uses unsupported recursive ** syntax")
         }
@@ -83,7 +83,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
      * globs actually select the module below.
      */
     private fun selectsModule(projectFile: Path, root: Path, module: Path): Boolean {
-        val patterns = runCatching { readYaml(projectFile).strings("modules") }.getOrElse { return true }
+        val patterns = runCatching { readYaml(projectFile).strings("modules").map(::normalizeModulePattern) }.getOrElse { return true }
         if (patterns.any { "**" in it }) return true
         val relative = relativePath(root, module)
         return relative.isEmpty() || patterns.any { globMatches(it, relative) }
@@ -315,6 +315,9 @@ internal fun dependencyNotation(value: Value): String = when (value) {
         ?: throw ConversionException("A dependency object must have exactly one coordinate")
     else -> throw ConversionException("Dependency entries must be strings or objects")
 }
+
+private fun normalizeModulePattern(pattern: String): String =
+    pattern.removePrefix("//").removePrefix("./").trimEnd('/')
 
 private fun globMatches(pattern: String, path: String): Boolean {
     val regex = buildString {

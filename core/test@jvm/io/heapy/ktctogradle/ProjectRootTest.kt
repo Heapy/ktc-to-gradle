@@ -31,6 +31,28 @@ class ProjectRootTest {
         assertEquals(canonical(outer), load(module).root)
     }
 
+    @Test
+    fun dotSlashModulePathsSelectTheirModules() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-dotslash-")
+        write(outer.resolve("project.yaml"), "modules:\n  - ./app\n  - ./libs/shared\n")
+        write(outer.resolve("app/module.yaml"), "product: jvm/app\ndependencies:\n  - ./../libs/shared\n")
+        write(outer.resolve("app/src/main.kt"), "fun main() = Unit\n")
+        write(outer.resolve("libs/shared/module.yaml"), "product: jvm/lib\n")
+
+        val project = load(outer)
+
+        assertEquals(listOf("app", "libs/shared"), project.modules.map { it.path }.sorted())
+    }
+
+    @Test
+    fun aTrailingSlashInAModulePathStillSelects() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-trailing-")
+        write(outer.resolve("project.yaml"), "modules: [./core/]\n")
+        write(outer.resolve("core/module.yaml"), "product: jvm/lib\n")
+
+        assertEquals(listOf("core"), load(outer).modules.map { it.path })
+    }
+
     private fun load(start: Path) = ProjectLoader(FileSystem.SYSTEM).load(start.toString().toPath())
 
     private fun canonical(path: Path) = FileSystem.SYSTEM.canonicalize(path.toString().toPath())
