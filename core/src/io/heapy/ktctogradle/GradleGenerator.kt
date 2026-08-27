@@ -1,6 +1,9 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.render.KtsWriter
 import io.heapy.ktctogradle.render.StaticAssets
+import io.heapy.ktctogradle.render.mappingStrings
+import io.heapy.ktctogradle.render.quote
 import okio.FileSystem
 import okio.Path
 
@@ -37,35 +40,45 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         return files to diagnostics.toList()
     }
 
-    private fun renderSettings(project: ToolchainProject): String = buildString {
-        appendLine(StaticAssets.header())
-        appendLine("pluginManagement {")
-        appendLine("    repositories {")
-        appendLine("        gradlePluginPortal()")
-        appendLine("        google()")
-        appendLine("        mavenCentral()")
-        appendLine("    }")
-        appendLine("}")
-        appendLine()
-        appendLine("rootProject.name = ${quote(project.name)}")
+    private fun renderSettings(project: ToolchainProject): String = writeKts {
+        line(StaticAssets.header())
+        block("pluginManagement") {
+            block("repositories") {
+                line("gradlePluginPortal()")
+                line("google()")
+                line("mavenCentral()")
+            }
+        }
+        blank()
+        line("rootProject.name = ${quote(project.name)}")
         if (project.catalogPath?.parent == project.root) {
-            appendLine()
-            appendLine("dependencyResolutionManagement {")
-            appendLine("    versionCatalogs {")
-            appendLine("        create(\"libs\") { from(files(\"libs.versions.toml\")) }")
-            appendLine("    }")
-            appendLine("}")
+            blank()
+            block("dependencyResolutionManagement") {
+                block("versionCatalogs") {
+                    line("create(\"libs\") { from(files(\"libs.versions.toml\")) }")
+                }
+            }
         }
         for (module in project.modules.filterNot { it.path.isRoot }) {
-            appendLine()
-            appendLine("include(${quote(module.gradlePath)})")
-            appendLine("project(${quote(module.gradlePath)}).projectDir = file(${quote(module.path.notation)})")
+            blank()
+            line("include(${quote(module.gradlePath)})")
+            line("project(${quote(module.gradlePath)}).projectDir = file(${quote(module.path.notation)})")
         }
     }
 
-    private fun rootBuildFile(context: PluginContext): String = buildString {
-        appendLine(StaticAssets.header())
+    private fun rootBuildFile(context: PluginContext): String = writeKts {
+        line(StaticAssets.header())
         appendPluginBlock(listOf("base"), context)
+    }
+
+    private fun writeKts(body: KtsWriter.() -> Unit): String = KtsWriter().apply(body).build()
+
+    /**
+     * Bridges the renderers that still build their text in a [StringBuilder] to the helpers that
+     * already write through a [KtsWriter]. Removed once every renderer owns a writer.
+     */
+    private fun StringBuilder.appendKts(level: Int, body: KtsWriter.() -> Unit) {
+        append(KtsWriter(level).apply(body).build())
     }
 
     private fun renderModule(project: ToolchainProject, module: ToolchainModule, context: PluginContext): String {
@@ -100,8 +113,8 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val dependencies = dependenciesFor(module, listOf("dependencies", "dependencies@jvm"))
         val tests = dependenciesFor(module, listOf("test-dependencies", "test-dependencies@jvm"))
         val mainClass = config.string("settings.jvm.mainClass") ?: detectMainClass(module)
-        return buildString {
-            appendLine(StaticAssets.header())
+        return writeKts {
+            line(StaticAssets.header())
             appendRepositoryCredentialsImport(config)
             appendPluginBlock(
                 buildList {
@@ -111,49 +124,48 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 },
                 context,
             )
-            appendLine()
+            blank()
             appendRepositories(config)
-            appendLine()
-            appendLine("kotlin {")
-            appendLine("    jvmToolchain($jdk)")
-            appendCompilerOptions(
-                config,
-                "    ",
-                jvmTarget = release,
-                extraLines = singlePlatformQualifiedLines(module, "jvm"),
-            )
-            appendLine("}")
-            appendLine()
-            appendLine("java {")
-            appendLine("    sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
-            appendLine("    targetCompatibility = JavaVersion.toVersion(${quote(release)})")
-            appendLine("}")
-            if (config.string("layout") != "maven-like") {
-                appendLine()
-                appendLine("sourceSets {")
-                appendLine("    main {")
-                appendLine("        kotlin.srcDir(\"src\")")
-                appendLine("        resources.srcDir(\"resources\")")
-                appendLine("    }")
-                appendLine("    test {")
-                appendLine("        kotlin.srcDir(\"test\")")
-                appendLine("        resources.srcDir(\"testResources\")")
-                appendLine("    }")
-                appendLine("}")
+            blank()
+            block("kotlin") {
+                line("jvmToolchain($jdk)")
+                appendCompilerOptions(
+                    config,
+                    jvmTarget = release,
+                    extraLines = singlePlatformQualifiedLines(module, "jvm"),
+                )
             }
-            appendLine()
-            appendLine("dependencies {")
-            appendDependencies(project, module, dependencies, test = false, indent = "    ")
-            appendSerializationDependencies(serialization, "    ")
-            appendBuiltInDependencies(config, "    ")
-            appendLine("    testImplementation(kotlin(${quote(testLibrary(config))}))")
-            appendDependencies(project, module, tests, test = true, indent = "    ")
-            appendLine("}")
-            appendLine()
-            appendLine("tasks.test {")
-            if (testLibrary(config) == "test-junit5") appendLine("    useJUnitPlatform()")
-            appendJvmTestSettings(config, "    ")
-            appendLine("}")
+            blank()
+            block("java") {
+                line("sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
+                line("targetCompatibility = JavaVersion.toVersion(${quote(release)})")
+            }
+            if (config.string("layout") != "maven-like") {
+                blank()
+                block("sourceSets") {
+                    block("main") {
+                        line("kotlin.srcDir(\"src\")")
+                        line("resources.srcDir(\"resources\")")
+                    }
+                    block("test") {
+                        line("kotlin.srcDir(\"test\")")
+                        line("resources.srcDir(\"testResources\")")
+                    }
+                }
+            }
+            blank()
+            block("dependencies") {
+                appendDependencies(project, module, dependencies, test = false)
+                appendSerializationDependencies(serialization)
+                appendBuiltInDependencies(config)
+                line("testImplementation(kotlin(${quote(testLibrary(config))}))")
+                appendDependencies(project, module, tests, test = true)
+            }
+            blank()
+            block("tasks.test") {
+                if (testLibrary(config) == "test-junit5") line("useJUnitPlatform()")
+                appendJvmTestSettings(config)
+            }
             if (product.type == "jvm/app") {
                 if (mainClass == null) {
                     diagnostics += Diagnostic(
@@ -161,10 +173,10 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                         "${module.displayName}: could not infer a main class; set settings.jvm.mainClass or application.mainClass",
                     )
                 } else {
-                    appendLine()
-                    appendLine("application {")
-                    appendLine("    mainClass.set(${quote(mainClass)})")
-                    appendLine("}")
+                    blank()
+                    block("application") {
+                        line("mainClass.set(${quote(mainClass)})")
+                    }
                 }
             }
         }
@@ -190,16 +202,18 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val targetSdk = config.string("settings.android.targetSdk") ?: compileSdk
         return buildString {
             appendLine(StaticAssets.header())
-            appendRepositoryCredentialsImport(config)
-            appendPluginBlock(
-                buildList {
-                    add(pluginLine(androidPlugin("com.android.application"), context))
-                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                },
-                context,
-            )
+            appendKts(0) {
+                appendRepositoryCredentialsImport(config)
+                appendPluginBlock(
+                    buildList {
+                        add(pluginLine(androidPlugin("com.android.application"), context))
+                        if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
+                    },
+                    context,
+                )
+            }
             appendLine()
-            appendRepositories(config)
+            appendKts(0) { appendRepositories(config) }
             appendLine()
             appendLine("android {")
             appendLine("    namespace = ${quote(namespace)}")
@@ -227,20 +241,23 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("}")
             appendLine()
             appendLine("kotlin {")
-            appendCompilerOptions(
-                config,
-                "    ",
-                jvmTarget = release,
-                extraLines = singlePlatformQualifiedLines(module, "android"),
-            )
+            appendKts(1) {
+                appendCompilerOptions(
+                    config,
+                    jvmTarget = release,
+                    extraLines = singlePlatformQualifiedLines(module, "android"),
+                )
+            }
             appendLine("}")
             appendLine()
             appendLine("dependencies {")
-            appendDependencies(project, module, dependenciesFor(module, listOf("dependencies", "dependencies@android")), false, "    ")
-            appendSerializationDependencies(serialization, "    ")
-            appendBuiltInDependencies(config, "    ")
-            appendLine("    testImplementation(kotlin(${quote(testLibrary(config))}))")
-            appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies", "test-dependencies@android")), true, "    ")
+            appendKts(1) {
+                appendDependencies(project, module, dependenciesFor(module, listOf("dependencies", "dependencies@android")), false)
+                appendSerializationDependencies(serialization)
+                appendBuiltInDependencies(config)
+                line("testImplementation(kotlin(${quote(testLibrary(config))}))")
+                appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies", "test-dependencies@android")), true)
+            }
             appendLine("}")
         }
     }
@@ -257,19 +274,21 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val fragments = kmpFragments(module, product)
         return buildString {
             appendLine(StaticAssets.header())
-            appendRepositoryCredentialsImport(config)
-            appendPluginBlock(
-                buildList {
-                    add(pluginLine(kotlinPlugin("multiplatform", kotlinVersion), context))
-                    if ("android" in product.platforms) {
-                        add(pluginLine(androidPlugin("com.android.kotlin.multiplatform.library"), context))
-                    }
-                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                },
-                context,
-            )
+            appendKts(0) {
+                appendRepositoryCredentialsImport(config)
+                appendPluginBlock(
+                    buildList {
+                        add(pluginLine(kotlinPlugin("multiplatform", kotlinVersion), context))
+                        if ("android" in product.platforms) {
+                            add(pluginLine(androidPlugin("com.android.kotlin.multiplatform.library"), context))
+                        }
+                        if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
+                    },
+                    context,
+                )
+            }
             appendLine()
-            appendRepositories(config)
+            appendKts(0) { appendRepositories(config) }
             appendLine()
             appendLine("kotlin {")
             val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms })
@@ -279,15 +298,17 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             if ("jvm" in product.platforms) {
                 appendLine("    jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
             }
-            appendCompilerOptions(config, "    ", extraLines = qualifiedCompilerOptionLines(qualified.common))
+            appendKts(1) { appendCompilerOptions(config, extraLines = qualifiedCompilerOptionLines(qualified.common)) }
             appendLine("    sourceSets {")
             appendLine("        commonMain {")
             appendLine("            kotlin.srcDir(\"src\")")
             appendLine("            resources.srcDir(\"resources\")")
             appendLine("            dependencies {")
-            appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, "                ", sourceSet = true)
-            appendSerializationDependencies(serialization, "                ")
-            appendBuiltInDependencies(config, "                ")
+            appendKts(4) {
+                appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, sourceSet = true)
+                appendSerializationDependencies(serialization)
+                appendBuiltInDependencies(config)
+            }
             appendLine("            }")
             appendLine("        }")
             appendLine("        commonTest {")
@@ -295,7 +316,9 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("            resources.srcDir(\"testResources\")")
             appendLine("            dependencies {")
             appendLine("                implementation(kotlin(\"test\"))")
-            appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, "                ", sourceSet = true)
+            appendKts(4) {
+                appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, sourceSet = true)
+            }
             appendLine("            }")
             appendLine("        }")
             for (fragment in fragments.filterNot { it.name == "common" }) {
@@ -438,41 +461,39 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         if (resourcesExist) appendLine("            resources.srcDir(${quote("$resources@$qualifier")})")
         if (deps.isNotEmpty()) {
             appendLine("            dependencies {")
-            appendDependencies(project, module, deps, test, "                ", sourceSet = true)
+            appendKts(4) { appendDependencies(project, module, deps, test, sourceSet = true) }
             appendLine("            }")
         }
         appendLine("        }")
     }
 
-    private fun StringBuilder.appendRepositories(config: Value.Mapping) {
-        appendLine("repositories {")
-        for ((index, repository) in resolutionRepositories(config).withIndex()) {
-            when {
-                repository.url == "mavenLocal" -> appendLine("    mavenLocal()")
-                repository.id == "mavenCentral" && repository.url == MAVEN_CENTRAL_URL && repository.credentials == null -> {
-                    appendLine("    mavenCentral()")
-                }
-                repository.id == "mavenGoogle" && repository.url == GOOGLE_MAVEN_URL && repository.credentials == null -> {
-                    appendLine("    google()")
-                }
-                else -> {
-                    appendLine("    maven {")
-                    appendLine("        name = ${quote(repository.id)}")
-                    appendLine("        url = uri(${quote(repository.url)})")
-                    repository.credentials?.let { credentials ->
-                        val variable = "repositoryCredentials$index"
-                        appendLine("        val $variable = Properties()")
-                        appendLine("        file(${quote(credentials.file)}).inputStream().use($variable::load)")
-                        appendLine("        credentials {")
-                        appendLine("            username = $variable.getProperty(${quote(credentials.usernameKey)})")
-                        appendLine("            password = $variable.getProperty(${quote(credentials.passwordKey)})")
-                        appendLine("        }")
+    private fun KtsWriter.appendRepositories(config: Value.Mapping) {
+        block("repositories") {
+            for ((index, repository) in resolutionRepositories(config).withIndex()) {
+                when {
+                    repository.url == "mavenLocal" -> line("mavenLocal()")
+                    repository.id == "mavenCentral" && repository.url == MAVEN_CENTRAL_URL && repository.credentials == null -> {
+                        line("mavenCentral()")
                     }
-                    appendLine("    }")
+                    repository.id == "mavenGoogle" && repository.url == GOOGLE_MAVEN_URL && repository.credentials == null -> {
+                        line("google()")
+                    }
+                    else -> block("maven") {
+                        line("name = ${quote(repository.id)}")
+                        line("url = uri(${quote(repository.url)})")
+                        repository.credentials?.let { credentials ->
+                            val variable = "repositoryCredentials$index"
+                            line("val $variable = Properties()")
+                            line("file(${quote(credentials.file)}).inputStream().use($variable::load)")
+                            block("credentials") {
+                                line("username = $variable.getProperty(${quote(credentials.usernameKey)})")
+                                line("password = $variable.getProperty(${quote(credentials.passwordKey)})")
+                            }
+                        }
+                    }
                 }
             }
         }
-        appendLine("}")
     }
 
     /**
@@ -520,20 +541,19 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         return defaults + configured.filter(Repository::resolve).asReversed().distinctBy(Repository::id).asReversed()
     }
 
-    private fun StringBuilder.appendRepositoryCredentialsImport(config: Value.Mapping) {
+    private fun KtsWriter.appendRepositoryCredentialsImport(config: Value.Mapping) {
         val hasCredentials = config.value("repositories").asSequence("repositories").any { repository ->
             (repository as? Value.Mapping)?.value("credentials") is Value.Mapping
         }
         if (hasCredentials) {
-            appendLine()
-            appendLine("import java.util.Properties")
-            appendLine()
+            blank()
+            line("import java.util.Properties")
+            blank()
         }
     }
 
-    private fun StringBuilder.appendCompilerOptions(
+    private fun KtsWriter.appendCompilerOptions(
         config: Value.Mapping,
-        indent: String,
         jvmTarget: String? = null,
         extraLines: List<String> = emptyList(),
     ) {
@@ -544,39 +564,38 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         if (language == null && api == null && freeArgs.isEmpty() && optIns.isEmpty() && extraLines.isEmpty() &&
             config.boolean("settings.kotlin.allWarningsAsErrors") != true && config.boolean("settings.kotlin.progressiveMode") != true && jvmTarget == null
         ) return
-        appendLine("${indent}compilerOptions {")
-        language?.let { appendLine("${indent}    languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))") }
-        api?.let { appendLine("${indent}    apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))") }
-        jvmTarget?.let { appendLine("${indent}    this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(it)}))") }
-        if (config.boolean("settings.kotlin.allWarningsAsErrors") == true) appendLine("${indent}    allWarningsAsErrors.set(true)")
-        if (config.boolean("settings.kotlin.progressiveMode") == true) appendLine("${indent}    progressiveMode.set(true)")
-        if (freeArgs.isNotEmpty()) appendLine("${indent}    freeCompilerArgs.addAll(${freeArgs.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
-        if (optIns.isNotEmpty()) appendLine("${indent}    optIn.addAll(${optIns.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
-        for (line in extraLines) appendLine("${indent}    $line")
-        appendLine("${indent}}")
+        block("compilerOptions") {
+            language?.let { line("languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))") }
+            api?.let { line("apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))") }
+            jvmTarget?.let { line("this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(it)}))") }
+            if (config.boolean("settings.kotlin.allWarningsAsErrors") == true) line("allWarningsAsErrors.set(true)")
+            if (config.boolean("settings.kotlin.progressiveMode") == true) line("progressiveMode.set(true)")
+            if (freeArgs.isNotEmpty()) line("freeCompilerArgs.addAll(${freeArgs.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+            if (optIns.isNotEmpty()) line("optIn.addAll(${optIns.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+            for (extra in extraLines) line(extra)
+        }
     }
 
-    private fun StringBuilder.appendJvmTestSettings(config: Value.Mapping, indent: String) {
+    private fun KtsWriter.appendJvmTestSettings(config: Value.Mapping) {
         val args = config.strings("settings.jvm.test.freeJvmArgs") + config.strings("test-settings.jvm.freeJvmArgs")
-        if (args.isNotEmpty()) appendLine("${indent}jvmArgs(${args.joinToString(transform = ::quote)})")
+        if (args.isNotEmpty()) line("jvmArgs(${args.joinToString(transform = ::quote)})")
         val systemProperties = mappingStrings(config.value("settings.jvm.test.systemProperties")) +
             mappingStrings(config.value("test-settings.jvm.systemProperties"))
         for ((key, value) in systemProperties) {
-            appendLine("${indent}systemProperty(${quote(key)}, ${quote(value)})")
+            line("systemProperty(${quote(key)}, ${quote(value)})")
         }
         val environment = mappingStrings(config.value("settings.jvm.test.extraEnvironment")) +
             mappingStrings(config.value("test-settings.jvm.extraEnvironment"))
         for ((key, value) in environment) {
-            appendLine("${indent}environment(${quote(key)}, ${quote(value)})")
+            line("environment(${quote(key)}, ${quote(value)})")
         }
     }
 
-    private fun StringBuilder.appendDependencies(
+    private fun KtsWriter.appendDependencies(
         project: ToolchainProject,
         module: ToolchainModule,
         dependencies: List<Dependency>,
         test: Boolean,
-        indent: String,
         sourceSet: Boolean = false,
     ) {
         for (dependency in dependencies) {
@@ -592,7 +611,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 else -> "implementation"
             }
             val expression = dependencyExpression(project, module, dependency)
-            appendLine("$indent$configuration($expression)")
+            line("$configuration($expression)")
         }
     }
 
@@ -639,18 +658,18 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         }
     }
 
-    private fun StringBuilder.appendSerializationDependencies(serialization: SerializationSettings?, indent: String) {
+    private fun KtsWriter.appendSerializationDependencies(serialization: SerializationSettings?) {
         if (serialization == null) return
-        appendLine("${indent}implementation(${quote(serializationCoordinate("core", serialization.version))})")
+        line("implementation(${quote(serializationCoordinate("core", serialization.version))})")
         serialization.format?.let { format ->
-            appendLine("${indent}implementation(${quote(serializationCoordinate(format, serialization.version))})")
+            line("implementation(${quote(serializationCoordinate(format, serialization.version))})")
         }
     }
 
-    private fun StringBuilder.appendBuiltInDependencies(config: Value.Mapping, indent: String) {
+    private fun KtsWriter.appendBuiltInDependencies(config: Value.Mapping) {
         if (config.boolean("settings.ktor") == true || config.boolean("settings.ktor.enabled") == true) {
             val version = config.string("settings.ktor.version") ?: "3.5.2"
-            appendLine("${indent}implementation(platform(\"io.ktor:ktor-bom:$version\"))")
+            line("implementation(platform(\"io.ktor:ktor-bom:$version\"))")
         }
     }
 
@@ -870,13 +889,13 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         return "${plugin.dsl} version ${quote(context.versions[plugin.id] ?: plugin.version)}"
     }
 
-    private fun StringBuilder.appendPluginBlock(lines: List<String>, context: PluginContext) {
-        appendLine("plugins {")
-        for (line in lines) appendLine("    $line")
-        for (plugin in context.inherited) {
-            appendLine("    ${plugin.dsl} version ${quote(context.versions[plugin.id] ?: plugin.version)} apply false")
+    private fun KtsWriter.appendPluginBlock(lines: List<String>, context: PluginContext) {
+        block("plugins") {
+            for (text in lines) line(text)
+            for (plugin in context.inherited) {
+                line("${plugin.dsl} version ${quote(context.versions[plugin.id] ?: plugin.version)} apply false")
+            }
         }
-        appendLine("}")
     }
 
     /**
@@ -1128,11 +1147,6 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             throw ConversionException("${module.displayName}: '$path' is not supported yet")
         }
     }
-
-    private fun quote(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")}\""
-
-    private fun mappingStrings(value: Value?): Map<String, String> =
-        (value as? Value.Mapping)?.entries?.mapValues { (_, item) -> item.scalarOrNull().orEmpty() }.orEmpty()
 
     private data class Dependency(
         val notation: String,
