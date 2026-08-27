@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Heapy/kotgent/main/schema/project.v1.json",
+  "id": "592f37d7-fbc5-4a0d-b00f-a349539b6a99",
+  "name": "Kotlin Toolchain to Gradle"
+}
