@@ -321,6 +321,25 @@ class GradleGeneratorTest {
         }
     }
 
+    @Test
+    fun relativeLocalDependenciesResolveToTheirGradleProject() {
+        val root = Files.createTempDirectory("ktc-to-gradle-relative-dep-")
+        write(root.resolve("project.yaml"), "modules: [app, libs/messages]\n")
+        write(
+            root.resolve("app/module.yaml"),
+            """
+            product: jvm/lib
+            dependencies:
+              - ./../libs/messages
+            """.trimIndent(),
+        )
+        write(root.resolve("libs/messages/module.yaml"), "product: jvm/lib\n")
+
+        val build = generate(root).first { it.path.name == "build.gradle.kts" && it.path.parent?.name == "app" }.content
+
+        assertTrue("implementation(project(\":libs:messages\"))" in build)
+    }
+
     private fun generate(moduleYaml: String, vararg files: Pair<String, String>): List<GeneratedFile> =
         generateAll(moduleYaml, *files).first
 

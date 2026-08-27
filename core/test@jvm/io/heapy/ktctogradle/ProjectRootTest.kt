@@ -41,7 +41,7 @@ class ProjectRootTest {
 
         val project = load(outer)
 
-        assertEquals(listOf("app", "libs/shared"), project.modules.map { it.path }.sorted())
+        assertEquals(listOf("app", "libs/shared"), project.modules.map { it.path.notation }.sorted())
     }
 
     @Test
@@ -50,7 +50,7 @@ class ProjectRootTest {
         write(outer.resolve("project.yaml"), "modules: [./core/]\n")
         write(outer.resolve("core/module.yaml"), "product: jvm/lib\n")
 
-        assertEquals(listOf("core"), load(outer).modules.map { it.path })
+        assertEquals(listOf("core"), load(outer).modules.map { it.path.notation })
     }
 
     private fun load(start: Path) = ProjectLoader(FileSystem.SYSTEM).load(start.toString().toPath())

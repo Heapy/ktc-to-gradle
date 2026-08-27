@@ -11,12 +11,12 @@ internal data class ToolchainProject(
 )
 
 internal data class ToolchainModule(
-    val path: String,
+    val path: ModulePath,
     val directory: Path,
     val config: Value.Mapping,
 ) {
-    val gradlePath: String = if (path.isEmpty()) ":" else ":${path.replace('/', ':')}"
-    val displayName: String = if (path.isEmpty()) directory.name else path
+    val gradlePath: String = path.gradlePath
+    val displayName: String = if (path.isRoot) directory.name else path.notation
 }
 
 internal data class Product(val type: String, val platforms: List<String>)
@@ -33,18 +33,19 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         }
         val moduleFiles = findModuleFiles(root)
         val selected = moduleFiles.filter { file ->
-            val relative = relativePath(root, file.parent!!)
-            relative.isEmpty() || projectConfig == null || patterns.any { globMatches(it, relative) }
+            val relative = ModulePath.relativize(root, file.parent!!) ?: return@filter false
+            relative.isRoot || projectConfig == null || patterns.any { globMatches(it, relative.notation) }
         }
         if (selected.isEmpty()) {
             throw ConversionException("No module.yaml files selected by ${projectFile.name}")
         }
         val modules = selected.map { moduleFile ->
             val directory = moduleFile.parent!!
-            val relative = relativePath(root, directory)
-            ToolchainModule(relative, directory, loadEffectiveConfig(root, moduleFile))
+            val path = ModulePath.relativize(root, directory)
+                ?: throw ConversionException("Module directory $directory is outside project root $root")
+            ToolchainModule(path, directory, loadEffectiveConfig(root, moduleFile))
         }.sortedBy(ToolchainModule::path)
-        validateLocalDependencies(modules)
+        validateLocalDependencies(root, modules)
 
         val rootCatalog = root / "libs.versions.toml"
         val gradleCatalog = root / "gradle" / "libs.versions.toml"
@@ -85,8 +86,8 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
     private fun selectsModule(projectFile: Path, root: Path, module: Path): Boolean {
         val patterns = runCatching { readYaml(projectFile).strings("modules").map(::normalizeModulePattern) }.getOrElse { return true }
         if (patterns.any { "**" in it }) return true
-        val relative = relativePath(root, module)
-        return relative.isEmpty() || patterns.any { globMatches(it, relative) }
+        val relative = ModulePath.relativize(root, module) ?: return false
+        return relative.isRoot || patterns.any { globMatches(it, relative.notation) }
     }
 
     private fun findModuleFiles(root: Path): List<Path> {
@@ -231,7 +232,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
     private fun readYaml(path: Path): Value.Mapping =
         parseYaml(fileSystem.read(path) { readUtf8() }, path.toString())
 
-    private fun validateLocalDependencies(modules: List<ToolchainModule>) {
+    private fun validateLocalDependencies(root: Path, modules: List<ToolchainModule>) {
         val paths = modules.map(ToolchainModule::path).toSet()
         for (module in modules) {
             for ((key, value) in module.config.entries) {
@@ -239,14 +240,12 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
                 for (item in value.asSequence("${module.displayName}.$key")) {
                     val notation = dependencyNotation(item)
                     val local = when {
-                        notation.startsWith("//") -> notation.removePrefix("//").trimEnd('/')
-                        notation.startsWith("./") || notation.startsWith("../") -> {
-                            val absolute = (module.directory / notation).normalized()
-                            absolute.relativeTo(modules.first().directory.let { rootOf(modules) }).toString()
-                        }
-                        else -> null
+                        notation.startsWith("//") -> ModulePath.parse(notation)
+                        notation.startsWith("./") || notation.startsWith("../") ->
+                            ModulePath.relativize(root, (module.directory / notation).normalized())
+                        else -> continue
                     }
-                    if (local != null && local !in paths) {
+                    if (local !in paths) {
                         throw ConversionException("${module.displayName} depends on unknown module '$notation'")
                     }
                 }
@@ -254,19 +253,8 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         }
     }
 
-    private fun rootOf(modules: List<ToolchainModule>): Path {
-        val rootModule = modules.firstOrNull { it.path.isEmpty() }
-        if (rootModule != null) return rootModule.directory
-        var root = modules.first().directory
-        repeat(modules.first().path.split('/').size) { root = root.parent!! }
-        return root
-    }
-
     companion object {
         private val ignoredDirectories = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules")
-
-        private fun relativePath(root: Path, child: Path): String =
-            child.relativeTo(root).toString().let { if (it == ".") "" else it }
     }
 
     private data class ConfigNode(

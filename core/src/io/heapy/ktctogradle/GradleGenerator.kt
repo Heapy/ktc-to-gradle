@@ -12,12 +12,12 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         diagnostics.clear()
         val files = mutableListOf<GeneratedFile>()
         files += GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project))
-        val rootModule = project.modules.firstOrNull { it.path.isEmpty() }
+        val rootModule = project.modules.firstOrNull { it.path.isRoot }
         files += GeneratedFile(
             project.root / "build.gradle.kts",
             rootModule?.let { renderModule(project, it) } ?: rootBuildFile(),
         )
-        for (module in project.modules.filterNot { it.path.isEmpty() }) {
+        for (module in project.modules.filterNot { it.path.isRoot }) {
             files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module))
         }
         files += GeneratedFile(project.root / "gradlew", unixGradleLauncher())
@@ -46,10 +46,10 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("    }")
             appendLine("}")
         }
-        for (module in project.modules.filterNot { it.path.isEmpty() }) {
+        for (module in project.modules.filterNot { it.path.isRoot }) {
             appendLine()
             appendLine("include(${quote(module.gradlePath)})")
-            appendLine("project(${quote(module.gradlePath)}).projectDir = file(${quote(module.path)})")
+            appendLine("project(${quote(module.gradlePath)}).projectDir = file(${quote(module.path.notation)})")
         }
     }
 
@@ -474,15 +474,15 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         var notation = dependency.notation
         val expression = when {
             notation.startsWith("//") -> {
-                val path = notation.removePrefix("//").trimEnd('/')
+                val path = ModulePath.parse(notation)
                 val target = project.modules.firstOrNull { it.path == path }
                     ?: throw ConversionException("${module.displayName}: unknown module '$notation'")
                 "project(${quote(target.gradlePath)})"
             }
             notation.startsWith("./") || notation.startsWith("../") -> {
-                val targetDir = (module.directory / notation).toString()
-                val target = project.modules.firstOrNull { it.directory.toString() == targetDir }
-                    ?: project.modules.firstOrNull { fileSystem.canonicalize(it.directory) == fileSystem.canonicalize(module.directory / notation) }
+                val targetDirectory = (module.directory / notation).normalized()
+                val target = project.modules.firstOrNull { it.directory == targetDirectory }
+                    ?: project.modules.firstOrNull { fileSystem.canonicalize(it.directory) == fileSystem.canonicalize(targetDirectory) }
                     ?: throw ConversionException("${module.displayName}: unknown module '$notation'")
                 "project(${quote(target.gradlePath)})"
             }
