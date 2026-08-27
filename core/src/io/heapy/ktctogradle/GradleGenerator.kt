@@ -9,15 +9,13 @@ import okio.Path
 internal data class GeneratedFile(val path: Path, val content: String)
 
 internal class GradleGenerator {
-    private val diagnostics = mutableListOf<Diagnostic>()
-
-    fun generate(project: ToolchainProject): Pair<List<GeneratedFile>, List<Diagnostic>> {
-        diagnostics.clear()
+    fun generate(project: ToolchainProject): GenerationResult {
+        val diagnostics = DiagnosticCollector()
         val files = mutableListOf<GeneratedFile>()
         files += GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project))
         val rootModule = project.modules.firstOrNull { it.path.isRoot }
         val subprojects = project.modules.filterNot { it.path.isRoot }
-        val versions = resolvePluginVersions(project)
+        val versions = resolvePluginVersions(project, diagnostics)
         val rootOwnIds = rootModule?.let { pluginsOf(it).map(PluginRef::id) }.orEmpty().toSet()
         val inherited = subprojects
             .flatMap { pluginsOf(it) }
@@ -27,16 +25,16 @@ internal class GradleGenerator {
         val subprojectContext = PluginContext(declareVersions = false, versions = versions, inherited = emptyList())
         files += GeneratedFile(
             project.root / "build.gradle.kts",
-            rootModule?.let { renderModule(project, it, rootContext) } ?: rootBuildFile(rootContext),
+            rootModule?.let { renderModule(project, it, rootContext, diagnostics) } ?: rootBuildFile(rootContext),
         )
         for (module in subprojects) {
-            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module, subprojectContext))
+            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module, subprojectContext, diagnostics))
         }
         files += GeneratedFile(project.root / "gradlew", StaticAssets.unixGradleLauncher())
         files += GeneratedFile(project.root / "gradlew.bat", StaticAssets.windowsGradleLauncher())
         files += GeneratedFile(project.root / "gradle" / "wrapper" / "gradle-wrapper.properties", StaticAssets.wrapperProperties())
         files += GeneratedFile(project.root / "gradle.properties", StaticAssets.generatedGradleProperties())
-        return files to diagnostics.toList()
+        return GenerationResult(files, diagnostics.drain())
     }
 
     private fun renderSettings(project: ToolchainProject): String = writeKts {
@@ -72,14 +70,19 @@ internal class GradleGenerator {
 
     private fun writeKts(body: KtsWriter.() -> Unit): String = KtsWriter().apply(body).build()
 
-    private fun renderModule(project: ToolchainProject, module: ToolchainModule, context: PluginContext): String {
+    private fun renderModule(
+        project: ToolchainProject,
+        module: ToolchainModule,
+        context: PluginContext,
+        diagnostics: DiagnosticCollector,
+    ): String {
         rejectUnsupported(module)
         val product = product(module.config)
         return when (product.type) {
-            "jvm/app", "jvm/lib" -> renderJvmModule(project, module, product, context)
-            "android/app" -> renderAndroidModule(project, module, context)
+            "jvm/app", "jvm/lib" -> renderJvmModule(project, module, product, context, diagnostics)
+            "android/app" -> renderAndroidModule(project, module, context, diagnostics)
             "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(project, module, product, context)
+            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(project, module, product, context, diagnostics)
             "ios/app" -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
@@ -95,6 +98,7 @@ internal class GradleGenerator {
         module: ToolchainModule,
         product: Product,
         context: PluginContext,
+        diagnostics: DiagnosticCollector,
     ): String {
         val config = module.config
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
@@ -123,7 +127,7 @@ internal class GradleGenerator {
                 appendCompilerOptions(
                     config,
                     jvmTarget = release,
-                    extraLines = singlePlatformQualifiedLines(module, "jvm"),
+                    extraLines = singlePlatformQualifiedLines(module, "jvm", diagnostics),
                 )
             }
             blank()
@@ -159,8 +163,7 @@ internal class GradleGenerator {
             }
             if (product.type == "jvm/app") {
                 if (mainClass == null) {
-                    diagnostics += Diagnostic(
-                        Diagnostic.Severity.WARNING,
+                    diagnostics.warn(
                         "${module.displayName}: could not infer a main class; set settings.jvm.mainClass or application.mainClass",
                     )
                 } else {
@@ -173,12 +176,16 @@ internal class GradleGenerator {
         }
     }
 
-    private fun renderAndroidModule(project: ToolchainProject, module: ToolchainModule, context: PluginContext): String {
+    private fun renderAndroidModule(
+        project: ToolchainProject,
+        module: ToolchainModule,
+        context: PluginContext,
+        diagnostics: DiagnosticCollector,
+    ): String {
         val config = module.config
         val pinnedKotlinVersion = config.string("settings.kotlin.version")
         if (pinnedKotlinVersion != null) {
-            diagnostics += Diagnostic(
-                Diagnostic.Severity.WARNING,
+            diagnostics.warn(
                 "${module.displayName}: settings.kotlin.version '$pinnedKotlinVersion' does not select the Kotlin " +
                     "compiler for an Android module; the Android Gradle Plugin ${Versions.ANDROID_GRADLE_PLUGIN} " +
                     "supplies its own Kotlin",
@@ -233,7 +240,7 @@ internal class GradleGenerator {
                 appendCompilerOptions(
                     config,
                     jvmTarget = release,
-                    extraLines = singlePlatformQualifiedLines(module, "android"),
+                    extraLines = singlePlatformQualifiedLines(module, "android", diagnostics),
                 )
             }
             blank()
@@ -252,6 +259,7 @@ internal class GradleGenerator {
         module: ToolchainModule,
         product: Product,
         context: PluginContext,
+        diagnostics: DiagnosticCollector,
     ): String {
         val config = module.config
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
@@ -274,9 +282,16 @@ internal class GradleGenerator {
             appendRepositories(config)
             blank()
             block("kotlin") {
-                val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms })
+                val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms }, diagnostics)
                 for (platform in product.platforms) {
-                    appendTarget(platform, product.type, config, module, qualifiedCompilerOptionLines(qualified.byPlatform[platform]))
+                    appendTarget(
+                        platform,
+                        product.type,
+                        config,
+                        module,
+                        qualifiedCompilerOptionLines(qualified.byPlatform[platform]),
+                        diagnostics,
+                    )
                 }
                 if ("jvm" in product.platforms) {
                     line("jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
@@ -315,6 +330,7 @@ internal class GradleGenerator {
         config: Value.Mapping,
         module: ToolchainModule,
         qualifiedOptions: List<String>,
+        diagnostics: DiagnosticCollector,
     ) {
         val executable = productType.endsWith("/app")
         when (platform) {
@@ -330,7 +346,7 @@ internal class GradleGenerator {
                     }
                 }
             }
-            "android" -> appendAndroidLibraryTarget(config, module, qualifiedOptions)
+            "android" -> appendAndroidLibraryTarget(config, module, qualifiedOptions, diagnostics)
             "js" -> appendBrowserTarget("js(IR)", executable, qualifiedOptions)
             "wasmJs" -> appendBrowserTarget("wasmJs", executable, qualifiedOptions)
             "wasmWasi" -> {
@@ -386,12 +402,10 @@ internal class GradleGenerator {
         config: Value.Mapping,
         module: ToolchainModule,
         qualifiedOptions: List<String>,
+        diagnostics: DiagnosticCollector,
     ) {
         val namespace = config.string("settings.android.namespace") ?: derivedAndroidNamespace(module).also {
-            diagnostics += Diagnostic(
-                Diagnostic.Severity.WARNING,
-                "${module.displayName}: settings.android.namespace is not set; using '$it'",
-            )
+            diagnostics.warn("${module.displayName}: settings.android.namespace is not set; using '$it'")
         }
         block("androidLibrary") {
             line("namespace = ${quote(namespace)}")
@@ -899,7 +913,7 @@ internal class GradleGenerator {
      * module, and the Kotlin plugins only work together when their versions match, so the whole
      * family has to agree. The Android Gradle Plugin carries the same rule across modules.
      */
-    private fun resolvePluginVersions(project: ToolchainProject): Map<String, String> {
+    private fun resolvePluginVersions(project: ToolchainProject, diagnostics: DiagnosticCollector): Map<String, String> {
         val refs = project.modules.flatMap { pluginsOf(it) }
         val resolved = mutableMapOf<String, String>()
         for ((family, familyRefs) in refs.groupBy(PluginRef::family)) {
@@ -908,8 +922,7 @@ internal class GradleGenerator {
                 .ifEmpty { requested }
             val chosen = candidates.maxWithOrNull(versionOrder) ?: continue
             if (requested.size > 1) {
-                diagnostics += Diagnostic(
-                    Diagnostic.Severity.WARNING,
+                diagnostics.warn(
                     "The $family plugin is requested at more than one version " +
                         "(${requested.sorted().joinToString(", ")}); Gradle loads it once for the whole " +
                         "build, so the generated build uses $chosen for every module",
@@ -974,36 +987,28 @@ internal class GradleGenerator {
     private fun qualifiedSettings(
         module: ToolchainModule,
         fragmentOrder: List<Pair<String, Set<String>>>,
+        diagnostics: DiagnosticCollector,
     ): QualifiedSettings {
         val rank = fragmentOrder.withIndex().associate { (index, entry) -> entry.first to index }
         val platformsOf = fragmentOrder.toMap()
         val sections = mutableListOf<Triple<Int, Set<String>, Value.Mapping>>()
         for ((key, value) in module.config.entries) {
             if (key.startsWith("test-settings@")) {
-                diagnostics += Diagnostic(
-                    Diagnostic.Severity.WARNING,
-                    "${module.displayName}: '$key' is not supported by the converter and was dropped",
-                )
+                diagnostics.warn("${module.displayName}: '$key' is not supported by the converter and was dropped")
                 continue
             }
             if (!key.startsWith("settings@")) continue
             val qualifier = key.removePrefix("settings@")
             val platforms = platformsOf[qualifier]
             if (platforms == null) {
-                diagnostics += Diagnostic(
-                    Diagnostic.Severity.WARNING,
-                    "${module.displayName}: '$key' names no platform of this module and was dropped",
-                )
+                diagnostics.warn("${module.displayName}: '$key' names no platform of this module and was dropped")
                 continue
             }
             if (value !is Value.Mapping) {
-                diagnostics += Diagnostic(
-                    Diagnostic.Severity.WARNING,
-                    "${module.displayName}: '$key' must be an object and was dropped",
-                )
+                diagnostics.warn("${module.displayName}: '$key' must be an object and was dropped")
                 continue
             }
-            validateQualifiedSettings(module, qualifier, value)
+            validateQualifiedSettings(module, qualifier, value, diagnostics)
             sections += Triple(rank.getValue(qualifier), platforms, value)
         }
         sections.sortBy { (index, _, _) -> index }
@@ -1023,12 +1028,14 @@ internal class GradleGenerator {
     }
 
     /** Reports every key of a qualified section the converter cannot carry into the Gradle build. */
-    private fun validateQualifiedSettings(module: ToolchainModule, qualifier: String, settings: Value.Mapping) {
+    private fun validateQualifiedSettings(
+        module: ToolchainModule,
+        qualifier: String,
+        settings: Value.Mapping,
+        diagnostics: DiagnosticCollector,
+    ) {
         fun drop(path: String, reason: String = "is not supported by the converter") {
-            diagnostics += Diagnostic(
-                Diagnostic.Severity.WARNING,
-                "${module.displayName}: 'settings@$qualifier.$path' $reason and was dropped",
-            )
+            diagnostics.warn("${module.displayName}: 'settings@$qualifier.$path' $reason and was dropped")
         }
         for ((section, value) in settings.entries) {
             if (section != "kotlin") {
@@ -1087,8 +1094,12 @@ internal class GradleGenerator {
     }
 
     /** The compilerOptions lines of a single-platform product, module-wide and qualified together. */
-    private fun singlePlatformQualifiedLines(module: ToolchainModule, platform: String): List<String> {
-        val qualified = qualifiedSettings(module, listOf("common" to setOf(platform), platform to setOf(platform)))
+    private fun singlePlatformQualifiedLines(
+        module: ToolchainModule,
+        platform: String,
+        diagnostics: DiagnosticCollector,
+    ): List<String> {
+        val qualified = qualifiedSettings(module, listOf("common" to setOf(platform), platform to setOf(platform)), diagnostics)
         val merged = listOfNotNull(qualified.common, qualified.byPlatform[platform])
             .reduceOrNull { lower, higher -> mergeValues(lower, higher) as Value.Mapping }
         return qualifiedCompilerOptionLines(merged)

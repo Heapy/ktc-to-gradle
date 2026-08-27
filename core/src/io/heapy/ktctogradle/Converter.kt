@@ -13,10 +13,8 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
     internal fun generateFiles(start: Path): GenerationResult =
         generateFiles(ProjectLoader(fileSystem).load(start))
 
-    private fun generateFiles(project: ToolchainProject): GenerationResult {
-        val (files, diagnostics) = GradleGenerator().generate(project)
-        return GenerationResult(files, diagnostics)
-    }
+    private fun generateFiles(project: ToolchainProject): GenerationResult =
+        GradleGenerator().generate(project)
 
     fun convert(start: Path, force: Boolean = false, dryRun: Boolean = false): ConversionResult {
         val project = ProjectLoader(fileSystem).load(start)
