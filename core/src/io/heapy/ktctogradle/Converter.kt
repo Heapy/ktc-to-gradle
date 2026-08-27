@@ -50,7 +50,14 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
  */
 internal fun generateBuild(project: ToolchainProject): GenerationResult {
     val diagnostics = DiagnosticCollector()
-    val gradle = ProjectInterpreter.interpret(project, diagnostics)
+    // A failure discards the collector with the stage that owned it, so what was already reported
+    // travels on the failure instead: an error recorded for one module must not disappear because a
+    // later module stopped the run.
+    val gradle = try {
+        ProjectInterpreter.interpret(project, diagnostics)
+    } catch (failure: ConversionException) {
+        throw ConversionException(failure.message.orEmpty(), diagnostics.collected())
+    }
     return GenerationResult(renderProject(gradle), diagnostics.collected())
 }
 

@@ -10,10 +10,15 @@ import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.raiseDeferred
+import io.heapy.ktctogradle.model.AndroidBuild
+import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.GradleProject
+import io.heapy.ktctogradle.model.JvmBuild
+import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.ModuleBuild
+import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
 
 /**
@@ -24,7 +29,9 @@ import io.heapy.ktctogradle.model.PluginDecl
  * conversion needs to know about the tree already reached it as [ToolchainModule] data.
  *
  * The order the modules are visited in is the order the diagnostics come out in, so it is fixed:
- * the project-wide plugin versions first, then the root module, then the subprojects.
+ * the project-wide plugin versions first, then the root module, then the subprojects. The dangling
+ * references left behind by a skipped module are reported last, because they can only be known once
+ * every module has been visited.
  */
 internal object ProjectInterpreter {
     fun interpret(project: ToolchainProject, diagnostics: DiagnosticCollector): GradleProject {
@@ -37,18 +44,19 @@ internal object ProjectInterpreter {
             subprojects = subprojects.map(ToolchainModule::model),
             versions = versions,
         )
+        val skipped = mutableListOf<ToolchainModule>()
         val modules = buildList {
-            add(
-                rootModule?.let { module ->
-                    val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = true)
-                    interpretModule(index, module, plugins + inherited, diagnostics)
-                } ?: rootShell(project, inherited),
-            )
+            val interpretedRoot = rootModule?.let { module ->
+                val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = true)
+                interpretModule(index, module, plugins + inherited, diagnostics, skipped)
+            }
+            add(interpretedRoot ?: rootShell(project, inherited))
             for (module in subprojects) {
                 val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = false)
-                add(interpretModule(index, module, plugins, diagnostics))
+                interpretModule(index, module, plugins, diagnostics, skipped)?.let(::add)
             }
         }
+        reportDanglingDependencies(modules, project.modules, skipped, diagnostics)
         return GradleProject(
             root = project.root,
             name = project.name,
@@ -60,7 +68,9 @@ internal object ProjectInterpreter {
     /**
      * The root of a project that has no module of its own.
      *
-     * It builds nothing, and exists only to hold the plugins its subprojects inherit.
+     * It builds nothing, and exists only to hold the plugins its subprojects inherit. A root module
+     * the conversion skipped lands here too: the build still needs a root to declare the plugin
+     * versions its subprojects inherit.
      */
     private fun rootShell(project: ToolchainProject, inherited: List<PluginDecl>): GradleModule = GradleModule(
         gradlePath = ":",
@@ -71,13 +81,19 @@ internal object ProjectInterpreter {
         build = null,
     )
 
+    /**
+     * Interprets one module, or returns `null` for one the conversion has to leave out.
+     *
+     * A skipped module is appended to [skipped] so the caller can report what still points at it.
+     */
     private fun interpretModule(
         index: ModuleIndex,
         module: ToolchainModule,
         plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
-    ): GradleModule {
-        rejectUnsupported(module)
+        skipped: MutableList<ToolchainModule>,
+    ): GradleModule? {
+        reportUnsupportedKeys(module, diagnostics)
         val product = requireProduct(module)
         // The product is dispatched on before anything else about the module is read, because the
         // refusals below are a documented promise: a user converting an ios/app is told iOS is out
@@ -91,9 +107,16 @@ internal object ProjectInterpreter {
             ProductType.IOS_APP -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
-            ProductType.JVM_AMPER_PLUGIN -> throw ConversionException(
-                "${module.displayName}: Kotlin Toolchain build plugins have no automatic Gradle equivalent",
-            )
+            // A build plugin is the one product the rest of the project can be converted without,
+            // so it is skipped rather than refused: every other module still gets its files.
+            ProductType.JVM_AMPER_PLUGIN -> {
+                skipped += module
+                diagnostics.error(
+                    "${module.displayName}: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                )
+                return null
+            }
             else -> throw ConversionException("${module.displayName}: unsupported product '${product.type}'")
         }
         // Repositories are read before the build is interpreted for every supported product family,
@@ -115,16 +138,68 @@ internal object ProjectInterpreter {
     }
 
     /**
-     * Refuses the keys the converter has no Gradle equivalent for.
+     * Reports the keys the converter has no Gradle equivalent for.
+     *
+     * `plugins:` and `mavenPlugins:` name build plugins, which the module compiles without: the
+     * section is dropped, an error is recorded, and the module is still converted. Everything else
+     * is a `settings.` subtree the generated build would silently disagree with, so it still stops
+     * the conversion.
      *
      * Runs before the product type is read, so a module that declares `plugins:` and an unsupported
-     * product at the same time is told about `plugins:` — the key it can actually do something about.
+     * product at the same time reports `plugins:` first — the key it can actually do something
+     * about — and only then refuses the product.
      */
-    private fun rejectUnsupported(module: ToolchainModule) {
-        val rejected = module.model.unsupported.firstOrNull() ?: return
-        val reason = if (rejected in TOP_LEVEL_KEYS) "cannot be converted automatically" else "is not supported yet"
-        throw ConversionException("${module.displayName}: '$rejected' $reason")
+    private fun reportUnsupportedKeys(module: ToolchainModule, diagnostics: DiagnosticCollector) {
+        for (rejected in module.model.unsupported) {
+            if (rejected in TOP_LEVEL_KEYS) {
+                diagnostics.error(
+                    "${module.displayName}: '$rejected' cannot be converted automatically; " +
+                        "the section was dropped and needs a hand-written Gradle equivalent",
+                )
+            } else {
+                throw ConversionException("${module.displayName}: '$rejected' is not supported yet")
+            }
+        }
     }
+
+    /**
+     * Reports every `project(...)` reference left pointing at a module the conversion skipped.
+     *
+     * The generated `settings.gradle.kts` cannot include a module that was never rendered, so such a
+     * reference would fail the Gradle build. Naming it here keeps the run honest about what the user
+     * has to fix by hand.
+     *
+     * It reads the interpreted build rather than the declared sections, because only the interpreted
+     * build says what the module actually emits: a `bom:` entry becomes a reference too, and a
+     * qualified section this product never reads becomes nothing at all.
+     */
+    private fun reportDanglingDependencies(
+        modules: List<GradleModule>,
+        declared: List<ToolchainModule>,
+        skipped: List<ToolchainModule>,
+        diagnostics: DiagnosticCollector,
+    ) {
+        if (skipped.isEmpty()) return
+        val names = declared.associate { it.gradlePath to it.displayName }
+        val skippedNames = skipped.associate { it.gradlePath to it.displayName }
+        for (module in modules) {
+            val build = module.build ?: continue
+            for (gradlePath in projectDependenciesOf(build).distinct()) {
+                val skippedName = skippedNames[gradlePath] ?: continue
+                diagnostics.error(
+                    "${names[module.gradlePath]} depends on '$skippedName', " +
+                        "which was left out of the generated build",
+                )
+            }
+        }
+    }
+
+    /** Every module a build points at with `project(...)`, in the order it emits them. */
+    private fun projectDependenciesOf(build: ModuleBuild): List<String> = when (build) {
+        is JvmBuild -> build.dependencies + build.testDependencies
+        is AndroidBuild -> build.dependencies + build.testDependencies
+        is MultiplatformBuild -> build.sourceSets.flatMap(KmpSourceSet::dependencies)
+    }.mapNotNull { dependency -> (dependency.target as? DependencyTarget.Project)?.gradlePath }
 
     /**
      * Reads the product the module declares, raising the failure the binder deferred for it first.
@@ -138,6 +213,6 @@ internal object ProjectInterpreter {
         return module.model.product
     }
 
-    /** The rejected keys that are not `settings.` paths; those are phrased differently. */
+    /** The rejected keys that name build plugins; the rest are `settings.` paths the run stops on. */
     private val TOP_LEVEL_KEYS = YamlBinder.UNSUPPORTED_KEYS.toSet()
 }

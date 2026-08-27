@@ -244,25 +244,34 @@ new stop is a separate finding.
 
 ## Case 6 — kotgent, harmon, kotbusta: build plugins
 
-All three use local Toolchain build plugins, which the converter refuses by design.
+All three use local Toolchain build plugins, which have no automatic Gradle equivalent. The
+conversion no longer stops: every other module is converted, and what could not be converted is
+reported as an `error:` line. The run still exits 1, so a partial conversion is never a success.
 
 ```shell
-./kotlin run -m macos -- --dry-run "$SCRATCH/kotgent"    # kotgent: 'plugins' cannot be converted automatically
-./kotlin run -m macos -- --dry-run "$SCRATCH/harmon"     # history-sqlite: 'plugins' cannot be converted automatically
-./kotlin run -m macos -- --dry-run "$SCRATCH/kotbusta"   # kotbusta: 'plugins' cannot be converted automatically
+./kotlin run -m macos -- --dry-run "$SCRATCH/kotgent"
+./kotlin run -m macos -- --dry-run "$SCRATCH/harmon"
+./kotlin run -m macos -- --dry-run "$SCRATCH/kotbusta"
 ```
 
-The three differ in a way worth checking:
+Expect files for every non-plugin module, plus:
 
-- **kotgent** names the root module. Its `project.yaml` also has a project-level `plugins:` list,
-  which the converter never inspects.
-- **harmon** names `history-sqlite`, a leaf module, not the root. The root `module.yaml` has no
-  `plugins` key, so the message points at a different module than a user would expect.
-- **kotbusta** stops on `plugins` and never reports `mavenPlugins`, which it also uses. Only the
-  first unsupported key of the first offending module is ever named.
+```text
+error: kotgent: 'plugins' cannot be converted automatically; the section was dropped and needs a hand-written Gradle equivalent
+error: plugins/build-info: Kotlin Toolchain build plugins have no automatic Gradle equivalent; the module was left out of the generated build
+error: plugins/sqldelight-gen: Kotlin Toolchain build plugins have no automatic Gradle equivalent; the module was left out of the generated build
+```
 
-For each, decide whether the message would let a user act. A conversion that stops after listing
-every blocker in every module would be a better product than one that stops at the first.
+The three still differ in a way worth checking:
+
+- **kotgent** reports its root module and both plugin modules. Its `project.yaml` also has a
+  project-level `plugins:` list, which the converter never inspects.
+- **harmon** reports `history-sqlite`, a leaf module, plus `plugins/sqldelight-gen`.
+- **kotbusta** reports `plugins` and `mavenPlugins` on the same module, and
+  `build-logic/distribution`. Every unsupported key of every module is now named, not just the first.
+
+For each, check that the reported set matches what the project actually uses, and that a generated
+module still references nothing that was left out.
 
 ## Record what you find
 

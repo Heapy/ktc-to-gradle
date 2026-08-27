@@ -27,7 +27,13 @@ fun runCli(args: Array<String>) {
             println("${diagnostic.severity.name.lowercase()}: ${diagnostic.message}")
         }
         if (result.writtenFiles.isEmpty()) println("Gradle files are already up to date.")
+        // A run that dropped part of the project still writes what it could, and must not report
+        // that as a success: the exit code is the only thing a script reads.
+        if (result.diagnostics.any { it.severity == Diagnostic.Severity.ERROR }) exitWith(1)
     } catch (error: ConversionException) {
+        error.diagnostics.forEach { diagnostic ->
+            println("${diagnostic.severity.name.lowercase()}: ${diagnostic.message}")
+        }
         println("ktc-to-gradle: ${error.message}")
         exitWith(1)
     } catch (error: Exception) {

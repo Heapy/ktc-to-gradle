@@ -139,15 +139,132 @@ class ProjectInterpreterTest {
         )
     }
 
+    /**
+     * A build plugin is the one product the rest of the project can be converted without, so it is
+     * left out instead of failing the run: every other module still gets its build script.
+     */
     @Test
-    fun aToolchainBuildPluginIsRefusedWithItsOwnExplanation() {
-        val failure = assertFailsWith<ConversionException> {
-            interpret(project(module("plugin", "product: jvm/amper-plugin\n")))
-        }
+    fun aToolchainBuildPluginIsLeftOutAndEveryOtherModuleIsStillConverted() {
+        val diagnostics = DiagnosticCollector()
+        val project = ProjectInterpreter.interpret(
+            project(
+                module("app", "product: jvm/app\nsettings:\n  jvm:\n    mainClass: app.MainKt\n"),
+                module("plugin", "product: jvm/amper-plugin\n"),
+            ),
+            diagnostics,
+        )
+
+        assertEquals(listOf(":", ":app"), project.modules.map(GradleModule::gradlePath))
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "plugin: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /** The root module is skipped like any other, and the build keeps the root the plugins need. */
+    @Test
+    fun aToolchainBuildPluginAtTheRootLeavesTheRootShellBehind() {
+        val diagnostics = DiagnosticCollector()
+        val project = ProjectInterpreter.interpret(
+            project(
+                module("", "product: jvm/amper-plugin\n"),
+                module("app", "product: jvm/lib\n"),
+            ),
+            diagnostics,
+        )
+
+        val root = project.modules.first()
+        assertEquals(listOf(":", ":app"), project.modules.map(GradleModule::gradlePath))
+        assertNull(root.build, "A skipped root module builds nothing")
+        assertEquals(
+            listOf(
+                PluginDecl(GradlePlugin.Builtin.BASE, version = null),
+                PluginDecl(GradlePlugin.Kotlin.JVM, version = Versions.KOTLIN, apply = false),
+            ),
+            root.plugins,
+            "The root still declares the plugin versions its subprojects inherit",
+        )
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "workspace: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /**
+     * The generated `settings.gradle.kts` cannot include a module that was never rendered, so a
+     * dependency still pointing at one is named rather than left to fail the Gradle build.
+     *
+     * A `bom:` entry counts: it renders as `platform(project(...))` and breaks the build the same
+     * way.
+     */
+    @Test
+    fun aDependencyOnASkippedModuleIsReported() {
+        val diagnostics = DiagnosticCollector()
+        ProjectInterpreter.interpret(
+            project(
+                module(
+                    "app",
+                    "product: jvm/lib\ndependencies:\n  - //plugin\n  - bom: //plugin\n" +
+                        "test-dependencies:\n  - //plugin\n",
+                ),
+                module("plugin", "product: jvm/amper-plugin\n"),
+            ),
+            diagnostics,
+        )
 
         assertEquals(
-            "plugin: Kotlin Toolchain build plugins have no automatic Gradle equivalent",
-            failure.message,
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "plugin: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                ),
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "app depends on 'plugin', which was left out of the generated build",
+                ),
+            ),
+            diagnostics.collected(),
+            "One reference is reported once, however many sections repeat it",
+        )
+    }
+
+    /**
+     * The report reads the interpreted build, not the declared sections, so a qualifier this
+     * product never reads contributes no reference and is not reported as one.
+     */
+    @Test
+    fun aDependencyASkippedModuleOnlyAppearsUnderAnUnreadQualifierIsNotReported() {
+        val diagnostics = DiagnosticCollector()
+        ProjectInterpreter.interpret(
+            project(
+                module("app", "product: jvm/lib\ndependencies@js:\n  - //plugin\n"),
+                module("plugin", "product: jvm/amper-plugin\n"),
+            ),
+            diagnostics,
+        )
+
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "plugin: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                ),
+            ),
+            diagnostics.collected(),
         )
     }
 
@@ -185,27 +302,91 @@ class ProjectInterpreterTest {
             failureOf("product: ios/app"),
         )
         assertEquals(
-            "app: Kotlin Toolchain build plugins have no automatic Gradle equivalent",
-            failureOf("product: jvm/amper-plugin"),
-        )
-        assertEquals(
             "app: unsupported product 'fortran/app'",
             failureOf("product:\n  type: fortran/app\n  platforms: [jvm]"),
         )
     }
 
-    /** `plugins:` stays ahead of the product refusal, which in turn stays ahead of the repositories. */
+    /** A skipped product is dispatched on ahead of the repositories too, so nothing raises them. */
     @Test
-    fun anUnsupportedKeyIsReportedBeforeTheProductRefusalAndItsRepositories() {
+    fun aSkippedProductIsLeftOutBeforeItsRepositoriesAreRead() {
+        val diagnostics = DiagnosticCollector()
+        val project = ProjectInterpreter.interpret(
+            project(module("app", "product: jvm/amper-plugin\n$MALFORMED_REPOSITORIES")),
+            diagnostics,
+        )
+
+        assertEquals(listOf(":"), project.modules.map(GradleModule::gradlePath))
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "app: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                        "the module was left out of the generated build",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /**
+     * `plugins:` is recorded before the product is even dispatched on, so a module that carries
+     * both still reports the dropped section — and the product refusal then stops the run.
+     */
+    @Test
+    fun anUnsupportedKeyIsRecordedBeforeTheProductRefusalAndItsRepositories() {
+        val diagnostics = DiagnosticCollector()
         val failure = assertFailsWith<ConversionException> {
-            interpret(
+            ProjectInterpreter.interpret(
                 project(
                     module("app", "product: ios/app\nplugins:\n  - ./build-plugin\n$MALFORMED_REPOSITORIES"),
                 ),
+                diagnostics,
             )
         }
 
-        assertEquals("app: 'plugins' cannot be converted automatically", failure.message)
+        assertEquals(
+            "app: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
+            failure.message,
+        )
+        assertEquals(listOf(Diagnostic(Diagnostic.Severity.ERROR, DROPPED_PLUGINS)), diagnostics.collected())
+    }
+
+    /**
+     * A `plugins:` section names build plugins the module compiles without, so the section is
+     * dropped with an error and the module is still converted.
+     */
+    @Test
+    fun aModuleThatDeclaresPluginsIsStillConverted() {
+        val diagnostics = DiagnosticCollector()
+        val project = ProjectInterpreter.interpret(
+            project(module("app", "product: jvm/lib\nplugins:\n  - ./build-plugin\n")),
+            diagnostics,
+        )
+
+        assertEquals(listOf(":", ":app"), project.modules.map(GradleModule::gradlePath))
+        assertEquals(listOf(Diagnostic(Diagnostic.Severity.ERROR, DROPPED_PLUGINS)), diagnostics.collected())
+    }
+
+    @Test
+    fun aModuleThatDeclaresMavenPluginsIsStillConverted() {
+        val diagnostics = DiagnosticCollector()
+        val project = ProjectInterpreter.interpret(
+            project(module("app", "product: jvm/lib\nmavenPlugins:\n  - org.jacoco:jacoco-maven-plugin:0.8.14\n")),
+            diagnostics,
+        )
+
+        assertEquals(listOf(":", ":app"), project.modules.map(GradleModule::gradlePath))
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.ERROR,
+                    "app: 'mavenPlugins' cannot be converted automatically; " +
+                        "the section was dropped and needs a hand-written Gradle equivalent",
+                ),
+            ),
+            diagnostics.collected(),
+        )
     }
 
     /** A type with no platforms of its own is rejected while the product itself is being read. */
@@ -219,17 +400,21 @@ class ProjectInterpreterTest {
     }
 
     /**
-     * A `plugins:` section is something the author can act on; an unsupported product usually is
-     * not. Reading the unsupported keys before the product type is what keeps the actionable message
-     * in front.
+     * A `plugins:` section is something the author can act on, so it is recorded before the product
+     * type is read: a module whose product then fails the run still reports the dropped section.
      */
     @Test
-    fun anUnsupportedKeyIsReportedBeforeTheProductTypeIsEvenRead() {
+    fun anUnsupportedKeyIsRecordedBeforeTheProductTypeIsEvenRead() {
+        val diagnostics = DiagnosticCollector()
         val failure = assertFailsWith<ConversionException> {
-            interpret(project(module("app", "product: fortran/app\nplugins:\n  - ./build-plugin\n")))
+            ProjectInterpreter.interpret(
+                project(module("app", "product: fortran/app\nplugins:\n  - ./build-plugin\n")),
+                diagnostics,
+            )
         }
 
-        assertEquals("app: 'plugins' cannot be converted automatically", failure.message)
+        assertEquals("Unsupported product type 'fortran/app'", failure.message)
+        assertEquals(listOf(Diagnostic(Diagnostic.Severity.ERROR, DROPPED_PLUGINS)), diagnostics.collected())
     }
 
     @Test
@@ -307,5 +492,9 @@ class ProjectInterpreterTest {
 
         /** A repository with no `url`, which the binder defers and `Repositories` raises. */
         private const val MALFORMED_REPOSITORIES = "repositories:\n  - id: internal\n"
+
+        private const val DROPPED_PLUGINS =
+            "app: 'plugins' cannot be converted automatically; " +
+                "the section was dropped and needs a hand-written Gradle equivalent"
     }
 }

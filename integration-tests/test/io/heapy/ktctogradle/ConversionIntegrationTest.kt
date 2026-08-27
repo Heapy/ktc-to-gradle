@@ -50,6 +50,43 @@ class ConversionIntegrationTest {
         }
     }
 
+    /**
+     * A `jvm/amper-plugin` module used to abort the whole run, so a project carrying one got no
+     * files at all. It is now left out and named, and the rest of the project still builds.
+     */
+    @Test
+    fun aProjectWithAPluginModuleConvertsAndBuildsWithoutIt() {
+        val source = projectRoot().resolve("integration-tests/fixtures/plugin-module")
+        val destination = Files.createTempDirectory("ktc-to-gradle-plugin-module-")
+        copyRecursively(source, destination)
+
+        val result = Converter().convert(destination.absolutePathString().toPath())
+
+        assertEquals(
+            listOf(
+                "app: 'plugins' cannot be converted automatically; " +
+                    "the section was dropped and needs a hand-written Gradle equivalent",
+                "build-logic/greeting: Kotlin Toolchain build plugins have no automatic Gradle equivalent; " +
+                    "the module was left out of the generated build",
+            ),
+            result.diagnostics.filter { it.severity == Diagnostic.Severity.ERROR }.map(Diagnostic::message),
+        )
+        assertTrue(
+            Files.notExists(destination.resolve("build-logic/greeting/build.gradle.kts")),
+            "The skipped module must not get a build script",
+        )
+        assertTrue(result.writtenFiles.contains("app/build.gradle.kts"))
+        assertTrue(result.writtenFiles.contains("libs/messages/build.gradle.kts"))
+
+        val processBuilder = ProcessBuilder(gradleCommand(destination))
+            .directory(destination.toFile())
+            .redirectErrorStream(true)
+        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
+        val process = processBuilder.start()
+        val output = process.inputStream.bufferedReader().readText()
+        assertEquals(0, process.waitFor(), "Converted fixture 'plugin-module' failed:\n$output")
+    }
+
     @Test
     fun generatedCredentialRepositoryDslConfigures() {
         val destination = Files.createTempDirectory("ktc-to-gradle-repository-dsl-")

@@ -1,0 +1,2 @@
+ERROR: app: 'plugins' cannot be converted automatically; the section was dropped and needs a hand-written Gradle equivalent
+ERROR: build-logic/greeting: Kotlin Toolchain build plugins have no automatic Gradle equivalent; the module was left out of the generated build

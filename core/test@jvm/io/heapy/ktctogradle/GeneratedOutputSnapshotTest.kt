@@ -67,6 +67,15 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun rootModuleWithSubprojects() = assertCase("root-module-with-subprojects")
 
+    /**
+     * A project with a `jvm/amper-plugin` module and a module that enables it.
+     *
+     * The plugin module is left out of the build and the module that used it is still converted, so
+     * this case pins both halves of the degraded conversion: the files that survive and the errors
+     * that name what did not.
+     */
+    @Test fun pluginModule() = assertCase("plugin-module")
+
     @Test fun staticAssets() = assertCase("static-assets")
 
     private fun assertCase(case: String) {

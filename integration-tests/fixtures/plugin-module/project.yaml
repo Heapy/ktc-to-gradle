@@ -1,0 +1,7 @@
+modules:
+  - app
+  - build-logic/greeting
+  - libs/*
+
+plugins:
+  - ./build-logic/greeting
