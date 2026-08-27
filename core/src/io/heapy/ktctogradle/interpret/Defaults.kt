@@ -12,6 +12,8 @@ internal object Defaults {
     const val ANDROID_COMPILE_SDK = "37"
     const val ANDROID_MIN_SDK = "24"
     const val ANDROID_NAMESPACE_FALLBACK = "org.example.namespace"
+    const val ANDROID_VERSION_CODE = "1"
+    const val ANDROID_VERSION_NAME = "unspecified"
     const val KTOR = "3.5.2"
     const val SERIALIZATION = "1.11.0"
     const val JUNIT = "junit-5"

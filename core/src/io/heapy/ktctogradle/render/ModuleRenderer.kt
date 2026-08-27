@@ -1,5 +1,7 @@
 package io.heapy.ktctogradle.render
 
+import io.heapy.ktctogradle.model.AndroidBuild
+import io.heapy.ktctogradle.model.AndroidLibraryTarget
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
@@ -73,6 +75,85 @@ internal fun renderJvmModule(
         }
     }
 }.build()
+
+/**
+ * Spells an `android/app` module out as `build.gradle.kts`.
+ *
+ * The Android Gradle Plugin owns the source layout of the module, so the source-set directories are
+ * fixed text rather than model data.
+ */
+internal fun renderAndroidModule(
+    plugins: List<PluginDecl>,
+    repositories: List<Repository>,
+    credentialsImport: Boolean,
+    build: AndroidBuild,
+    qualifiedCompilerOptions: List<String>,
+): String = KtsWriter().apply {
+    line(StaticAssets.header())
+    appendCredentialsImport(credentialsImport)
+    appendPluginBlock(plugins)
+    blank()
+    appendRepositories(repositories)
+    blank()
+    block("android") {
+        line("namespace = ${quote(build.namespace)}")
+        line("compileSdk = ${build.compileSdk}")
+        block("defaultConfig") {
+            line("applicationId = ${quote(build.applicationId)}")
+            line("minSdk = ${build.minSdk}")
+            line("targetSdk = ${build.targetSdk}")
+            line("versionCode = ${build.versionCode}")
+            line("versionName = ${quote(build.versionName)}")
+        }
+        block("compileOptions") {
+            line("sourceCompatibility = JavaVersion.toVersion(${quote(build.release)})")
+            line("targetCompatibility = JavaVersion.toVersion(${quote(build.release)})")
+        }
+        block("sourceSets.named(\"main\")") {
+            line("kotlin.srcDirs(\"src\", \"src@android\")")
+            line("resources.srcDirs(\"resources\", \"resources@android\")")
+            line("manifest.srcFile(\"src/AndroidManifest.xml\")")
+        }
+        block("sourceSets.named(\"test\")") {
+            line("kotlin.srcDirs(\"test\", \"test@android\")")
+            line("resources.srcDirs(\"testResources\", \"testResources@android\")")
+        }
+    }
+    blank()
+    block("kotlin") {
+        appendCompilerOptions(build.compilerOptions, qualifiedCompilerOptions)
+    }
+    blank()
+    block("dependencies") {
+        appendDependencies(build.dependencies, test = false)
+        line("testImplementation(kotlin(${quote(build.testFramework.library)}))")
+        appendDependencies(build.testDependencies, test = true)
+    }
+}.build()
+
+/**
+ * The `androidLibrary { }` target of a multiplatform module.
+ *
+ * `withHostTestBuilder {}` is what registers the unit-test compilation; without it the
+ * `androidHostTest` source set the fragments create has nothing to compile into.
+ */
+internal fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: List<String>) {
+    block("androidLibrary") {
+        line("namespace = ${quote(target.namespace)}")
+        line("compileSdk = ${target.compileSdk}")
+        line("minSdk = ${target.minSdk}")
+        line("withHostTestBuilder {}.configure {}")
+        appendCompilerOptionsBlock(qualifiedOptions)
+    }
+}
+
+/** A `compilerOptions { }` body that is already rendered, as a qualified section reaches a target. */
+internal fun KtsWriter.appendCompilerOptionsBlock(lines: List<String>) {
+    if (lines.isEmpty()) return
+    block("compilerOptions") {
+        for (option in lines) line(option)
+    }
+}
 
 internal fun KtsWriter.appendPluginBlock(plugins: List<PluginDecl>) {
     block("plugins") {

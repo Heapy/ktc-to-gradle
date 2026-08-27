@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.interpret.AndroidInterpreter
 import io.heapy.ktctogradle.interpret.Defaults
 import io.heapy.ktctogradle.interpret.Dependencies
 import io.heapy.ktctogradle.interpret.JvmInterpreter
@@ -21,11 +22,14 @@ import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.render.KtsWriter
 import io.heapy.ktctogradle.render.StaticAssets
+import io.heapy.ktctogradle.render.appendAndroidLibraryTarget
+import io.heapy.ktctogradle.render.appendCompilerOptionsBlock
 import io.heapy.ktctogradle.render.appendCredentialsImport
 import io.heapy.ktctogradle.render.appendDependencies
 import io.heapy.ktctogradle.render.appendPluginBlock
 import io.heapy.ktctogradle.render.appendRepositories
 import io.heapy.ktctogradle.render.quote
+import io.heapy.ktctogradle.render.renderAndroidModule
 import io.heapy.ktctogradle.render.renderJvmModule
 
 internal class GradleGenerator {
@@ -103,7 +107,7 @@ internal class GradleGenerator {
         val product = product(module.config)
         return when (product.type) {
             "jvm/app", "jvm/lib" -> renderJvm(index, module, plugins, diagnostics)
-            "android/app" -> renderAndroidModule(index, module, plugins, diagnostics)
+            "android/app" -> renderAndroid(index, module, plugins, diagnostics)
             "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
             "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(index, module, product, plugins, diagnostics)
             "ios/app" -> throw ConversionException(
@@ -136,77 +140,26 @@ internal class GradleGenerator {
         )
     }
 
-    private fun renderAndroidModule(
+    /**
+     * The pinned-Kotlin-version warning is reported before the qualified sections are read, so the
+     * module's own diagnostic keeps its place ahead of the dropped-key ones.
+     */
+    private fun renderAndroid(
         index: ModuleIndex,
         module: ToolchainModule,
         plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
-        val config = module.config
-        val pinnedKotlinVersion = config.string("settings.kotlin.version")
-        if (pinnedKotlinVersion != null) {
-            diagnostics.warn(
-                "${module.displayName}: settings.kotlin.version '$pinnedKotlinVersion' does not select the Kotlin " +
-                    "compiler for an Android module; the Android Gradle Plugin ${Versions.ANDROID_GRADLE_PLUGIN} " +
-                    "supplies its own Kotlin",
-            )
-        }
-        val serialization = Serialization.settings(module.model)
-        val release = config.string("settings.jvm.release") ?: Defaults.ANDROID_RELEASE
-        val namespace = config.string("settings.android.namespace") ?: Defaults.ANDROID_NAMESPACE_FALLBACK
-        val compileSdk = config.string("settings.android.compileSdk")
-            ?: config.string("settings.android.compileSdk.apiLevel")
-            ?: Defaults.ANDROID_COMPILE_SDK
-        val minSdk = config.string("settings.android.minSdk") ?: Defaults.ANDROID_MIN_SDK
-        val targetSdk = config.string("settings.android.targetSdk") ?: compileSdk
-        return writeKts {
-            line(StaticAssets.header())
-            appendCredentialsImport(Repositories.requiresCredentialsImport(module.model))
-            appendPluginBlock(plugins)
-            blank()
-            appendRepositories(Repositories.resolution(module.model))
-            blank()
-            block("android") {
-                line("namespace = ${quote(namespace)}")
-                line("compileSdk = $compileSdk")
-                block("defaultConfig") {
-                    line("applicationId = ${quote(config.string("settings.android.applicationId") ?: namespace)}")
-                    line("minSdk = $minSdk")
-                    line("targetSdk = $targetSdk")
-                    line("versionCode = ${config.string("settings.android.versionCode") ?: "1"}")
-                    line("versionName = ${quote(config.string("settings.android.versionName") ?: "unspecified")}")
-                }
-                block("compileOptions") {
-                    line("sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
-                    line("targetCompatibility = JavaVersion.toVersion(${quote(release)})")
-                }
-                block("sourceSets.named(\"main\")") {
-                    line("kotlin.srcDirs(\"src\", \"src@android\")")
-                    line("resources.srcDirs(\"resources\", \"resources@android\")")
-                    line("manifest.srcFile(\"src/AndroidManifest.xml\")")
-                }
-                block("sourceSets.named(\"test\")") {
-                    line("kotlin.srcDirs(\"test\", \"test@android\")")
-                    line("resources.srcDirs(\"testResources\", \"testResources@android\")")
-                }
-            }
-            blank()
-            block("kotlin") {
-                appendCompilerOptions(
-                    config,
-                    jvmTarget = release,
-                    extraLines = singlePlatformQualifiedLines(module, "android", diagnostics),
-                )
-            }
-            blank()
-            block("dependencies") {
-                appendDependencies(Dependencies.of(index, module, test = false, qualifiers = androidQualifiers), false)
-                appendSerializationDependencies(serialization)
-                appendBuiltInDependencies(config)
-                line("testImplementation(kotlin(${quote(JvmInterpreter.testFramework(module.model).library)}))")
-                appendDependencies(Dependencies.of(index, module, test = true, qualifiers = androidQualifiers), true)
-            }
-        }
+        val repositories = Repositories.resolution(module.model)
+        val credentialsImport = Repositories.requiresCredentialsImport(module.model)
+        val build = AndroidInterpreter.interpret(index, module, diagnostics)
+        return renderAndroidModule(
+            plugins = plugins,
+            repositories = repositories,
+            credentialsImport = credentialsImport,
+            build = build,
+            qualifiedCompilerOptions = singlePlatformQualifiedLines(module, "android", diagnostics),
+        )
     }
 
     private fun renderMultiplatformModule(
@@ -291,7 +244,10 @@ internal class GradleGenerator {
                     }
                 }
             }
-            "android" -> appendAndroidLibraryTarget(config, module, qualifiedOptions, diagnostics)
+            "android" -> appendAndroidLibraryTarget(
+                AndroidInterpreter.libraryTarget(module, diagnostics),
+                qualifiedOptions,
+            )
             "js" -> appendBrowserTarget("js(IR)", executable, qualifiedOptions)
             "wasmJs" -> appendBrowserTarget("wasmJs", executable, qualifiedOptions)
             "wasmWasi" -> {
@@ -334,44 +290,6 @@ internal class GradleGenerator {
             line("browser()")
             appendCompilerOptionsBlock(qualifiedOptions)
         }
-    }
-
-    private fun KtsWriter.appendCompilerOptionsBlock(lines: List<String>) {
-        if (lines.isEmpty()) return
-        block("compilerOptions") {
-            for (option in lines) line(option)
-        }
-    }
-
-    private fun KtsWriter.appendAndroidLibraryTarget(
-        config: Value.Mapping,
-        module: ToolchainModule,
-        qualifiedOptions: List<String>,
-        diagnostics: DiagnosticCollector,
-    ) {
-        val namespace = config.string("settings.android.namespace") ?: derivedAndroidNamespace(module).also {
-            diagnostics.warn("${module.displayName}: settings.android.namespace is not set; using '$it'")
-        }
-        block("androidLibrary") {
-            line("namespace = ${quote(namespace)}")
-            line("compileSdk = ${config.string("settings.android.compileSdk") ?: Defaults.ANDROID_COMPILE_SDK}")
-            line("minSdk = ${config.string("settings.android.minSdk") ?: Defaults.ANDROID_MIN_SDK}")
-            line("withHostTestBuilder {}.configure {}")
-            appendCompilerOptionsBlock(qualifiedOptions)
-        }
-    }
-
-    /**
-     * The Toolchain synthesizes an internal package when a module leaves the namespace out,
-     * but the Android Gradle Plugin insists on a real one, so derive a stable package here.
-     */
-    private fun derivedAndroidNamespace(module: ToolchainModule): String {
-        val segments = module.path.segments.ifEmpty { listOf(module.displayName) }
-        val packageSegments = segments.map { segment ->
-            val sanitized = segment.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
-            if (sanitized.firstOrNull()?.isDigit() != false) "_$sanitized" else sanitized
-        }
-        return (listOf("ktc", "generated") + packageSegments).joinToString(".")
     }
 
     private fun KtsWriter.appendQualifiedSourceSet(
@@ -693,9 +611,6 @@ internal class GradleGenerator {
     )
 
     companion object {
-        /** The unqualified section and the `@android` one, in the order the Toolchain applies them. */
-        private val androidQualifiers = listOf("", "android")
-
         /** Only the unqualified section: a multiplatform module reads its qualified ones per fragment. */
         private val commonQualifiers = listOf("")
 

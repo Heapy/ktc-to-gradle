@@ -197,3 +197,37 @@ internal data class JvmBuild(
     /** `null` = no `application { }` block: either a library, or an app with no main class found. */
     val mainClass: String?,
 ) : ModuleBuild
+
+/**
+ * An `android/app` module: an Android application built by the Android Gradle Plugin.
+ *
+ * The source directories are fixed by the Toolchain layout and are spelled out by the renderer, so
+ * unlike [JvmBuild] there is nothing to decide about them here.
+ */
+internal data class AndroidBuild(
+    val namespace: String,
+    val applicationId: String,
+    /** SDK levels are emitted unquoted, so they are integers as written and never quoted strings. */
+    val compileSdk: String,
+    val minSdk: String,
+    val targetSdk: String,
+    val versionCode: String,
+    val versionName: String,
+    val release: String,
+    val compilerOptions: CompilerOptions,
+    val dependencies: List<Dependency>,
+    val testDependencies: List<Dependency>,
+    val testFramework: TestFramework,
+) : ModuleBuild
+
+/**
+ * The `androidLibrary { }` target of a multiplatform module.
+ *
+ * It is not a [ModuleBuild]: an Android target is one platform of a multiplatform build and reaches
+ * the renderer as part of it.
+ */
+internal data class AndroidLibraryTarget(
+    val namespace: String,
+    val compileSdk: String,
+    val minSdk: String,
+)
