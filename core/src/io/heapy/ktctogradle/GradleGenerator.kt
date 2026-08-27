@@ -1,6 +1,11 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.interpret.Defaults
+import io.heapy.ktctogradle.interpret.Dependencies
+import io.heapy.ktctogradle.interpret.JvmInterpreter
+import io.heapy.ktctogradle.interpret.ModuleIndex
 import io.heapy.ktctogradle.interpret.PluginResolution
+import io.heapy.ktctogradle.interpret.Repositories
 import io.heapy.ktctogradle.interpret.Serialization
 import io.heapy.ktctogradle.interpret.SerializationSettings
 import io.heapy.ktctogradle.load.Value
@@ -16,9 +21,12 @@ import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.render.KtsWriter
 import io.heapy.ktctogradle.render.StaticAssets
+import io.heapy.ktctogradle.render.appendCredentialsImport
+import io.heapy.ktctogradle.render.appendDependencies
 import io.heapy.ktctogradle.render.appendPluginBlock
-import io.heapy.ktctogradle.render.mappingStrings
+import io.heapy.ktctogradle.render.appendRepositories
 import io.heapy.ktctogradle.render.quote
+import io.heapy.ktctogradle.render.renderJvmModule
 
 internal class GradleGenerator {
     fun generate(project: ToolchainProject): GenerationResult {
@@ -27,6 +35,7 @@ internal class GradleGenerator {
         files += GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project))
         val rootModule = project.modules.firstOrNull { it.path.isRoot }
         val subprojects = project.modules.filterNot { it.path.isRoot }
+        val index = ModuleIndex.of(project.modules)
         val versions = PluginResolution.resolveVersions(project.modules.map(ToolchainModule::model), diagnostics)
         val inherited = PluginResolution.inheritedDeclarations(
             root = rootModule?.model,
@@ -37,12 +46,12 @@ internal class GradleGenerator {
             project.root / "build.gradle.kts",
             rootModule?.let { module ->
                 val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = true)
-                renderModule(project, module, plugins + inherited, diagnostics)
+                renderModule(index, module, plugins + inherited, diagnostics)
             } ?: rootBuildFile(inherited),
         )
         for (module in subprojects) {
             val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = false)
-            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module, plugins, diagnostics))
+            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(index, module, plugins, diagnostics))
         }
         files += GeneratedFile(project.root / "gradlew", StaticAssets.unixGradleLauncher())
         files += GeneratedFile(project.root / "gradlew.bat", StaticAssets.windowsGradleLauncher())
@@ -85,7 +94,7 @@ internal class GradleGenerator {
     private fun writeKts(body: KtsWriter.() -> Unit): String = KtsWriter().apply(body).build()
 
     private fun renderModule(
-        project: ToolchainProject,
+        index: ModuleIndex,
         module: ToolchainModule,
         plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
@@ -93,10 +102,10 @@ internal class GradleGenerator {
         rejectUnsupported(module)
         val product = product(module.config)
         return when (product.type) {
-            "jvm/app", "jvm/lib" -> renderJvmModule(project, module, product, plugins, diagnostics)
-            "android/app" -> renderAndroidModule(project, module, plugins, diagnostics)
+            "jvm/app", "jvm/lib" -> renderJvm(index, module, plugins, diagnostics)
+            "android/app" -> renderAndroidModule(index, module, plugins, diagnostics)
             "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(project, module, product, plugins, diagnostics)
+            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(index, module, product, plugins, diagnostics)
             "ios/app" -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
@@ -107,83 +116,28 @@ internal class GradleGenerator {
         }
     }
 
-    private fun renderJvmModule(
-        project: ToolchainProject,
+    /**
+     * The qualified compiler options are resolved before the module is interpreted, because they
+     * report their own diagnostics and those are ordered ahead of the missing-main-class warning.
+     */
+    private fun renderJvm(
+        index: ModuleIndex,
         module: ToolchainModule,
-        product: Product,
         plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
-        val config = module.config
-        val jdk = config.string("settings.jvm.jdk.version") ?: "25"
-        val release = config.string("settings.jvm.release") ?: jdk
-        val serialization = Serialization.settings(module.model)
-        val dependencies = dependenciesFor(module, listOf("dependencies", "dependencies@jvm"))
-        val tests = dependenciesFor(module, listOf("test-dependencies", "test-dependencies@jvm"))
-        val mainClass = config.string("settings.jvm.mainClass") ?: module.layout.detectedMainClass
-        return writeKts {
-            line(StaticAssets.header())
-            appendRepositoryCredentialsImport(config)
-            appendPluginBlock(plugins)
-            blank()
-            appendRepositories(config)
-            blank()
-            block("kotlin") {
-                line("jvmToolchain($jdk)")
-                appendCompilerOptions(
-                    config,
-                    jvmTarget = release,
-                    extraLines = singlePlatformQualifiedLines(module, "jvm", diagnostics),
-                )
-            }
-            blank()
-            block("java") {
-                line("sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
-                line("targetCompatibility = JavaVersion.toVersion(${quote(release)})")
-            }
-            if (config.string("layout") != "maven-like") {
-                blank()
-                block("sourceSets") {
-                    block("main") {
-                        line("kotlin.srcDir(\"src\")")
-                        line("resources.srcDir(\"resources\")")
-                    }
-                    block("test") {
-                        line("kotlin.srcDir(\"test\")")
-                        line("resources.srcDir(\"testResources\")")
-                    }
-                }
-            }
-            blank()
-            block("dependencies") {
-                appendDependencies(project, module, dependencies, test = false)
-                appendSerializationDependencies(serialization)
-                appendBuiltInDependencies(config)
-                line("testImplementation(kotlin(${quote(testLibrary(config))}))")
-                appendDependencies(project, module, tests, test = true)
-            }
-            blank()
-            block("tasks.test") {
-                if (testLibrary(config) == "test-junit5") line("useJUnitPlatform()")
-                appendJvmTestSettings(config)
-            }
-            if (product.type == "jvm/app") {
-                if (mainClass == null) {
-                    diagnostics.warn(
-                        "${module.displayName}: could not infer a main class; set settings.jvm.mainClass or application.mainClass",
-                    )
-                } else {
-                    blank()
-                    block("application") {
-                        line("mainClass.set(${quote(mainClass)})")
-                    }
-                }
-            }
-        }
+        val qualifiedOptions = singlePlatformQualifiedLines(module, "jvm", diagnostics)
+        return renderJvmModule(
+            plugins = plugins,
+            repositories = Repositories.resolution(module.model),
+            credentialsImport = Repositories.requiresCredentialsImport(module.model),
+            build = JvmInterpreter.interpret(index, module, diagnostics),
+            qualifiedCompilerOptions = qualifiedOptions,
+        )
     }
 
     private fun renderAndroidModule(
-        project: ToolchainProject,
+        index: ModuleIndex,
         module: ToolchainModule,
         plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
@@ -198,17 +152,19 @@ internal class GradleGenerator {
             )
         }
         val serialization = Serialization.settings(module.model)
-        val release = config.string("settings.jvm.release") ?: "17"
-        val namespace = config.string("settings.android.namespace") ?: "org.example.namespace"
-        val compileSdk = config.string("settings.android.compileSdk") ?: config.string("settings.android.compileSdk.apiLevel") ?: "37"
-        val minSdk = config.string("settings.android.minSdk") ?: "24"
+        val release = config.string("settings.jvm.release") ?: Defaults.ANDROID_RELEASE
+        val namespace = config.string("settings.android.namespace") ?: Defaults.ANDROID_NAMESPACE_FALLBACK
+        val compileSdk = config.string("settings.android.compileSdk")
+            ?: config.string("settings.android.compileSdk.apiLevel")
+            ?: Defaults.ANDROID_COMPILE_SDK
+        val minSdk = config.string("settings.android.minSdk") ?: Defaults.ANDROID_MIN_SDK
         val targetSdk = config.string("settings.android.targetSdk") ?: compileSdk
         return writeKts {
             line(StaticAssets.header())
-            appendRepositoryCredentialsImport(config)
+            appendCredentialsImport(Repositories.requiresCredentialsImport(module.model))
             appendPluginBlock(plugins)
             blank()
-            appendRepositories(config)
+            appendRepositories(Repositories.resolution(module.model))
             blank()
             block("android") {
                 line("namespace = ${quote(namespace)}")
@@ -244,17 +200,17 @@ internal class GradleGenerator {
             }
             blank()
             block("dependencies") {
-                appendDependencies(project, module, dependenciesFor(module, listOf("dependencies", "dependencies@android")), false)
+                appendDependencies(Dependencies.of(index, module, test = false, qualifiers = androidQualifiers), false)
                 appendSerializationDependencies(serialization)
                 appendBuiltInDependencies(config)
-                line("testImplementation(kotlin(${quote(testLibrary(config))}))")
-                appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies", "test-dependencies@android")), true)
+                line("testImplementation(kotlin(${quote(JvmInterpreter.testFramework(module.model).library)}))")
+                appendDependencies(Dependencies.of(index, module, test = true, qualifiers = androidQualifiers), true)
             }
         }
     }
 
     private fun renderMultiplatformModule(
-        project: ToolchainProject,
+        index: ModuleIndex,
         module: ToolchainModule,
         product: Product,
         plugins: List<PluginDecl>,
@@ -265,10 +221,10 @@ internal class GradleGenerator {
         val fragments = kmpFragments(module, product)
         return writeKts {
             line(StaticAssets.header())
-            appendRepositoryCredentialsImport(config)
+            appendCredentialsImport(Repositories.requiresCredentialsImport(module.model))
             appendPluginBlock(plugins)
             blank()
-            appendRepositories(config)
+            appendRepositories(Repositories.resolution(module.model))
             blank()
             block("kotlin") {
                 val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms }, diagnostics)
@@ -283,7 +239,7 @@ internal class GradleGenerator {
                     )
                 }
                 if ("jvm" in product.platforms) {
-                    line("jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
+                    line("jvmToolchain(${config.string("settings.jvm.jdk.version") ?: Defaults.JVM_JDK})")
                 }
                 appendCompilerOptions(config, extraLines = qualifiedCompilerOptionLines(qualified.common))
                 block("sourceSets") {
@@ -291,7 +247,7 @@ internal class GradleGenerator {
                         line("kotlin.srcDir(\"src\")")
                         line("resources.srcDir(\"resources\")")
                         block("dependencies") {
-                            appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, sourceSet = true)
+                            appendDependencies(Dependencies.of(index, module, false, commonQualifiers), false, sourceSet = true)
                             appendSerializationDependencies(serialization)
                             appendBuiltInDependencies(config)
                         }
@@ -301,12 +257,12 @@ internal class GradleGenerator {
                         line("resources.srcDir(\"testResources\")")
                         block("dependencies") {
                             line("implementation(kotlin(\"test\"))")
-                            appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, sourceSet = true)
+                            appendDependencies(Dependencies.of(index, module, true, commonQualifiers), true, sourceSet = true)
                         }
                     }
                     for (fragment in fragments.filterNot { it.name == "common" }) {
-                        appendQualifiedSourceSet(project, module, fragment, false)
-                        appendQualifiedSourceSet(project, module, fragment, true)
+                        appendQualifiedSourceSet(index, module, fragment, false)
+                        appendQualifiedSourceSet(index, module, fragment, true)
                     }
                 }
             }
@@ -326,7 +282,7 @@ internal class GradleGenerator {
             "jvm" -> {
                 val release = config.string("settings.jvm.release")
                     ?: config.string("settings.jvm.jdk.version")
-                    ?: "25"
+                    ?: Defaults.JVM_JDK
                 block("jvm") {
                     block("compilerOptions") {
                         line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
@@ -398,8 +354,8 @@ internal class GradleGenerator {
         }
         block("androidLibrary") {
             line("namespace = ${quote(namespace)}")
-            line("compileSdk = ${config.string("settings.android.compileSdk") ?: "37"}")
-            line("minSdk = ${config.string("settings.android.minSdk") ?: "24"}")
+            line("compileSdk = ${config.string("settings.android.compileSdk") ?: Defaults.ANDROID_COMPILE_SDK}")
+            line("minSdk = ${config.string("settings.android.minSdk") ?: Defaults.ANDROID_MIN_SDK}")
             line("withHostTestBuilder {}.configure {}")
             appendCompilerOptionsBlock(qualifiedOptions)
         }
@@ -419,7 +375,7 @@ internal class GradleGenerator {
     }
 
     private fun KtsWriter.appendQualifiedSourceSet(
-        project: ToolchainProject,
+        index: ModuleIndex,
         module: ToolchainModule,
         fragment: KmpFragment,
         test: Boolean,
@@ -427,8 +383,7 @@ internal class GradleGenerator {
         val qualifier = fragment.name
         val prefix = if (test) "test" else "src"
         val resources = if (test) "testResources" else "resources"
-        val dependencyKey = if (test) "test-dependencies@$qualifier" else "dependencies@$qualifier"
-        val deps = dependenciesFor(module, listOf(dependencyKey))
+        val deps = Dependencies.of(index, module, test, listOf(qualifier))
         val sourceExists = "$prefix@$qualifier" in module.layout.existingSourceDirs
         val resourcesExist = "$resources@$qualifier" in module.layout.existingSourceDirs
         val suffix = if (test) "Test" else "Main"
@@ -443,97 +398,11 @@ internal class GradleGenerator {
             if (resourcesExist) line("resources.srcDir(${quote("$resources@$qualifier")})")
             if (deps.isNotEmpty()) {
                 block("dependencies") {
-                    appendDependencies(project, module, deps, test, sourceSet = true)
+                    appendDependencies(deps, test, sourceSet = true)
                 }
             }
         }
     }
-
-    private fun KtsWriter.appendRepositories(config: Value.Mapping) {
-        block("repositories") {
-            for ((index, repository) in resolutionRepositories(config).withIndex()) {
-                when {
-                    repository.url == "mavenLocal" -> line("mavenLocal()")
-                    repository.id == "mavenCentral" && repository.url == MAVEN_CENTRAL_URL && repository.credentials == null -> {
-                        line("mavenCentral()")
-                    }
-                    repository.id == "mavenGoogle" && repository.url == GOOGLE_MAVEN_URL && repository.credentials == null -> {
-                        line("google()")
-                    }
-                    else -> block("maven") {
-                        line("name = ${quote(repository.id)}")
-                        line("url = uri(${quote(repository.url)})")
-                        repository.credentials?.let { credentials ->
-                            val variable = "repositoryCredentials$index"
-                            line("val $variable = Properties()")
-                            line("file(${quote(credentials.file)}).inputStream().use($variable::load)")
-                            block("credentials") {
-                                line("username = $variable.getProperty(${quote(credentials.usernameKey)})")
-                                line("password = $variable.getProperty(${quote(credentials.passwordKey)})")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * A repository written as a plain URL has no id of its own, so a module that repeats a default
-     * repository would otherwise be treated as a separate one and emitted next to it.
-     */
-    private fun defaultRepositoryId(url: String): String? = when (url.trimEnd('/')) {
-        MAVEN_CENTRAL_URL -> "mavenCentral"
-        GOOGLE_MAVEN_URL -> "mavenGoogle"
-        else -> null
-    }
-
-    private fun resolutionRepositories(config: Value.Mapping): List<Repository> {
-        val configured = config.value("repositories").asSequence("repositories").mapIndexed { index, value ->
-            when (value) {
-                is Value.Scalar -> Repository(id = defaultRepositoryId(value.text) ?: value.text, url = value.text)
-                is Value.Mapping -> {
-                    val url = value.string("url")
-                        ?: throw ConversionException("repositories[$index].url is required")
-                    val credentials = (value.value("credentials") as? Value.Mapping)?.let { credentialValues ->
-                        RepositoryCredentials(
-                            file = credentialValues.string("file")
-                                ?: throw ConversionException("repositories[$index].credentials.file is required"),
-                            usernameKey = credentialValues.string("usernameKey")
-                                ?: throw ConversionException("repositories[$index].credentials.usernameKey is required"),
-                            passwordKey = credentialValues.string("passwordKey")
-                                ?: throw ConversionException("repositories[$index].credentials.passwordKey is required"),
-                        )
-                    }
-                    Repository(
-                        id = value.string("id") ?: defaultRepositoryId(url) ?: url,
-                        url = url,
-                        resolve = value.boolean("resolve") ?: true,
-                        credentials = credentials,
-                    )
-                }
-                else -> throw ConversionException("repositories[$index] must be a URL string or object")
-            }
-        }
-        val configuredIds = configured.mapTo(mutableSetOf(), Repository::id)
-        val defaults = listOf(
-            Repository(id = "mavenCentral", url = MAVEN_CENTRAL_URL),
-            Repository(id = "mavenGoogle", url = GOOGLE_MAVEN_URL),
-        ).filterNot { it.id in configuredIds }
-        return defaults + configured.filter(Repository::resolve).asReversed().distinctBy(Repository::id).asReversed()
-    }
-
-    private fun KtsWriter.appendRepositoryCredentialsImport(config: Value.Mapping) {
-        val hasCredentials = config.value("repositories").asSequence("repositories").any { repository ->
-            (repository as? Value.Mapping)?.value("credentials") is Value.Mapping
-        }
-        if (hasCredentials) {
-            blank()
-            line("import java.util.Properties")
-            blank()
-        }
-    }
-
     private fun KtsWriter.appendCompilerOptions(
         config: Value.Mapping,
         jvmTarget: String? = null,
@@ -558,91 +427,6 @@ internal class GradleGenerator {
         }
     }
 
-    private fun KtsWriter.appendJvmTestSettings(config: Value.Mapping) {
-        val args = config.strings("settings.jvm.test.freeJvmArgs") + config.strings("test-settings.jvm.freeJvmArgs")
-        if (args.isNotEmpty()) line("jvmArgs(${args.joinToString(transform = ::quote)})")
-        val systemProperties = mappingStrings(config.value("settings.jvm.test.systemProperties")) +
-            mappingStrings(config.value("test-settings.jvm.systemProperties"))
-        for ((key, value) in systemProperties) {
-            line("systemProperty(${quote(key)}, ${quote(value)})")
-        }
-        val environment = mappingStrings(config.value("settings.jvm.test.extraEnvironment")) +
-            mappingStrings(config.value("test-settings.jvm.extraEnvironment"))
-        for ((key, value) in environment) {
-            line("environment(${quote(key)}, ${quote(value)})")
-        }
-    }
-
-    private fun KtsWriter.appendDependencies(
-        project: ToolchainProject,
-        module: ToolchainModule,
-        dependencies: List<Dependency>,
-        test: Boolean,
-        sourceSet: Boolean = false,
-    ) {
-        for (dependency in dependencies) {
-            val configuration = when {
-                sourceSet && dependency.scope == "compile-only" -> "compileOnly"
-                sourceSet && dependency.scope == "runtime-only" -> "runtimeOnly"
-                sourceSet && dependency.exported && !test -> "api"
-                sourceSet -> "implementation"
-                dependency.scope == "compile-only" -> if (test) "testCompileOnly" else "compileOnly"
-                dependency.scope == "runtime-only" -> if (test) "testRuntimeOnly" else "runtimeOnly"
-                dependency.exported && !test -> "api"
-                test -> "testImplementation"
-                else -> "implementation"
-            }
-            val expression = dependencyExpression(project, module, dependency)
-            line("$configuration($expression)")
-        }
-    }
-
-    private fun dependencyExpression(project: ToolchainProject, module: ToolchainModule, dependency: Dependency): String {
-        var notation = dependency.notation
-        val expression = when {
-            notation.startsWith("//") -> {
-                val path = ModulePath.parse(notation)
-                val target = project.modules.firstOrNull { it.path == path }
-                    ?: throw ConversionException("${module.displayName}: unknown module '$notation'")
-                "project(${quote(target.gradlePath)})"
-            }
-            notation.startsWith("./") || notation.startsWith("../") -> {
-                val targetDirectory = (module.directory / notation).normalized()
-                // The plain comparison misses when the module directory is reached through a symlink,
-                // so fall back to the directories the load stage already canonicalized.
-                val canonicalTargetDirectory = (module.canonicalDirectory / notation).normalized()
-                val target = project.modules.firstOrNull { it.directory == targetDirectory }
-                    ?: project.modules.firstOrNull { it.canonicalDirectory == canonicalTargetDirectory }
-                    ?: throw ConversionException("${module.displayName}: unknown module '$notation'")
-                "project(${quote(target.gradlePath)})"
-            }
-            notation.startsWith("\$libs.") -> notation.removePrefix("\$")
-            notation.startsWith("\$kotlin.") -> kotlinCatalogExpression(module, notation.removePrefix("\$kotlin."))
-            notation.startsWith("\$") -> throw ConversionException(
-                "${module.displayName}: built-in catalog dependency '$notation' needs technology-specific manual conversion",
-            )
-            else -> quote(notation)
-        }
-        return if (dependency.bom) "platform($expression)" else expression
-    }
-
-    private fun kotlinCatalogExpression(module: ToolchainModule, key: String): String = when (key) {
-        "reflect" -> "kotlin(\"reflect\")"
-        "test", "test.common" -> "kotlin(\"test\")"
-        "test.junit", "test.junit5" -> "kotlin(\"test-junit5\")"
-        else -> {
-            val serializationKey = key.removePrefix("serialization.")
-            if (serializationKey == key) {
-                throw ConversionException("${module.displayName}: unsupported Kotlin catalog alias '\$kotlin.$key'")
-            }
-            val serialization = Serialization.settings(module.model)
-                ?: throw ConversionException(
-                    "${module.displayName}: '\$kotlin.$key' requires settings.kotlin.serialization to be enabled",
-                )
-            quote(Serialization.coordinate(serializationKey, serialization.version))
-        }
-    }
-
     private fun KtsWriter.appendSerializationDependencies(serialization: SerializationSettings?) {
         if (serialization == null) return
         line("implementation(${quote(Serialization.coordinate("core", serialization.version))})")
@@ -653,7 +437,7 @@ internal class GradleGenerator {
 
     private fun KtsWriter.appendBuiltInDependencies(config: Value.Mapping) {
         if (config.boolean("settings.ktor") == true || config.boolean("settings.ktor.enabled") == true) {
-            val version = config.string("settings.ktor.version") ?: "3.5.2"
+            val version = config.string("settings.ktor.version") ?: Defaults.KTOR
             line("implementation(platform(\"io.ktor:ktor-bom:$version\"))")
         }
     }
@@ -756,49 +540,6 @@ internal class GradleGenerator {
             current = naturalPlatformParents[current]
         }
         return false
-    }
-
-    private fun testLibrary(config: Value.Mapping): String = when (config.string("settings.junit") ?: "junit-5") {
-        "junit-5" -> "test-junit5"
-        "junit-4" -> "test-junit"
-        "none" -> "test"
-        else -> throw ConversionException("settings.junit must be junit-5, junit-4, or none")
-    }
-
-    private fun dependenciesFor(module: ToolchainModule, keys: List<String>): List<Dependency> = keys.flatMap { key ->
-        module.config.value(key).asSequence("${module.displayName}.$key").map(::parseDependency)
-    }
-
-    private fun parseDependency(value: Value): Dependency = when (value) {
-        is Value.Scalar -> {
-            val match = Regex("^(.*):\\s+(all|compile-only|runtime-only|exported)$").matchEntire(value.text)
-            val suffix = match?.groupValues?.get(2)
-            Dependency(
-                notation = match?.groupValues?.get(1) ?: value.text,
-                scope = if (suffix == "exported") "all" else suffix ?: "all",
-                exported = suffix == "exported",
-            )
-        }
-        is Value.Mapping -> {
-            if (value.entries.size != 1) throw ConversionException("Dependency objects must have one coordinate")
-            val (key, details) = value.entries.entries.single()
-            if (key == "bom") return Dependency(details.scalarOrNull() ?: throw ConversionException("bom must be a coordinate"), bom = true)
-            details.scalarOrNull()?.let { return shorthandDependency(key, it) }
-            val detailMap = details as? Value.Mapping
-            Dependency(
-                notation = key,
-                scope = detailMap?.string("scope") ?: "all",
-                exported = detailMap?.boolean("exported") ?: false,
-            )
-        }
-        else -> throw ConversionException("Dependencies must be strings or objects")
-    }
-
-    private fun shorthandDependency(notation: String, shorthand: String): Dependency = when (shorthand) {
-        "all" -> Dependency(notation)
-        "compile-only", "runtime-only" -> Dependency(notation, scope = shorthand)
-        "exported" -> Dependency(notation, exported = true)
-        else -> throw ConversionException("Dependency '$notation' has unknown scope '$shorthand'")
     }
 
     private data class QualifiedSettings(val common: Value.Mapping?, val byPlatform: Map<String, Value.Mapping>)
@@ -944,26 +685,6 @@ internal class GradleGenerator {
         }
     }
 
-    private data class Dependency(
-        val notation: String,
-        val scope: String = "all",
-        val exported: Boolean = false,
-        val bom: Boolean = false,
-    )
-
-    private data class RepositoryCredentials(
-        val file: String,
-        val usernameKey: String,
-        val passwordKey: String,
-    )
-
-    private data class Repository(
-        val id: String,
-        val url: String,
-        val resolve: Boolean = true,
-        val credentials: RepositoryCredentials? = null,
-    )
-
     private data class KmpFragment(
         val name: String,
         val platforms: Set<String>,
@@ -972,8 +693,11 @@ internal class GradleGenerator {
     )
 
     companion object {
-        private const val MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2"
-        private const val GOOGLE_MAVEN_URL = "https://maven.google.com"
+        /** The unqualified section and the `@android` one, in the order the Toolchain applies them. */
+        private val androidQualifiers = listOf("", "android")
+
+        /** Only the unqualified section: a multiplatform module reads its qualified ones per fragment. */
+        private val commonQualifiers = listOf("")
 
         private val qualifiedKotlinOptionKeys = setOf(
             "languageVersion", "apiVersion", "allWarningsAsErrors", "progressiveMode", "freeCompilerArgs", "optIns",

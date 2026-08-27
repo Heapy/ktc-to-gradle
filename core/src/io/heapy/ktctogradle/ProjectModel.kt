@@ -1,15 +1,14 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.interpret.Dependencies
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ModuleLayoutProbe
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.Value
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.asMapping
-import io.heapy.ktctogradle.load.asSequence
 import io.heapy.ktctogradle.load.mergeValues
 import io.heapy.ktctogradle.load.parseYaml
-import io.heapy.ktctogradle.load.scalarOrNull
 import io.heapy.ktctogradle.load.string
 import io.heapy.ktctogradle.load.strings
 import io.heapy.ktctogradle.load.value
@@ -84,7 +83,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
                 layout = layoutProbe.probe(directory),
             )
         }.sortedBy(ToolchainModule::path)
-        validateLocalDependencies(root, modules)
+        Dependencies.validateLocal(modules)
 
         val rootCatalog = root / "libs.versions.toml"
         val gradleCatalog = root / "gradle" / "libs.versions.toml"
@@ -271,27 +270,6 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
     private fun readYaml(path: Path): Value.Mapping =
         parseYaml(fileSystem.read(path) { readUtf8() }, path.toString())
 
-    private fun validateLocalDependencies(root: Path, modules: List<ToolchainModule>) {
-        val paths = modules.map(ToolchainModule::path).toSet()
-        for (module in modules) {
-            for ((key, value) in module.config.entries) {
-                if (!key.startsWith("dependencies") && !key.startsWith("test-dependencies")) continue
-                for (item in value.asSequence("${module.displayName}.$key")) {
-                    val notation = dependencyNotation(item)
-                    val local = when {
-                        notation.startsWith("//") -> ModulePath.parse(notation)
-                        notation.startsWith("./") || notation.startsWith("../") ->
-                            ModulePath.relativize(root, (module.directory / notation).normalized())
-                        else -> continue
-                    }
-                    if (local !in paths) {
-                        throw ConversionException("${module.displayName} depends on unknown module '$notation'")
-                    }
-                }
-            }
-        }
-    }
-
     companion object {
         private val ignoredDirectories = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules")
     }
@@ -333,14 +311,6 @@ private fun defaultPlatforms(type: String): List<String> = when (type) {
     "windows/app" -> listOf("mingwX64")
     "kmp/lib" -> throw ConversionException("kmp/lib requires product.platforms")
     else -> throw ConversionException("Unsupported product type '$type'")
-}
-
-internal fun dependencyNotation(value: Value): String = when (value) {
-    is Value.Scalar -> Regex("^(.*):\\s+(all|compile-only|runtime-only|exported)$")
-        .matchEntire(value.text)?.groupValues?.get(1) ?: value.text
-    is Value.Mapping -> value.entries.keys.singleOrNull()
-        ?: throw ConversionException("A dependency object must have exactly one coordinate")
-    else -> throw ConversionException("Dependency entries must be strings or objects")
 }
 
 private fun normalizeModulePattern(pattern: String): String =

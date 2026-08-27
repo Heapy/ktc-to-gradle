@@ -15,12 +15,10 @@ internal data class SerializationSettings(
  * point that reads the section, with the message and the position it has today.
  */
 internal object Serialization {
-    const val DEFAULT_VERSION = "1.11.0"
-
     fun settings(model: ToolchainModel): SerializationSettings? {
         model.errors[REGION]?.let { message -> throw ConversionException(message) }
         val spec = model.settings.kotlin?.serialization ?: return null
-        return SerializationSettings(spec.version ?: DEFAULT_VERSION, spec.format)
+        return SerializationSettings(spec.version ?: Defaults.SERIALIZATION, spec.format)
     }
 
     /**
