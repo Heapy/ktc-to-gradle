@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.model.GeneratedFile
 import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path as OkioPath

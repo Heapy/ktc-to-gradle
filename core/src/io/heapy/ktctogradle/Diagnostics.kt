@@ -1,5 +1,7 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.model.GeneratedFile
+
 class ConversionException(message: String) : RuntimeException(message)
 
 data class Diagnostic(

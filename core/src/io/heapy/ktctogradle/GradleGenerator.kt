@@ -1,5 +1,8 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.interpret.PluginResolution
+import io.heapy.ktctogradle.interpret.Serialization
+import io.heapy.ktctogradle.interpret.SerializationSettings
 import io.heapy.ktctogradle.load.Value
 import io.heapy.ktctogradle.load.asSequence
 import io.heapy.ktctogradle.load.boolean
@@ -8,13 +11,14 @@ import io.heapy.ktctogradle.load.scalarOrNull
 import io.heapy.ktctogradle.load.string
 import io.heapy.ktctogradle.load.strings
 import io.heapy.ktctogradle.load.value
+import io.heapy.ktctogradle.model.GeneratedFile
+import io.heapy.ktctogradle.model.GradlePlugin
+import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.render.KtsWriter
 import io.heapy.ktctogradle.render.StaticAssets
+import io.heapy.ktctogradle.render.appendPluginBlock
 import io.heapy.ktctogradle.render.mappingStrings
 import io.heapy.ktctogradle.render.quote
-import okio.Path
-
-internal data class GeneratedFile(val path: Path, val content: String)
 
 internal class GradleGenerator {
     fun generate(project: ToolchainProject): GenerationResult {
@@ -23,20 +27,22 @@ internal class GradleGenerator {
         files += GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project))
         val rootModule = project.modules.firstOrNull { it.path.isRoot }
         val subprojects = project.modules.filterNot { it.path.isRoot }
-        val versions = resolvePluginVersions(project, diagnostics)
-        val rootOwnIds = rootModule?.let { pluginsOf(it).map(PluginRef::id) }.orEmpty().toSet()
-        val inherited = subprojects
-            .flatMap { pluginsOf(it) }
-            .distinctBy { it.id }
-            .filterNot { it.id in rootOwnIds }
-        val rootContext = PluginContext(declareVersions = true, versions = versions, inherited = inherited)
-        val subprojectContext = PluginContext(declareVersions = false, versions = versions, inherited = emptyList())
+        val versions = PluginResolution.resolveVersions(project.modules.map(ToolchainModule::model), diagnostics)
+        val inherited = PluginResolution.inheritedDeclarations(
+            root = rootModule?.model,
+            subprojects = subprojects.map(ToolchainModule::model),
+            versions = versions,
+        )
         files += GeneratedFile(
             project.root / "build.gradle.kts",
-            rootModule?.let { renderModule(project, it, rootContext, diagnostics) } ?: rootBuildFile(rootContext),
+            rootModule?.let { module ->
+                val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = true)
+                renderModule(project, module, plugins + inherited, diagnostics)
+            } ?: rootBuildFile(inherited),
         )
         for (module in subprojects) {
-            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module, subprojectContext, diagnostics))
+            val plugins = PluginResolution.declarationsFor(module.model, versions, declareVersions = false)
+            files += GeneratedFile(module.directory / "build.gradle.kts", renderModule(project, module, plugins, diagnostics))
         }
         files += GeneratedFile(project.root / "gradlew", StaticAssets.unixGradleLauncher())
         files += GeneratedFile(project.root / "gradlew.bat", StaticAssets.windowsGradleLauncher())
@@ -71,9 +77,9 @@ internal class GradleGenerator {
         }
     }
 
-    private fun rootBuildFile(context: PluginContext): String = writeKts {
+    private fun rootBuildFile(inherited: List<PluginDecl>): String = writeKts {
         line(StaticAssets.header())
-        appendPluginBlock(listOf("base"), context)
+        appendPluginBlock(listOf(PluginDecl(GradlePlugin.Builtin.BASE, version = null)) + inherited)
     }
 
     private fun writeKts(body: KtsWriter.() -> Unit): String = KtsWriter().apply(body).build()
@@ -81,16 +87,16 @@ internal class GradleGenerator {
     private fun renderModule(
         project: ToolchainProject,
         module: ToolchainModule,
-        context: PluginContext,
+        plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
         rejectUnsupported(module)
         val product = product(module.config)
         return when (product.type) {
-            "jvm/app", "jvm/lib" -> renderJvmModule(project, module, product, context, diagnostics)
-            "android/app" -> renderAndroidModule(project, module, context, diagnostics)
+            "jvm/app", "jvm/lib" -> renderJvmModule(project, module, product, plugins, diagnostics)
+            "android/app" -> renderAndroidModule(project, module, plugins, diagnostics)
             "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(project, module, product, context, diagnostics)
+            "linux/app", "macos/app", "windows/app" -> renderMultiplatformModule(project, module, product, plugins, diagnostics)
             "ios/app" -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
@@ -105,28 +111,20 @@ internal class GradleGenerator {
         project: ToolchainProject,
         module: ToolchainModule,
         product: Product,
-        context: PluginContext,
+        plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
         val config = module.config
-        val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
         val jdk = config.string("settings.jvm.jdk.version") ?: "25"
         val release = config.string("settings.jvm.release") ?: jdk
-        val serialization = serializationSettings(config)
+        val serialization = Serialization.settings(module.model)
         val dependencies = dependenciesFor(module, listOf("dependencies", "dependencies@jvm"))
         val tests = dependenciesFor(module, listOf("test-dependencies", "test-dependencies@jvm"))
         val mainClass = config.string("settings.jvm.mainClass") ?: module.layout.detectedMainClass
         return writeKts {
             line(StaticAssets.header())
             appendRepositoryCredentialsImport(config)
-            appendPluginBlock(
-                buildList {
-                    add(pluginLine(kotlinPlugin("jvm", kotlinVersion), context))
-                    if (product.type == "jvm/app") add("application")
-                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                },
-                context,
-            )
+            appendPluginBlock(plugins)
             blank()
             appendRepositories(config)
             blank()
@@ -187,7 +185,7 @@ internal class GradleGenerator {
     private fun renderAndroidModule(
         project: ToolchainProject,
         module: ToolchainModule,
-        context: PluginContext,
+        plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
         val config = module.config
@@ -199,8 +197,7 @@ internal class GradleGenerator {
                     "supplies its own Kotlin",
             )
         }
-        val kotlinVersion = pinnedKotlinVersion ?: Versions.KOTLIN
-        val serialization = serializationSettings(config)
+        val serialization = Serialization.settings(module.model)
         val release = config.string("settings.jvm.release") ?: "17"
         val namespace = config.string("settings.android.namespace") ?: "org.example.namespace"
         val compileSdk = config.string("settings.android.compileSdk") ?: config.string("settings.android.compileSdk.apiLevel") ?: "37"
@@ -209,13 +206,7 @@ internal class GradleGenerator {
         return writeKts {
             line(StaticAssets.header())
             appendRepositoryCredentialsImport(config)
-            appendPluginBlock(
-                buildList {
-                    add(pluginLine(androidPlugin("com.android.application"), context))
-                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                },
-                context,
-            )
+            appendPluginBlock(plugins)
             blank()
             appendRepositories(config)
             blank()
@@ -266,26 +257,16 @@ internal class GradleGenerator {
         project: ToolchainProject,
         module: ToolchainModule,
         product: Product,
-        context: PluginContext,
+        plugins: List<PluginDecl>,
         diagnostics: DiagnosticCollector,
     ): String {
         val config = module.config
-        val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
-        val serialization = serializationSettings(config)
+        val serialization = Serialization.settings(module.model)
         val fragments = kmpFragments(module, product)
         return writeKts {
             line(StaticAssets.header())
             appendRepositoryCredentialsImport(config)
-            appendPluginBlock(
-                buildList {
-                    add(pluginLine(kotlinPlugin("multiplatform", kotlinVersion), context))
-                    if ("android" in product.platforms) {
-                        add(pluginLine(androidPlugin("com.android.kotlin.multiplatform.library"), context))
-                    }
-                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                },
-                context,
-            )
+            appendPluginBlock(plugins)
             blank()
             appendRepositories(config)
             blank()
@@ -654,19 +635,19 @@ internal class GradleGenerator {
             if (serializationKey == key) {
                 throw ConversionException("${module.displayName}: unsupported Kotlin catalog alias '\$kotlin.$key'")
             }
-            val serialization = serializationSettings(module.config)
+            val serialization = Serialization.settings(module.model)
                 ?: throw ConversionException(
                     "${module.displayName}: '\$kotlin.$key' requires settings.kotlin.serialization to be enabled",
                 )
-            quote(serializationCoordinate(serializationKey, serialization.version))
+            quote(Serialization.coordinate(serializationKey, serialization.version))
         }
     }
 
     private fun KtsWriter.appendSerializationDependencies(serialization: SerializationSettings?) {
         if (serialization == null) return
-        line("implementation(${quote(serializationCoordinate("core", serialization.version))})")
+        line("implementation(${quote(Serialization.coordinate("core", serialization.version))})")
         serialization.format?.let { format ->
-            line("implementation(${quote(serializationCoordinate(format, serialization.version))})")
+            line("implementation(${quote(Serialization.coordinate(format, serialization.version))})")
         }
     }
 
@@ -675,32 +656,6 @@ internal class GradleGenerator {
             val version = config.string("settings.ktor.version") ?: "3.5.2"
             line("implementation(platform(\"io.ktor:ktor-bom:$version\"))")
         }
-    }
-
-    private fun serializationSettings(config: Value.Mapping): SerializationSettings? {
-        val node = config.value("settings.kotlin.serialization") ?: return null
-        return when (node) {
-            is Value.Scalar -> when (node.text) {
-                "disabled", "false" -> null
-                "enabled", "true" -> SerializationSettings(DEFAULT_SERIALIZATION_VERSION)
-                else -> SerializationSettings(DEFAULT_SERIALIZATION_VERSION, node.text)
-            }
-            is Value.Mapping -> if (node.boolean("enabled") == false) {
-                null
-            } else {
-                SerializationSettings(
-                    version = node.string("version") ?: DEFAULT_SERIALIZATION_VERSION,
-                    format = node.string("format"),
-                )
-            }
-            else -> throw ConversionException("settings.kotlin.serialization must be a string or object")
-        }
-    }
-
-    private fun serializationCoordinate(key: String, version: String): String {
-        val artifact = serializationArtifacts[key]
-            ?: throw ConversionException("Unknown Kotlin serialization catalog alias '\$kotlin.serialization.$key'")
-        return "org.jetbrains.kotlinx:$artifact:$version"
     }
 
     private fun kmpFragments(module: ToolchainModule, product: Product): List<KmpFragment> {
@@ -845,144 +800,6 @@ internal class GradleGenerator {
         "exported" -> Dependency(notation, exported = true)
         else -> throw ConversionException("Dependency '$notation' has unknown scope '$shorthand'")
     }
-
-    private data class PluginRef(
-        val id: String,
-        val dsl: String,
-        val family: String,
-        val version: String,
-        val explicit: Boolean = false,
-    )
-
-    private data class PluginContext(
-        val declareVersions: Boolean,
-        val versions: Map<String, String>,
-        val inherited: List<PluginRef>,
-    )
-
-    private fun kotlinPlugin(name: String, version: String, explicit: Boolean = false): PluginRef =
-        PluginRef("org.jetbrains.kotlin.$name", "kotlin(${quote(name)})", "kotlin", version, explicit)
-
-    private fun androidPlugin(id: String): PluginRef =
-        PluginRef(id, "id(${quote(id)})", "android", Versions.ANDROID_GRADLE_PLUGIN, explicit = true)
-
-    private fun pluginLine(plugin: PluginRef, context: PluginContext): String {
-        if (!context.declareVersions) return plugin.dsl
-        return "${plugin.dsl} version ${quote(context.versions[plugin.id] ?: plugin.version)}"
-    }
-
-    private fun KtsWriter.appendPluginBlock(lines: List<String>, context: PluginContext) {
-        block("plugins") {
-            for (text in lines) line(text)
-            for (plugin in context.inherited) {
-                line("${plugin.dsl} version ${quote(context.versions[plugin.id] ?: plugin.version)} apply false")
-            }
-        }
-    }
-
-    /**
-     * The versioned Gradle plugins a module needs. Core Gradle plugins such as `application` and
-     * `base` are left out: they carry no version and never need a root declaration.
-     */
-    private fun pluginsOf(module: ToolchainModule): List<PluginRef> {
-        val config = module.config
-        val product = try {
-            product(config)
-        } catch (error: ConversionException) {
-            return emptyList()
-        }
-        val pinned = config.string("settings.kotlin.version")
-        val kotlinVersion = pinned ?: Versions.KOTLIN
-        // An Android module warns that settings.kotlin.version does not select its Kotlin compiler,
-        // so that pin must not become the Kotlin version the rest of the build is generated with.
-        val kotlinPinCounts = pinned != null && product.type != "android/app"
-        val plugins = mutableListOf<PluginRef>()
-        when (product.type) {
-            "jvm/app", "jvm/lib" -> plugins += kotlinPlugin("jvm", kotlinVersion, kotlinPinCounts)
-            "android/app" -> plugins += androidPlugin("com.android.application")
-            "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app" -> {
-                plugins += kotlinPlugin("multiplatform", kotlinVersion, kotlinPinCounts)
-                if ("android" in product.platforms) plugins += androidPlugin("com.android.kotlin.multiplatform.library")
-            }
-            else -> return emptyList()
-        }
-        val serialization = try {
-            serializationSettings(config)
-        } catch (error: ConversionException) {
-            null
-        }
-        if (serialization != null) plugins += kotlinPlugin("plugin.serialization", kotlinVersion, kotlinPinCounts)
-        return plugins
-    }
-
-    /**
-     * One version per plugin family for the whole build. Gradle loads a plugin once for every
-     * module, and the Kotlin plugins only work together when their versions match, so the whole
-     * family has to agree. The Android Gradle Plugin carries the same rule across modules.
-     */
-    private fun resolvePluginVersions(project: ToolchainProject, diagnostics: DiagnosticCollector): Map<String, String> {
-        val refs = project.modules.flatMap { pluginsOf(it) }
-        val resolved = mutableMapOf<String, String>()
-        for ((family, familyRefs) in refs.groupBy(PluginRef::family)) {
-            val requested = familyRefs.map(PluginRef::version).distinct()
-            val candidates = familyRefs.filter(PluginRef::explicit).map(PluginRef::version).distinct()
-                .ifEmpty { requested }
-            val chosen = candidates.maxWithOrNull(versionOrder) ?: continue
-            if (requested.size > 1) {
-                diagnostics.warn(
-                    "The $family plugin is requested at more than one version " +
-                        "(${requested.sorted().joinToString(", ")}); Gradle loads it once for the whole " +
-                        "build, so the generated build uses $chosen for every module",
-                )
-            }
-            for (ref in familyRefs) resolved[ref.id] = chosen
-        }
-        return resolved
-    }
-
-    /**
-     * Orders version strings the way a release train runs: numbers first, and a stable release
-     * ahead of every pre-release that carries the same numbers. Equal versions fall back to the
-     * text so the choice does not depend on the order the modules were read in.
-     */
-    private val versionOrder: Comparator<String> = Comparator { left, right ->
-        val a = numericVersionParts(left)
-        val b = numericVersionParts(right)
-        var result = 0
-        var index = 0
-        while (result == 0 && index < maxOf(a.size, b.size)) {
-            result = a.getOrElse(index) { 0 }.compareTo(b.getOrElse(index) { 0 })
-            index++
-        }
-        if (result != 0) return@Comparator result
-        val leftQualifier = left.substringAfter('-', "")
-        val rightQualifier = right.substringAfter('-', "")
-        if (leftQualifier.isEmpty() != rightQualifier.isEmpty()) {
-            return@Comparator if (leftQualifier.isEmpty()) 1 else -1
-        }
-        result = compareQualifiers(leftQualifier, rightQualifier)
-        if (result != 0) result else left.compareTo(right)
-    }
-
-    private fun numericVersionParts(version: String): List<Int> =
-        version.substringBefore('-').split('.', '_').map { part -> part.toIntOrNull() ?: 0 }
-
-    private fun compareQualifiers(left: String, right: String): Int {
-        val a = qualifierTokens(left)
-        val b = qualifierTokens(right)
-        for (index in 0 until maxOf(a.size, b.size)) {
-            val x = a.getOrNull(index) ?: return -1
-            val y = b.getOrNull(index) ?: return 1
-            val numeric = x.toIntOrNull()?.let { left1 -> y.toIntOrNull()?.let { right1 -> left1.compareTo(right1) } }
-            val result = numeric ?: x.compareTo(y)
-            if (result != 0) return result
-        }
-        return 0
-    }
-
-    private fun qualifierTokens(qualifier: String): List<String> =
-        Regex("\\d+|\\D+").findAll(qualifier).map { it.value }.toList()
 
     private data class QualifiedSettings(val common: Value.Mapping?, val byPlatform: Map<String, Value.Mapping>)
 
@@ -1134,11 +951,6 @@ internal class GradleGenerator {
         val bom: Boolean = false,
     )
 
-    private data class SerializationSettings(
-        val version: String,
-        val format: String? = null,
-    )
-
     private data class RepositoryCredentials(
         val file: String,
         val usernameKey: String,
@@ -1160,23 +972,11 @@ internal class GradleGenerator {
     )
 
     companion object {
-        private const val DEFAULT_SERIALIZATION_VERSION = "1.11.0"
         private const val MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2"
         private const val GOOGLE_MAVEN_URL = "https://maven.google.com"
 
         private val qualifiedKotlinOptionKeys = setOf(
             "languageVersion", "apiVersion", "allWarningsAsErrors", "progressiveMode", "freeCompilerArgs", "optIns",
-        )
-
-        private val serializationArtifacts = mapOf(
-            "core" to "kotlinx-serialization-core",
-            "cbor" to "kotlinx-serialization-cbor",
-            "hocon" to "kotlinx-serialization-hocon",
-            "json" to "kotlinx-serialization-json",
-            "json-io" to "kotlinx-serialization-json-io",
-            "json-okio" to "kotlinx-serialization-json-okio",
-            "properties" to "kotlinx-serialization-properties",
-            "protobuf" to "kotlinx-serialization-protobuf",
         )
 
         private val naturalPlatformParents = mapOf(
