@@ -1,0 +1,9 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android]
+
+settings:
+  android:
+    namespace: io.heapy.example.compilesdk
+    compileSdk:
+      apiLevel: 34

@@ -241,14 +241,16 @@ internal object YamlBinder {
                 else -> continue
             }
             val section = value as? Value.Mapping
+            // A test-settings@ section is dropped whole, so its keys are never inspected.
+            val unsupportedKeys = if (test || section == null) emptyList() else unsupportedKeys(section)
             add(
                 QualifiedSection(
                     key = key,
                     qualifier = qualifier,
                     test = test,
                     settings = section?.let { bindSettings(it, testSettings = null, lenient = true, errors = null) },
-                    // A test-settings@ section is dropped whole, so its keys are never inspected.
-                    unsupportedKeys = if (test || section == null) emptyList() else unsupportedKeys(section),
+                    unsupportedKeys = unsupportedKeys,
+                    malformedOptions = malformedOptions(unsupportedKeys),
                 ),
             )
         }
@@ -284,6 +286,26 @@ internal object YamlBinder {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Which compiler options a section declared and got wrong, read off the same walk that reported
+     * them.
+     *
+     * A dropped key that has no compiler option behind it — `settings@jvm.jvm.release`, an unknown
+     * `kotlin.foo` — is not listed: it overrides nothing because it contributes nothing either way.
+     */
+    private fun malformedOptions(keys: List<UnsupportedKey>): Set<String> = buildSet {
+        val prefix = "${QualifiedOption.KOTLIN}."
+        for (key in keys) {
+            if (key.path == QualifiedOption.KOTLIN) {
+                addAll(QualifiedOption.ALL)
+                continue
+            }
+            if (!key.path.startsWith(prefix)) continue
+            val option = key.path.removePrefix(prefix)
+            if (option in QualifiedOption.ALL) add(option)
         }
     }
 

@@ -493,6 +493,55 @@ class JvmInterpreterTest {
     }
 
     /**
+     * A narrower section that declares an option and gets it wrong still overrides the broader one.
+     *
+     * Declaring a key is what overriding is, and a value the converter cannot read is still a
+     * declaration: `settings@jvm` says the module-wide `settings@common` language version does not
+     * apply to the JVM, and nothing it says afterwards brings that version back.
+     */
+    @Test
+    fun aMalformedKotlinNodeSuppressesTheBroaderSectionInsteadOfInheritingIt() {
+        val app = module(
+            "app",
+            """
+            product: jvm/app
+
+            settings@common:
+              kotlin:
+                languageVersion: "2.0"
+
+            settings@jvm:
+              kotlin: nonsense
+            """.trimIndent(),
+        )
+
+        assertEquals(CompilerOptions.EMPTY, interpret(app).qualifiedCompilerOptions)
+    }
+
+    /** The same for one key of an otherwise readable section: a list that is not a list clears it. */
+    @Test
+    fun aMalformedFreeCompilerArgListSuppressesTheBroaderOne() {
+        val app = module(
+            "app",
+            """
+            product: jvm/app
+
+            settings@common:
+              kotlin:
+                freeCompilerArgs: [-Xcontext-receivers]
+                progressiveMode: true
+
+            settings@jvm:
+              kotlin:
+                freeCompilerArgs: notalist
+            """.trimIndent(),
+        )
+
+        // progressiveMode is untouched by the malformed key, so only the arguments are cleared.
+        assertEquals(CompilerOptions(progressiveMode = true), interpret(app).qualifiedCompilerOptions)
+    }
+
+    /**
      * The reach of the dependency checks, from the reading end: a `jvm/app` reads `dependencies` and
      * `dependencies@jvm` only, so a scope it cannot spell under `@js` is nobody's business.
      */

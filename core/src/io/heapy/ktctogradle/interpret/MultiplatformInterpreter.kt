@@ -3,6 +3,7 @@ package io.heapy.ktctogradle.interpret
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.load.ModuleIndex
+import io.heapy.ktctogradle.load.QualifiedOption
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.ToolchainModule
@@ -173,9 +174,21 @@ internal object QualifiedSettings {
         fragmentOrder: List<Pair<String, Set<String>>>,
         diagnostics: DiagnosticCollector,
     ): Resolved {
+        val resolved = resolve(module, fragmentOrder, diagnostics)
+        return Resolved(
+            common = resolved.common.options,
+            byPlatform = resolved.byPlatform.mapValues { (_, contribution) -> contribution.options },
+        )
+    }
+
+    private fun resolve(
+        module: ToolchainModule,
+        fragmentOrder: List<Pair<String, Set<String>>>,
+        diagnostics: DiagnosticCollector,
+    ): ResolvedContributions {
         val rank = fragmentOrder.withIndex().associate { (index, entry) -> entry.first to index }
         val platformsOf = fragmentOrder.toMap()
-        val sections = mutableListOf<Triple<Int, Set<String>, CompilerOptions>>()
+        val sections = mutableListOf<Triple<Int, Set<String>, Contribution>>()
         for (section in module.model.qualifiedSections) {
             if (section.test) {
                 drop(diagnostics, module, section.key, UnsupportedKey.UNSUPPORTED)
@@ -194,22 +207,26 @@ internal object QualifiedSettings {
             for (unsupported in section.unsupportedKeys) {
                 drop(diagnostics, module, "${section.key}.${unsupported.path}", unsupported.reason)
             }
-            sections += Triple(rank.getValue(section.qualifier), platforms, options(settings))
+            sections += Triple(
+                rank.getValue(section.qualifier),
+                platforms,
+                Contribution(options(settings), section.malformedOptions),
+            )
         }
         sections.sortBy { (index, _, _) -> index }
 
-        var common = CompilerOptions.EMPTY
-        val byPlatform = mutableMapOf<String, CompilerOptions>()
-        for ((index, platforms, options) in sections) {
+        var common = Contribution.EMPTY
+        val byPlatform = mutableMapOf<String, Contribution>()
+        for ((index, platforms, contribution) in sections) {
             if (fragmentOrder[index].first == KmpFragments.COMMON) {
-                common = merge(common, options)
+                common = merge(common, contribution)
                 continue
             }
             for (platform in platforms) {
-                byPlatform[platform] = byPlatform[platform]?.let { merge(it, options) } ?: options
+                byPlatform[platform] = byPlatform[platform]?.let { merge(it, contribution) } ?: contribution
             }
         }
-        return Resolved(common, byPlatform)
+        return ResolvedContributions(common, byPlatform)
     }
 
     /**
@@ -223,8 +240,8 @@ internal object QualifiedSettings {
         platform: String,
         diagnostics: DiagnosticCollector,
     ): CompilerOptions {
-        val resolved = of(module, KmpFragments.singlePlatform(platform), diagnostics)
-        return merge(resolved.common, resolved.byPlatform[platform] ?: CompilerOptions.EMPTY)
+        val resolved = resolve(module, KmpFragments.singlePlatform(platform), diagnostics)
+        return merge(resolved.common, resolved.byPlatform[platform] ?: Contribution.EMPTY).options
     }
 
     private fun drop(diagnostics: DiagnosticCollector, module: ToolchainModule, path: String, reason: String) {
@@ -250,14 +267,63 @@ internal object QualifiedSettings {
         )
     }
 
-    /** [higher] overrides the flags it declares; free arguments and opt-ins add up instead. */
-    private fun merge(lower: CompilerOptions, higher: CompilerOptions): CompilerOptions = CompilerOptions(
-        languageVersion = higher.languageVersion ?: lower.languageVersion,
-        apiVersion = higher.apiVersion ?: lower.apiVersion,
-        jvmTarget = higher.jvmTarget ?: lower.jvmTarget,
-        allWarningsAsErrors = higher.allWarningsAsErrors ?: lower.allWarningsAsErrors,
-        progressiveMode = higher.progressiveMode ?: lower.progressiveMode,
-        freeArgs = lower.freeArgs + higher.freeArgs,
-        optIns = lower.optIns + higher.optIns,
+    /**
+     * [higher] overrides every option it declares; free arguments and opt-ins add up instead.
+     *
+     * An option [higher] declared but got wrong overrides too, with nothing: the section said the
+     * broader value does not apply here, and the fact that it then failed to say what does apply
+     * cannot resurrect it. Dropping that distinction would make a broken `settings@jvm` silently
+     * inherit `settings@common`'s value instead of clearing it.
+     */
+    private fun merge(lower: Contribution, higher: Contribution): Contribution =
+        Contribution(
+            options = CompilerOptions(
+                languageVersion = higher.take(lower, QualifiedOption.LANGUAGE_VERSION) { it.languageVersion },
+                apiVersion = higher.take(lower, QualifiedOption.API_VERSION) { it.apiVersion },
+                jvmTarget = higher.options.jvmTarget ?: lower.options.jvmTarget,
+                allWarningsAsErrors = higher.take(lower, QualifiedOption.ALL_WARNINGS_AS_ERRORS) {
+                    it.allWarningsAsErrors
+                },
+                progressiveMode = higher.take(lower, QualifiedOption.PROGRESSIVE_MODE) { it.progressiveMode },
+                freeArgs = higher.concat(lower, QualifiedOption.FREE_COMPILER_ARGS) { it.freeArgs },
+                optIns = higher.concat(lower, QualifiedOption.OPT_INS) { it.optIns },
+            ),
+            // The union is enough because a merged contribution is only ever read as `higher` in
+            // [singlePlatform], and there `byPlatform` holds a single section: the fragment order is
+            // `common` then the platform itself, so nothing accumulates that a later section could
+            // have made well-formed again.
+            malformedOptions = lower.malformedOptions + higher.malformedOptions,
+        )
+
+    /** [higher]'s value of [option], or [lower]'s when [higher] neither declares nor suppresses it. */
+    private fun <T> Contribution.take(lower: Contribution, option: String, read: (CompilerOptions) -> T?): T? =
+        read(options) ?: lower.options.let(read).takeIf { option !in malformedOptions }
+
+    /** As [take], except that two well-formed lists add up rather than overriding. */
+    private fun Contribution.concat(
+        lower: Contribution,
+        option: String,
+        read: (CompilerOptions) -> List<String>,
+    ): List<String> = if (option in malformedOptions) emptyList() else read(lower.options) + read(options)
+
+    /**
+     * One qualified section's contribution to a `compilerOptions { }` body.
+     *
+     * [malformedOptions] is carried alongside [options] because a malformed value binds to the same
+     * `null` an absent one does, and the two mean opposite things when sections are merged.
+     */
+    private data class Contribution(
+        val options: CompilerOptions,
+        val malformedOptions: Set<String>,
+    ) {
+        companion object {
+            val EMPTY = Contribution(CompilerOptions.EMPTY, emptySet())
+        }
+    }
+
+    /** [Resolved] before the merge markers are dropped, which only [singlePlatform] still needs. */
+    private data class ResolvedContributions(
+        val common: Contribution,
+        val byPlatform: Map<String, Contribution>,
     )
 }

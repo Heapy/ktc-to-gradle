@@ -7,6 +7,7 @@ import io.heapy.ktctogradle.load.KtorSettings
 import io.heapy.ktctogradle.load.Layout
 import io.heapy.ktctogradle.load.NativeSettings
 import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.QualifiedOption
 import io.heapy.ktctogradle.load.QualifiedSection
 import io.heapy.ktctogradle.load.RawCredentials
 import io.heapy.ktctogradle.load.RawDependency
@@ -503,6 +504,7 @@ class YamlBinderTest {
                 test = true,
                 settings = Settings(kotlin = KotlinSettings(allWarningsAsErrors = true)),
                 unsupportedKeys = emptyList(),
+                malformedOptions = emptySet(),
             ),
             model.qualifiedSections.section("test-settings@jvm"),
         )
@@ -586,6 +588,18 @@ class YamlBinderTest {
             model.qualifiedSections.section("settings@linuxX64").unsupportedKeys,
         )
         assertEquals(emptyList(), model.qualifiedSections.section("test-settings@jvm").unsupportedKeys)
+
+        // Only the dropped keys that stand for a compiler option override a broader section; a
+        // `kotlin` node that is not an object stands for all six of them at once.
+        assertEquals(
+            setOf("languageVersion", "allWarningsAsErrors", "freeCompilerArgs"),
+            model.qualifiedSections.section("settings@jvm").malformedOptions,
+        )
+        assertEquals(
+            QualifiedOption.ALL,
+            model.qualifiedSections.section("settings@linuxX64").malformedOptions,
+        )
+        assertEquals(emptySet(), model.qualifiedSections.section("test-settings@jvm").malformedOptions)
     }
 
     @Test

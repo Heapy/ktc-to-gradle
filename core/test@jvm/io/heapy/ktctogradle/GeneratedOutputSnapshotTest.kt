@@ -28,6 +28,15 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun kmpAndroid() = assertCase("kmp-android")
 
+    /**
+     * A `kmp/lib` android target that declares the nested `compileSdk: { apiLevel: }` form.
+     *
+     * The pre-pipeline converter read that form on the `android/app` path only and silently emitted
+     * the default `37` here; this case pins the level the module actually asked for. It is the one
+     * intentional output difference the pipeline refactor introduced.
+     */
+    @Test fun kmpAndroidCompileSdk() = assertCase("kmp-android-compile-sdk")
+
     @Test fun androidApp() = assertCase("android-app")
 
     @Test fun repoCredentials() = assertCase("repo-credentials")

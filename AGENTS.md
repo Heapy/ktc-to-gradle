@@ -24,6 +24,22 @@ and `model/` are pure: they never open a file and never see a `Value`. Keep it t
 purity is what makes the middle of the pipeline testable without a fake file system. Filesystem
 facts an interpreter needs arrive as a `ModuleLayout` that the load stage filled in.
 
+## The one deliberate output difference from the pre-pipeline converter
+
+The pipeline replaced `GradleGenerator` behaviour for behaviour. The golden baselines were generated
+from the old code and every case still reproduces it byte for byte, with exactly one recorded
+exception.
+
+`settings.android.compileSdk` accepts a bare level and a nested `compileSdk: { apiLevel: <n> }` form.
+`GradleGenerator` read the nested form on the `android/app` path only: a `kmp/lib` declaring the
+`android` platform ignored it and emitted the default `37`. `load/YamlBinder` binds both forms to one
+field, so `interpret/AndroidInterpreter.libraryTarget` now honours the nested form too. That
+asymmetry was an accident rather than a rule, so it was not restored.
+
+It is pinned by the `kmp-android-compile-sdk` golden case and by
+`AndroidInterpreterTest.aLibraryTargetReadsTheNestedCompileSdkForm`. Nothing else diverges: a golden
+file that moves for any other reason is a bug in the change that moved it, not a baseline to update.
+
 ## Tests
 
 There are five layers, and a change belongs in exactly one of them.
@@ -40,7 +56,7 @@ There are five layers, and a change belongs in exactly one of them.
    `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
    `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
    `FileWriter` against a temp directory.
-5. **Golden snapshots** — 20 cases under `core/testResources@jvm/golden/`, driven by
+5. **Golden snapshots** — 21 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.

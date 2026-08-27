@@ -101,7 +101,46 @@ internal data class QualifiedSection(
      * which is dropped whole and never inspected key by key.
      */
     val unsupportedKeys: List<UnsupportedKey>,
+    /**
+     * The [QualifiedOption] keys the section declares but got wrong, so [settings] binds them to
+     * nothing.
+     *
+     * A malformed key is still a key the section *declared*, and declaring a key is how a narrower
+     * section overrides a broader one. Without this the two are indistinguishable — both bind to
+     * `null` — and a broken `settings@jvm` would silently let `settings@common`'s value through.
+     * A `kotlin` node that is not an object is recorded as every option key at once, because it
+     * replaces the whole node the broader section contributed.
+     */
+    val malformedOptions: Set<String>,
 )
+
+/**
+ * The `settings@<qualifier>.kotlin` keys that reach a Gradle `compilerOptions { }` block.
+ *
+ * Named here rather than in the interpreter because the binder decides which of them a section got
+ * wrong ([QualifiedSection.malformedOptions]) and the interpreter decides what a wrong one does to
+ * the merge, and the two must agree on the spelling.
+ */
+internal object QualifiedOption {
+    const val LANGUAGE_VERSION = "languageVersion"
+    const val API_VERSION = "apiVersion"
+    const val ALL_WARNINGS_AS_ERRORS = "allWarningsAsErrors"
+    const val PROGRESSIVE_MODE = "progressiveMode"
+    const val FREE_COMPILER_ARGS = "freeCompilerArgs"
+    const val OPT_INS = "optIns"
+
+    /** The node the six live under; a section that gets *it* wrong loses all six. */
+    const val KOTLIN = "kotlin"
+
+    val ALL = setOf(
+        LANGUAGE_VERSION,
+        API_VERSION,
+        ALL_WARNINGS_AS_ERRORS,
+        PROGRESSIVE_MODE,
+        FREE_COMPILER_ARGS,
+        OPT_INS,
+    )
+}
 
 /** A key of a qualified section that was dropped, and the wording the diagnostic uses to say so. */
 internal data class UnsupportedKey(

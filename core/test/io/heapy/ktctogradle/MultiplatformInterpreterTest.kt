@@ -115,6 +115,40 @@ class MultiplatformInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, build.qualifiedCompilerOptions)
     }
 
+    /**
+     * Two sections reaching the same leaf: the narrower one wins, including when what it declares is
+     * malformed. `settings@iosArm64` says the `apple` options do not apply to that target, so the
+     * target gets none — while its sibling, which the broken section never names, keeps them.
+     */
+    @Test
+    fun aMalformedNarrowerSectionClearsTheBroaderOneForItsOwnTargetOnly() {
+        val build = interpret(
+            module(
+                "lib",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [iosArm64, iosSimulatorArm64]
+                settings@apple:
+                  kotlin:
+                    languageVersion: "2.0"
+                    freeCompilerArgs: [-Xexpect-actual-classes]
+                settings@iosArm64:
+                  kotlin: nonsense
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions.EMPTY,
+            build.targets.single { it.name == "iosArm64" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(languageVersion = "2.0", freeArgs = listOf("-Xexpect-actual-classes")),
+            build.targets.single { it.name == "iosSimulatorArm64" }.compilerOptions,
+        )
+    }
+
     /** `settings@common` covers every platform, so it belongs to the module and not to a target. */
     @Test
     fun theCommonQualifierLandsOnTheModuleWideOptions() {
