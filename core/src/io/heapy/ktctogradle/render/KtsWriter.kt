@@ -1,7 +1,7 @@
 package io.heapy.ktctogradle.render
 
-import io.heapy.ktctogradle.Value
-import io.heapy.ktctogradle.scalarOrNull
+import io.heapy.ktctogradle.load.Value
+import io.heapy.ktctogradle.load.scalarOrNull
 
 /**
  * Emits Gradle Kotlin DSL text and owns the indentation, so a renderer never passes an indent

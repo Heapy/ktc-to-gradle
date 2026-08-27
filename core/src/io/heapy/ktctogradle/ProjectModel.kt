@@ -2,6 +2,18 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ModuleLayoutProbe
+import io.heapy.ktctogradle.load.ToolchainModel
+import io.heapy.ktctogradle.load.Value
+import io.heapy.ktctogradle.load.YamlBinder
+import io.heapy.ktctogradle.load.asMapping
+import io.heapy.ktctogradle.load.asSequence
+import io.heapy.ktctogradle.load.mergeValues
+import io.heapy.ktctogradle.load.parseYaml
+import io.heapy.ktctogradle.load.scalarOrNull
+import io.heapy.ktctogradle.load.string
+import io.heapy.ktctogradle.load.strings
+import io.heapy.ktctogradle.load.value
+import io.heapy.ktctogradle.load.without
 import okio.FileSystem
 import okio.Path
 
@@ -23,6 +35,13 @@ internal data class ToolchainModule(
      */
     val canonicalDirectory: Path,
     val config: Value.Mapping,
+    /**
+     * [config] as typed data.
+     *
+     * Carried next to [config] while the interpret stage is migrated onto it one product family at
+     * a time; [config] disappears once nothing reads it.
+     */
+    val model: ToolchainModel,
     val layout: ModuleLayout,
 ) {
     val gradlePath: String = path.gradlePath
@@ -55,11 +74,13 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
             val directory = moduleFile.parent!!
             val path = ModulePath.relativize(root, directory)
                 ?: throw ConversionException("Module directory $directory is outside project root $root")
+            val config = loadEffectiveConfig(root, moduleFile)
             ToolchainModule(
                 path = path,
                 directory = directory,
                 canonicalDirectory = fileSystem.canonicalize(directory),
-                config = loadEffectiveConfig(root, moduleFile),
+                config = config,
+                model = YamlBinder.bind(config, if (path.isRoot) directory.name else path.notation),
                 layout = layoutProbe.probe(directory),
             )
         }.sortedBy(ToolchainModule::path)

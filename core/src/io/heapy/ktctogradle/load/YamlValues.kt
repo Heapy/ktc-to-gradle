@@ -1,4 +1,4 @@
-package io.heapy.ktctogradle
+package io.heapy.ktctogradle.load
 
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlList
@@ -6,6 +6,7 @@ import com.charleskorn.kaml.YamlMap
 import com.charleskorn.kaml.YamlNode
 import com.charleskorn.kaml.YamlNull
 import com.charleskorn.kaml.YamlScalar
+import io.heapy.ktctogradle.ConversionException
 
 internal sealed interface Value {
     data class Scalar(val text: String) : Value

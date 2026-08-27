@@ -1,6 +1,8 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.YamlBinder
+import io.heapy.ktctogradle.load.parseYaml
 import okio.FileSystem
 import okio.Path as OkioPath
 import okio.Path.Companion.toPath
@@ -81,13 +83,17 @@ class ModuleDirectoryResolutionTest {
         directory: OkioPath,
         canonicalDirectory: OkioPath,
         yaml: String,
-    ) = ToolchainModule(
-        path = ModulePath.parse(notation),
-        directory = directory,
-        canonicalDirectory = canonicalDirectory,
-        config = parseYaml(yaml, "$notation/module.yaml"),
-        layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
-    )
+    ): ToolchainModule {
+        val config = parseYaml(yaml, "$notation/module.yaml")
+        return ToolchainModule(
+            path = ModulePath.parse(notation),
+            directory = directory,
+            canonicalDirectory = canonicalDirectory,
+            config = config,
+            model = YamlBinder.bind(config, notation),
+            layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
+        )
+    }
 
     private fun buildFileOf(project: ToolchainProject, notation: String): String {
         val directory = project.modules.first { it.path.notation == notation }.directory

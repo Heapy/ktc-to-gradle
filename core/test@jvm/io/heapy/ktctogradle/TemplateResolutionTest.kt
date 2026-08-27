@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.load.strings
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import kotlin.io.path.absolutePathString
