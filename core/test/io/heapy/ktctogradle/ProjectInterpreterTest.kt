@@ -160,6 +160,54 @@ class ProjectInterpreterTest {
         assertEquals("app: unsupported product 'fortran/app'", failure.message)
     }
 
+    /**
+     * The product refusals are a documented, user-facing contract: someone converting an iOS
+     * application has to be told iOS is out of scope, not that a section of a module the converter
+     * was never going to produce is malformed. So the product is dispatched on before anything else
+     * about the module is read, repositories included.
+     *
+     * The first assertion is what makes the rest non-vacuous: under a supported product the very
+     * same section really does fail the conversion, and with a different message.
+     */
+    @Test
+    fun anUnsupportedProductIsRefusedBeforeItsRepositoriesAreRead() {
+        fun failureOf(product: String) = assertFailsWith<ConversionException> {
+            interpret(project(module("app", "$product\n$MALFORMED_REPOSITORIES")))
+        }.message
+
+        assertEquals(
+            "repositories[0].url is required",
+            failureOf("product: jvm/lib"),
+            "A supported product keeps reporting the repositories it was going to render",
+        )
+        assertEquals(
+            "app: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
+            failureOf("product: ios/app"),
+        )
+        assertEquals(
+            "app: Kotlin Toolchain build plugins have no automatic Gradle equivalent",
+            failureOf("product: jvm/amper-plugin"),
+        )
+        assertEquals(
+            "app: unsupported product 'fortran/app'",
+            failureOf("product:\n  type: fortran/app\n  platforms: [jvm]"),
+        )
+    }
+
+    /** `plugins:` stays ahead of the product refusal, which in turn stays ahead of the repositories. */
+    @Test
+    fun anUnsupportedKeyIsReportedBeforeTheProductRefusalAndItsRepositories() {
+        val failure = assertFailsWith<ConversionException> {
+            interpret(
+                project(
+                    module("app", "product: ios/app\nplugins:\n  - ./build-plugin\n$MALFORMED_REPOSITORIES"),
+                ),
+            )
+        }
+
+        assertEquals("app: 'plugins' cannot be converted automatically", failure.message)
+    }
+
     /** A type with no platforms of its own is rejected while the product itself is being read. */
     @Test
     fun anUnknownProductTypeWithNoPlatformsIsRejectedAsItIsRead() {
@@ -256,5 +304,8 @@ class ProjectInterpreterTest {
 
     private companion object {
         private val ROOT: Path = "/workspace".toPath()
+
+        /** A repository with no `url`, which the binder defers and `Repositories` raises. */
+        private const val MALFORMED_REPOSITORIES = "repositories:\n  - id: internal\n"
     }
 }

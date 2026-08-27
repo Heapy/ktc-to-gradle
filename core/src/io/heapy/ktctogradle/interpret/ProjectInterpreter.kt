@@ -79,17 +79,15 @@ internal object ProjectInterpreter {
     ): GradleModule {
         rejectUnsupported(module)
         val product = requireProduct(module)
-        // Repositories are read before the build is interpreted for every product family, so a module
-        // that carries more than one deferred failure always reports the same one. That is a
-        // deliberate change: the pre-pipeline generator read the repositories from inside the build
-        // it was already assembling, so which of two failures a module reported depended on its
-        // product.
-        val repositories = Repositories.of(module.model)
-        val requiresCredentialsImport = Repositories.requiresCredentialsImport(module.model)
-        val build: ModuleBuild = when (product.type) {
-            ProductType.JVM_APP, ProductType.JVM_LIB -> JvmInterpreter.interpret(index, module, diagnostics)
-            ProductType.ANDROID_APP -> AndroidInterpreter.interpret(index, module, diagnostics)
-            in ProductType.MULTIPLATFORM -> MultiplatformInterpreter.interpret(index, module, diagnostics)
+        // The product is dispatched on before anything else about the module is read, because the
+        // refusals below are a documented promise: a user converting an ios/app is told iOS is out
+        // of scope, never that some other section of a module the converter was never going to
+        // produce is malformed. Picking the interpreter here rather than calling it keeps that
+        // refusal ahead of the repositories without moving the repositories behind the build.
+        val interpreter: (ModuleIndex, ToolchainModule, DiagnosticCollector) -> ModuleBuild = when (product.type) {
+            ProductType.JVM_APP, ProductType.JVM_LIB -> JvmInterpreter::interpret
+            ProductType.ANDROID_APP -> AndroidInterpreter::interpret
+            in ProductType.MULTIPLATFORM -> MultiplatformInterpreter::interpret
             ProductType.IOS_APP -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
@@ -98,6 +96,14 @@ internal object ProjectInterpreter {
             )
             else -> throw ConversionException("${module.displayName}: unsupported product '${product.type}'")
         }
+        // Repositories are read before the build is interpreted for every supported product family,
+        // so a module that carries more than one deferred failure always reports the same one. That
+        // is a deliberate change: the pre-pipeline generator read the repositories from inside the
+        // build it was already assembling, so which of two failures a module reported depended on
+        // its product.
+        val repositories = Repositories.of(module.model)
+        val requiresCredentialsImport = Repositories.requiresCredentialsImport(module.model)
+        val build: ModuleBuild = interpreter(index, module, diagnostics)
         return GradleModule(
             gradlePath = module.gradlePath,
             directory = module.directory,
