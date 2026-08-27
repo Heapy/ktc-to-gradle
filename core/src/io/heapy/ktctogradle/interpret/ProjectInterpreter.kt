@@ -9,8 +9,10 @@ import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.load.YamlBinder
+import io.heapy.ktctogradle.load.isLocalNotation
 import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.AndroidBuild
+import io.heapy.ktctogradle.model.CompilerPlugin
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
@@ -133,8 +135,39 @@ internal object ProjectInterpreter {
             plugins = plugins,
             repositories = repositories,
             requiresCredentialsImport = requiresCredentialsImport,
+            compilerPlugins = compilerPluginsOf(module),
             build = build,
         )
+    }
+
+    /**
+     * The third-party Kotlin compiler plugins the module declares.
+     *
+     * Read here rather than inside a product interpreter because the declaration is module-wide: the
+     * Toolchain applies a compiler plugin to the module, not to one of its targets.
+     */
+    private fun compilerPluginsOf(module: ToolchainModule): List<CompilerPlugin> =
+        module.model.settings.kotlin?.compilerPlugins.orEmpty().map { spec ->
+            CompilerPlugin(
+                id = spec.id,
+                dependency = compilerPluginDependency(module, spec.dependency),
+                options = spec.options,
+            )
+        }
+
+    /**
+     * Where a compiler plugin is loaded from.
+     *
+     * The Toolchain takes an external dependency here, so a catalog alias is as valid as a
+     * coordinate — and a local module never is.
+     */
+    private fun compilerPluginDependency(module: ToolchainModule, notation: String): DependencyTarget = when {
+        notation.startsWith("\$libs.") -> DependencyTarget.Catalog(notation.removePrefix("\$"))
+        notation.startsWith("\$") || isLocalNotation(notation) -> throw ConversionException(
+            "${module.displayName}: settings.kotlin.compilerPlugins dependency '$notation' must be a Maven " +
+                "coordinate or a \$libs catalog alias",
+        )
+        else -> DependencyTarget.Maven(notation)
     }
 
     /**

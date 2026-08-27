@@ -17,7 +17,7 @@ class ConversionIntegrationTest {
 
     @Test
     fun convertedJvmFixturesBuildWithPinnedGradle() {
-        for (fixture in listOf("jvm-single", "jvm-multi", "kmp-library", "android-app", "kmp-android")) {
+        for (fixture in listOf("jvm-single", "jvm-multi", "kmp-library", "compiler-plugin", "android-app", "kmp-android")) {
             val source = projectRoot().resolve("integration-tests/fixtures/$fixture")
             val destination = Files.createTempDirectory("ktc-to-gradle-$fixture-")
             copyRecursively(source, destination)

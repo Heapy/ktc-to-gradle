@@ -32,4 +32,19 @@ internal class KtsWriter {
     }
 }
 
-internal fun quote(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")}\""
+internal fun quote(value: String): String = buildString {
+    append('"')
+    for (character in value) {
+        when (character) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '$' -> append("\\$")
+            // A raw line break would end the literal, and a raw tab is unreadable in the output.
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(character)
+        }
+    }
+    append('"')
+}

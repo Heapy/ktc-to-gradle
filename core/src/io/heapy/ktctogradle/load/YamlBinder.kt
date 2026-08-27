@@ -334,6 +334,7 @@ internal object YamlBinder {
                     freeCompilerArgs = present.stringList("kotlin.freeCompilerArgs", "settings.", lenient),
                     optIns = present.stringList("kotlin.optIns", "settings.", lenient),
                     serialization = bindSerialization(present.value("kotlin.serialization"), lenient, errors),
+                    compilerPlugins = bindCompilerPlugins(present.value("kotlin.compilerPlugins"), lenient),
                 )
             },
             jvm = present.value("jvm")?.let {
@@ -379,6 +380,54 @@ internal object YamlBinder {
                 )
             },
         )
+    }
+
+    /**
+     * `settings.kotlin.compilerPlugins`, a list of third-party Kotlin compiler plugins.
+     *
+     * The Toolchain form has exactly three keys, so nothing here is dropped: `id` and `dependency`
+     * are required, and `options` is a map of strings. A qualified section binds leniently and takes
+     * the entries it can read, because it raises nothing.
+     */
+    private fun bindCompilerPlugins(node: Value?, lenient: Boolean): List<CompilerPluginSpec> {
+        if (node == null) return emptyList()
+        val items = (node as? Value.Sequence)?.items
+            ?: if (lenient) return emptyList() else throw ConversionException("settings.kotlin.compilerPlugins must be a list")
+        return items.mapIndexedNotNull { index, item ->
+            val path = "settings.kotlin.compilerPlugins[$index]"
+            val entry = item as? Value.Mapping
+                ?: if (lenient) return@mapIndexedNotNull null else throw ConversionException("$path must be an object")
+            val id = entry.string("id")
+            val dependency = entry.string("dependency")
+            if (id == null || dependency == null) {
+                if (lenient) return@mapIndexedNotNull null
+                throw ConversionException("$path.${if (id == null) "id" else "dependency"} is required")
+            }
+            CompilerPluginSpec(
+                id = id,
+                dependency = dependency,
+                options = compilerPluginOptions(entry.value("options"), "$path.options", lenient),
+            )
+        }
+    }
+
+    /**
+     * A compiler plugin's `options`, which the compiler takes as a flat map of strings.
+     *
+     * Anything else is refused rather than coerced: an option silently bound to `""` reaches the
+     * compiler as a real setting, and the plugin behaves differently for a reason nothing names.
+     */
+    private fun compilerPluginOptions(node: Value?, path: String, lenient: Boolean): Map<String, String> {
+        if (node == null) return emptyMap()
+        val mapping = node as? Value.Mapping
+            ?: if (lenient) return emptyMap() else throw ConversionException("$path must be an object")
+        return buildMap {
+            for ((key, value) in mapping.entries) {
+                val text = value.scalarOrNull()
+                    ?: if (lenient) continue else throw ConversionException("$path.$key must be a string")
+                put(key, text)
+            }
+        }
     }
 
     private fun bindSerialization(
@@ -436,6 +485,6 @@ internal object YamlBinder {
 
     private val UNSUPPORTED_SETTINGS = listOf(
         "settings.compose", "settings.springBoot", "settings.lombok", "settings.kotlin.ksp",
-        "settings.kotlin.rpc", "settings.kotlin.dataframe", "settings.kotlin.compilerPlugins",
+        "settings.kotlin.rpc", "settings.kotlin.dataframe",
     )
 }

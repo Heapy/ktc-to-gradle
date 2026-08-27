@@ -1,6 +1,7 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.load.AndroidSettings
+import io.heapy.ktctogradle.load.CompilerPluginSpec
 import io.heapy.ktctogradle.load.JvmSettings
 import io.heapy.ktctogradle.load.KotlinSettings
 import io.heapy.ktctogradle.load.KtorSettings
@@ -462,6 +463,100 @@ class YamlBinderTest {
     }
 
     @Test
+    fun bindsEveryCompilerPluginWithItsOptions() {
+        val kotlin = bind(
+            """
+                product: jvm/lib
+                settings:
+                  kotlin:
+                    compilerPlugins:
+                      - id: org.example.first
+                        dependency: org.example:first-compiler:1.0
+                        options:
+                          moduleId: shared
+                          mode: strict
+                      - id: org.example.second
+                        dependency: org.example:second-compiler:2.0
+            """.trimIndent(),
+        ).settings.kotlin
+
+        assertEquals(
+            listOf(
+                CompilerPluginSpec(
+                    id = "org.example.first",
+                    dependency = "org.example:first-compiler:1.0",
+                    options = mapOf("moduleId" to "shared", "mode" to "strict"),
+                ),
+                CompilerPluginSpec(id = "org.example.second", dependency = "org.example:second-compiler:2.0"),
+            ),
+            kotlin?.compilerPlugins,
+        )
+    }
+
+    @Test
+    fun defersTheFailureOfACompilerPluginEntryThatNamesNoDependency() {
+        val model = bind(
+            """
+                product: jvm/lib
+                settings:
+                  kotlin:
+                    compilerPlugins:
+                      - id: org.example.first
+                        dependency: org.example:first-compiler:1.0
+                      - id: org.example.second
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "settings.kotlin.compilerPlugins[1].dependency is required",
+            model.errors["settings"],
+        )
+        assertNull(model.settings.kotlin)
+    }
+
+    /** An option bound to `""` would reach the compiler as a real setting, so it is refused instead. */
+    @Test
+    fun defersTheFailureOfCompilerPluginOptionsThatAreNotStrings() {
+        val notAMap = bind(
+            """
+                product: jvm/lib
+                settings:
+                  kotlin:
+                    compilerPlugins:
+                      - id: org.example.plugin
+                        dependency: org.example:compiler:1.0
+                        options: [moduleId]
+            """.trimIndent(),
+        )
+        assertEquals("settings.kotlin.compilerPlugins[0].options must be an object", notAMap.errors["settings"])
+
+        val nestedValue = bind(
+            """
+                product: jvm/lib
+                settings:
+                  kotlin:
+                    compilerPlugins:
+                      - id: org.example.plugin
+                        dependency: org.example:compiler:1.0
+                        options:
+                          moduleId:
+                            name: shared
+            """.trimIndent(),
+        )
+        assertEquals(
+            "settings.kotlin.compilerPlugins[0].options.moduleId must be a string",
+            nestedValue.errors["settings"],
+        )
+    }
+
+    @Test
+    fun defersTheFailureOfACompilerPluginsSectionThatIsNotAList() {
+        val model = bind("product: jvm/lib\nsettings:\n  kotlin:\n    compilerPlugins: enabled\n")
+
+        assertEquals("settings.kotlin.compilerPlugins must be a list", model.errors["settings"])
+    }
+
+    @Test
     fun keepsQualifiedSettingsSectionsInDeclarationOrder() {
         val model = bind(
             """
@@ -616,8 +711,6 @@ class YamlBinderTest {
                   springBoot: enabled
                   compose: enabled
                   kotlin:
-                    compilerPlugins:
-                      - org.example:compiler:1.0
                     dataframe: enabled
                     rpc: enabled
                     ksp:
@@ -635,7 +728,6 @@ class YamlBinderTest {
                 "settings.kotlin.ksp",
                 "settings.kotlin.rpc",
                 "settings.kotlin.dataframe",
-                "settings.kotlin.compilerPlugins",
             ),
             model.unsupported,
         )

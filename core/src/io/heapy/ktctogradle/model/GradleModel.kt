@@ -103,8 +103,29 @@ internal data class GradleModule(
      * that is only published to still has its credentials read, and never reaches resolution.
      */
     val requiresCredentialsImport: Boolean,
+    /**
+     * Third-party Kotlin compiler plugins the module loads.
+     *
+     * Module-level rather than part of [build]: the Toolchain declares them once for the module, and
+     * Gradle spells them the same way whatever the product is.
+     */
+    val compilerPlugins: List<CompilerPlugin> = emptyList(),
     /** `null` = the root of a project that has no module of its own; it renders `plugins { base }`. */
     val build: ModuleBuild?,
+)
+
+/**
+ * A third-party Kotlin compiler plugin, loaded from [coordinates] and configured through [id].
+ *
+ * Gradle has no DSL for this: a plugin reaches the compiler as an artifact on a plugin classpath
+ * configuration plus one `-P plugin:<id>:<key>=<value>` compiler argument per option. That spelling
+ * is the renderer's business; what a plugin *is* is this.
+ */
+internal data class CompilerPlugin(
+    val id: String,
+    /** Resolved like any other dependency, so a `${'$'}libs.` alias reaches the catalog accessor. */
+    val dependency: DependencyTarget,
+    val options: Map<String, String> = emptyMap(),
 )
 
 /** Where a module keeps its sources: Toolchain's own `src`/`test` or Maven's `src/main/kotlin`. */

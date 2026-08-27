@@ -48,7 +48,7 @@ The converter generates `gradlew` and `gradlew.bat` in the converted project. Th
 - `jvm/app`, `jvm/lib`, `android/app`, `kmp/lib`, JS, Wasm, and native app products;
 - root-relative and relative local module dependencies;
 - Maven coordinates, BOMs, dependency scopes, exported dependencies, repositories, and `libs.versions.toml` catalogs;
-- Kotlin/JVM compiler settings, JDK/release settings, JUnit 4/5, test process settings, Kotlin serialization, and the Ktor BOM;
+- Kotlin/JVM compiler settings, JDK/release settings, JUnit 4/5, test process settings, Kotlin serialization, third-party Kotlin compiler plugins, and the Ktor BOM;
 - platform-qualified KMP source, resource, test, and dependency sections.
 
 Toolchain build plugins and Maven plugins have no automatic Gradle equivalent. The converter does not stop for them: it writes the rest of the build, reports each dropped section and each left-out module as an `error:` line, and exits 1 so a partial conversion is never reported as a success. It still stops with an explanation for `ios/app` and for built-in technologies whose Gradle behavior cannot yet be reproduced safely. An Android target nested in a `kmp/lib` is converted, as an `androidLibrary { }` target. Original YAML and source files are never removed.
@@ -70,4 +70,4 @@ Run the Kotlin Toolchain integration-test module separately:
 ./kotlin test -m integration-tests -p jvm
 ```
 
-The suite copies six Toolchain fixtures, converts them, and executes `build` on every generated Gradle 9.7.1 project; the two Android fixtures are skipped when no Android SDK is available. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.
+The suite copies seven Toolchain fixtures, converts them, and executes `build` on every generated Gradle 9.7.1 project; the two Android fixtures are skipped when no Android SDK is available. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.

@@ -229,6 +229,19 @@ internal data class KotlinSettings(
     val freeCompilerArgs: List<String> = emptyList(),
     val optIns: List<String> = emptyList(),
     val serialization: SerializationSpec? = null,
+    val compilerPlugins: List<CompilerPluginSpec> = emptyList(),
+)
+
+/**
+ * One `settings.kotlin.compilerPlugins` entry: a third-party Kotlin compiler plugin.
+ *
+ * [dependency] is the Maven coordinate the plugin is loaded from, and [id] is the plugin id its
+ * [options] are addressed by. The Toolchain form has no fourth key.
+ */
+internal data class CompilerPluginSpec(
+    val id: String,
+    val dependency: String,
+    val options: Map<String, String> = emptyMap(),
 )
 
 internal data class JvmSettings(

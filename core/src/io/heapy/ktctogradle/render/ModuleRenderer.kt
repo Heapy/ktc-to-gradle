@@ -3,6 +3,7 @@ package io.heapy.ktctogradle.render
 import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
 import io.heapy.ktctogradle.model.CompilerOptions
+import io.heapy.ktctogradle.model.CompilerPlugin
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradleModule
@@ -58,7 +59,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     blank()
     block("kotlin") {
         line("jvmToolchain(${build.jdk})")
-        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
     }
     blank()
     block("java") {
@@ -80,6 +81,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     }
     blank()
     block("dependencies") {
+        appendCompilerPluginClasspath(module.compilerPlugins, native = false)
         appendDependencies(build.dependencies, test = false)
         line("testImplementation(kotlin(${quote(build.testFramework.library)}))")
         appendDependencies(build.testDependencies, test = true)
@@ -136,10 +138,11 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
     }
     blank()
     block("kotlin") {
-        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
     }
     blank()
     block("dependencies") {
+        appendCompilerPluginClasspath(module.compilerPlugins, native = false)
         appendDependencies(build.dependencies, test = false)
         line("testImplementation(kotlin(${quote(build.testFramework.library)}))")
         appendDependencies(build.testDependencies, test = true)
@@ -162,9 +165,20 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     block("kotlin") {
         for (target in build.targets) appendTarget(target)
         build.jvmToolchain?.let { line("jvmToolchain($it)") }
-        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
         block("sourceSets") {
             for (sourceSet in build.sourceSets) appendSourceSet(sourceSet)
+        }
+    }
+    if (module.compilerPlugins.isNotEmpty()) {
+        blank()
+        // A multiplatform module declares its dependencies per source set, so the plugin classpath
+        // is the one thing it needs a module-wide `dependencies { }` block for.
+        block("dependencies") {
+            appendCompilerPluginClasspath(
+                module.compilerPlugins,
+                native = build.targets.any { it.kind == TargetKind.Native },
+            )
         }
     }
 }.build()
@@ -313,11 +327,39 @@ private fun KtsWriter.appendRepositories(repositories: List<Repository>) {
  * [extra] is emitted after [options] rather than merged into it: Gradle applies the later
  * statement, so that is how a platform-qualified section overrides what it restates.
  */
-private fun KtsWriter.appendCompilerOptions(options: CompilerOptions, extra: CompilerOptions = CompilerOptions.EMPTY) {
-    if (options.isEmpty && extra.isEmpty) return
+private fun KtsWriter.appendCompilerOptions(
+    options: CompilerOptions,
+    extra: CompilerOptions = CompilerOptions.EMPTY,
+    compilerPlugins: List<CompilerPlugin> = emptyList(),
+) {
+    val pluginArgs = compilerPlugins.map(CompilerPlugin::optionArguments).filter(List<String>::isNotEmpty)
+    if (options.isEmpty && extra.isEmpty && pluginArgs.isEmpty()) return
     block("compilerOptions") {
         appendCompilerOptionLines(options)
         appendCompilerOptionLines(extra)
+        for (arguments in pluginArgs) line("freeCompilerArgs.addAll(${arguments.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+    }
+}
+
+/**
+ * The `-P plugin:<id>:<key>=<value>` pair the compiler takes for every option of one plugin.
+ *
+ * `-P` and its value are two arguments, not one: the compiler reads the value from the next
+ * argument, and a single joined string is passed through as an unknown flag.
+ */
+private fun CompilerPlugin.optionArguments(): List<String> =
+    options.flatMap { (key, value) -> listOf("-P", "plugin:$id:$key=$value") }
+
+/**
+ * The configurations a third-party compiler plugin has to be on to reach the compiler.
+ *
+ * Kotlin/Native runs a compiler of its own and reads a second configuration, so a module with a
+ * native target names the artifact twice.
+ */
+private fun KtsWriter.appendCompilerPluginClasspath(compilerPlugins: List<CompilerPlugin>, native: Boolean) {
+    for (plugin in compilerPlugins) {
+        line("kotlinCompilerPluginClasspath(${plugin.dependency.expression()})")
+        if (native) line("kotlinNativeCompilerPluginClasspath(${plugin.dependency.expression()})")
     }
 }
 
@@ -375,11 +417,13 @@ private fun Dependency.configuration(test: Boolean, sourceSet: Boolean): String 
 }
 
 private fun Dependency.expression(): String {
-    val expression = when (val target = target) {
-        is DependencyTarget.Maven -> quote(target.coordinates)
-        is DependencyTarget.Project -> "project(${quote(target.gradlePath)})"
-        is DependencyTarget.Catalog -> target.accessor
-        is DependencyTarget.KotlinBuiltin -> "kotlin(${quote(target.name)})"
-    }
+    val expression = target.expression()
     return if (bom) "platform($expression)" else expression
+}
+
+private fun DependencyTarget.expression(): String = when (this) {
+    is DependencyTarget.Maven -> quote(coordinates)
+    is DependencyTarget.Project -> "project(${quote(gradlePath)})"
+    is DependencyTarget.Catalog -> accessor
+    is DependencyTarget.KotlinBuiltin -> "kotlin(${quote(name)})"
 }

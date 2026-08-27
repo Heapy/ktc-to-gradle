@@ -68,6 +68,23 @@ class GeneratedOutputSnapshotTest {
     @Test fun rootModuleWithSubprojects() = assertCase("root-module-with-subprojects")
 
     /**
+     * A module that loads a third-party Kotlin compiler plugin.
+     *
+     * Gradle has no DSL for one, so this pins the two-part spelling the renderer invents: the
+     * artifact on the plugin classpath, and one `-P` argument pair per option.
+     */
+    @Test fun compilerPlugin() = assertCase("compiler-plugin")
+
+    /**
+     * The same setting on a multiplatform module, which spells it differently.
+     *
+     * A multiplatform module declares its dependencies per source set, so the plugin classpath needs
+     * a module-wide `dependencies { }` block of its own, and a native target reads a second
+     * configuration because Kotlin/Native runs a compiler of its own.
+     */
+    @Test fun compilerPluginKmp() = assertCase("compiler-plugin-kmp")
+
+    /**
      * A project with a `jvm/amper-plugin` module and a module that enables it.
      *
      * The plugin module is left out of the build and the module that used it is still converted, so

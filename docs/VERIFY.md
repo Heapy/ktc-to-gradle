@@ -1,6 +1,6 @@
 # Manual test cases
 
-The integration-test module converts five synthetic fixtures. These cases convert **real Kotlin
+The integration-test module converts seven synthetic fixtures. These cases convert **real Kotlin
 Toolchain projects** from the [Heapy organization](https://github.com/orgs/Heapy/repositories)
 instead. They cover module counts, platform sets, templates, catalogs, and build plugins that no
 fixture reproduces.
@@ -109,10 +109,10 @@ Expected results below were observed with converter 0.12.0 against the repositor
 | [krogu-time](https://github.com/Heapy/krogu-time) | single `kmp/lib` | jvm + android + 3 ios targets, aliases, publishing, platform-qualified settings | converts; several settings dropped |
 | [kotmark](https://github.com/Heapy/kotmark) | 13 modules | 18-platform `kmp/lib`, relative dependencies, `$kotlin.test` | converts with warnings |
 | [kwasm](https://github.com/Heapy/kwasm) | 4 modules | a project that already has a hand-written Gradle build | refuses to overwrite |
-| [kinetica](https://github.com/Heapy/kinetica) | 34 modules | templates, JS/browser/native/GTK, a Gradle plugin module | stops on `settings.kotlin.compilerPlugins` |
-| [kotgent](https://github.com/Heapy/kotgent) | 8 modules | local Toolchain build plugins | stops on `plugins` |
-| [harmon](https://github.com/Heapy/harmon) | 12 modules | templates plus a local build plugin | stops on `plugins` |
-| [kotbusta](https://github.com/Heapy/kotbusta) | 4 modules | local build plugin plus `mavenPlugins` (jacoco) | stops on `plugins` |
+| [kinetica](https://github.com/Heapy/kinetica) | 34 modules | templates, JS/browser/native/GTK, third-party compiler plugins | stops on `settings.compose` |
+| [kotgent](https://github.com/Heapy/kotgent) | 8 modules | local Toolchain build plugins | converts; plugin modules left out |
+| [harmon](https://github.com/Heapy/harmon) | 12 modules | templates plus a local build plugin | converts; plugin module left out |
+| [kotbusta](https://github.com/Heapy/kotbusta) | 4 modules | local build plugin plus `mavenPlugins` (jacoco) | converts; plugin module left out |
 
 ## Case 1 — kotlm: the happy path
 
@@ -228,19 +228,21 @@ is itself a Gradle plugin. Toolchain 0.12.0.
 ./kotlin run -m macos -- --dry-run "$SCRATCH/kinetica"
 ```
 
-Expect exit code 1 and:
+`settings.kotlin.compilerPlugins` is converted now, so `bench-jvm` and the two JS samples get past
+it. Expect exit code 1 and a stop further along:
 
 ```text
-ktc-to-gradle: bench-jvm: 'settings.kotlin.compilerPlugins' is not supported yet
+ktc-to-gradle: samples/browser-bench-compose: 'settings.compose' is not supported yet
 ```
 
-This is the intended refusal, but it stops the whole conversion on the first offending module. The
-useful check is whether that is the right trade: 33 other modules convert and are never seen. Note
-which module is named and whether the message tells a user what to do next.
+That is the intended refusal, but it still stops the whole conversion on the first offending module.
+The useful check is whether that is the right trade: the other modules convert and are never seen.
 
-To reach the rest of the project, temporarily remove `settings.kotlin.compilerPlugins` from
-`bench-jvm/module.yaml` **in the clone** and re-run. Record how far the conversion then gets — each
-new stop is a separate finding.
+To reach the rest of the project, temporarily remove the Compose samples from `project.yaml` **in
+the clone** and re-run. Record how far the conversion then gets — each new stop is a separate
+finding. On the modules that do convert, check that `bench-jvm/build.gradle.kts` carries
+`kotlinCompilerPluginClasspath` for `io.heapy.kinetica:kinetica-compiler` and one `-P
+plugin:io.heapy.kinetica.compiler:<key>=<value>` pair per declared option.
 
 ## Case 6 — kotgent, harmon, kotbusta: build plugins
 

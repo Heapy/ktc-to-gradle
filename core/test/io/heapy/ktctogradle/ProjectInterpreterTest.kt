@@ -6,6 +6,8 @@ import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
+import io.heapy.ktctogradle.model.CompilerPlugin
+import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmBuild
@@ -386,6 +388,89 @@ class ProjectInterpreterTest {
                 ),
             ),
             diagnostics.collected(),
+        )
+    }
+
+    /**
+     * A compiler plugin is declared for the module and not for one of its targets, so it lands on
+     * the module rather than inside the product-specific build.
+     */
+    @Test
+    fun aCompilerPluginIsReadOntoTheModuleWhateverTheProductIs() {
+        val declaration = """
+            settings:
+              kotlin:
+                compilerPlugins:
+                  - id: org.example.plugin
+                    dependency: org.example:plugin-compiler:1.0
+                    options:
+                      moduleId: app
+                      mode: strict
+        """.trimIndent()
+        val expected = listOf(
+            CompilerPlugin(
+                id = "org.example.plugin",
+                dependency = DependencyTarget.Maven("org.example:plugin-compiler:1.0"),
+                options = mapOf("moduleId" to "app", "mode" to "strict"),
+            ),
+        )
+
+        for (product in listOf("product: jvm/lib\n", "product:\n  type: kmp/lib\n  platforms: [jvm]\n")) {
+            val project = interpret(project(module("app", product + declaration)))
+
+            assertEquals(expected, project.modules[1].compilerPlugins, "for $product")
+        }
+    }
+
+    /** The Toolchain takes an external dependency, so a catalog alias resolves like any other. */
+    @Test
+    fun aCompilerPluginDependencyMayBeACatalogAlias() {
+        val project = interpret(
+            project(
+                module(
+                    "app",
+                    """
+                        product: jvm/lib
+                        settings:
+                          kotlin:
+                            compilerPlugins:
+                              - id: org.example.plugin
+                                dependency: ${'$'}libs.example.compiler
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(CompilerPlugin(id = "org.example.plugin", dependency = DependencyTarget.Catalog("libs.example.compiler"))),
+            project.modules[1].compilerPlugins,
+        )
+    }
+
+    @Test
+    fun aCompilerPluginDependencyThatNamesAModuleIsRefused() {
+        val failure = assertFailsWith<ConversionException> {
+            interpret(
+                project(
+                    module(
+                        "app",
+                        """
+                            product: jvm/lib
+                            settings:
+                              kotlin:
+                                compilerPlugins:
+                                  - id: org.example.plugin
+                                    dependency: //compiler
+                        """.trimIndent(),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(
+            "app: settings.kotlin.compilerPlugins dependency '//compiler' must be a Maven coordinate " +
+                "or a \$libs catalog alias",
+            failure.message,
         )
     }
 
