@@ -13,10 +13,11 @@ import kotlin.test.assertTrue
 
 class ConversionIntegrationTest {
     private val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+    private val androidFixtures = setOf("android-app", "kmp-android")
 
     @Test
     fun convertedJvmFixturesBuildWithPinnedGradle() {
-        for (fixture in listOf("jvm-single", "jvm-multi", "kmp-library", "android-app")) {
+        for (fixture in listOf("jvm-single", "jvm-multi", "kmp-library", "android-app", "kmp-android")) {
             val source = projectRoot().resolve("integration-tests/fixtures/$fixture")
             val destination = Files.createTempDirectory("ktc-to-gradle-$fixture-")
             copyRecursively(source, destination)
@@ -26,8 +27,8 @@ class ConversionIntegrationTest {
             if (!isWindows) assertTrue(Files.isExecutable(destination.resolve("gradlew")))
             assertEquals(Versions.GRADLE, wrapperVersion(destination))
 
-            if (fixture == "android-app" && !configureAndroidSdk(destination)) {
-                println("Skipping the Gradle build for 'android-app': no Android SDK found (set ANDROID_HOME).")
+            if (fixture in androidFixtures && !configureAndroidSdk(destination)) {
+                println("Skipping the Gradle build for '$fixture': no Android SDK found (set ANDROID_HOME).")
                 continue
             }
 
@@ -35,7 +36,7 @@ class ConversionIntegrationTest {
                 .directory(destination.toFile())
                 .redirectErrorStream(true)
             processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-            if (fixture == "android-app") {
+            if (fixture in androidFixtures) {
                 val androidUserHome = destination.resolve(".android").also(Files::createDirectories)
                 processBuilder.environment()["ANDROID_USER_HOME"] = androidUserHome.toString()
                 processBuilder.environment()["ANDROID_SDK_HOME"] = destination.toString()
@@ -45,6 +46,7 @@ class ConversionIntegrationTest {
             val exitCode = process.waitFor()
             assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
             if (fixture == "kmp-library") assertJvmRelease(destination, expectedMajorVersion = 61)
+            if (fixture == "kmp-android") assertAndroidUnitTestsRan(destination)
         }
     }
 
@@ -87,6 +89,17 @@ class ConversionIntegrationTest {
         val bytes = Files.readAllBytes(classFile)
         val majorVersion = (bytes[6].toInt() and 0xff) shl 8 or (bytes[7].toInt() and 0xff)
         assertEquals(expectedMajorVersion, majorVersion, "Unexpected JVM class-file version in $classFile")
+    }
+
+    /**
+     * Android unit tests run from androidHostTest. A test left in androidTest compiles and
+     * the build still passes, so assert the report exists instead of trusting the exit code.
+     */
+    private fun assertAndroidUnitTestsRan(directory: Path) {
+        val reports = Files.walk(directory).use { paths ->
+            paths.filter { it.fileName.toString() == "TEST-io.heapy.ktctogradle.fixture.AndroidOnlyTest.xml" }.toList()
+        }
+        assertTrue(reports.isNotEmpty(), "android unit tests never ran; check the androidHostTest source set")
     }
 
     private fun configureAndroidSdk(directory: Path): Boolean {

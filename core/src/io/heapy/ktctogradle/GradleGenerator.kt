@@ -226,13 +226,16 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendRepositoryCredentialsImport(config)
             appendLine("plugins {")
             appendLine("    kotlin(\"multiplatform\") version ${quote(kotlinVersion)}")
+            if ("android" in product.platforms) {
+                appendLine("    id(\"com.android.kotlin.multiplatform.library\") version ${quote(Versions.ANDROID_GRADLE_PLUGIN)}")
+            }
             if (serialization != null) appendLine("    kotlin(\"plugin.serialization\") version ${quote(kotlinVersion)}")
             appendLine("}")
             appendLine()
             appendRepositories(config)
             appendLine()
             appendLine("kotlin {")
-            for (platform in product.platforms) appendTarget(platform, product.type, config)
+            for (platform in product.platforms) appendTarget(platform, product.type, config, module)
             if ("jvm" in product.platforms) {
                 appendLine("    jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
             }
@@ -264,7 +267,12 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         }
     }
 
-    private fun StringBuilder.appendTarget(platform: String, productType: String, config: Value.Mapping) {
+    private fun StringBuilder.appendTarget(
+        platform: String,
+        productType: String,
+        config: Value.Mapping,
+        module: ToolchainModule,
+    ) {
         val executable = productType.endsWith("/app")
         when (platform) {
             "jvm" -> {
@@ -278,7 +286,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 appendLine("        }")
                 appendLine("    }")
             }
-            "android" -> throw ConversionException("Android targets inside kmp/lib are not supported yet; convert that module manually")
+            "android" -> appendAndroidLibraryTarget(config, module)
             "js" -> appendLine("    js(IR) { ${if (executable) "binaries.executable(); " else ""}browser() }")
             "wasmJs" -> appendLine("    wasmJs { ${if (executable) "binaries.executable(); " else ""}browser() }")
             "wasmWasi" -> appendLine("    wasmWasi { ${if (executable) "binaries.executable()" else ""} }")
@@ -295,6 +303,34 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         }
     }
 
+    private fun StringBuilder.appendAndroidLibraryTarget(config: Value.Mapping, module: ToolchainModule) {
+        val namespace = config.string("settings.android.namespace") ?: derivedAndroidNamespace(module).also {
+            diagnostics += Diagnostic(
+                Diagnostic.Severity.WARNING,
+                "${module.displayName}: settings.android.namespace is not set; using '$it'",
+            )
+        }
+        appendLine("    androidLibrary {")
+        appendLine("        namespace = ${quote(namespace)}")
+        appendLine("        compileSdk = ${config.string("settings.android.compileSdk") ?: "37"}")
+        appendLine("        minSdk = ${config.string("settings.android.minSdk") ?: "24"}")
+        appendLine("        withHostTestBuilder {}.configure {}")
+        appendLine("    }")
+    }
+
+    /**
+     * The Toolchain synthesizes an internal package when a module leaves the namespace out,
+     * but the Android Gradle Plugin insists on a real one, so derive a stable package here.
+     */
+    private fun derivedAndroidNamespace(module: ToolchainModule): String {
+        val segments = module.path.split('/').filter(String::isNotEmpty).ifEmpty { listOf(module.displayName) }
+        val packageSegments = segments.map { segment ->
+            val sanitized = segment.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
+            if (sanitized.firstOrNull()?.isDigit() != false) "_$sanitized" else sanitized
+        }
+        return (listOf("ktc", "generated") + packageSegments).joinToString(".")
+    }
+
     private fun StringBuilder.appendQualifiedSourceSet(
         project: ToolchainProject,
         module: ToolchainModule,
@@ -309,7 +345,9 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val sourceExists = fileSystem.exists(module.directory / "$prefix@$qualifier")
         val resourcesExist = fileSystem.exists(module.directory / "$resources@$qualifier")
         val suffix = if (test) "Test" else "Main"
-        val sourceSet = "$qualifier$suffix"
+        // The Android Gradle Plugin calls the unit-test source set androidHostTest;
+        // androidTest is its on-device suite, so tests placed there never run.
+        val sourceSet = if (qualifier == "android" && test) "androidHostTest" else "$qualifier$suffix"
         appendLine("        maybeCreate(${quote(sourceSet)}).apply {")
         for (parent in fragment.parents) {
             appendLine("            dependsOn(getByName(${quote("${parent}$suffix")}))")

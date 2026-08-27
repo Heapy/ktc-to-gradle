@@ -1,0 +1,7 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android]
+
+settings:
+  android:
+    namespace: io.heapy.ktctogradle.fixture

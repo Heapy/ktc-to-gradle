@@ -311,6 +311,46 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun kmpAndroidUsesTheAgpMultiplatformLibraryPlugin() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, android]
+
+            settings:
+              android:
+                namespace: example.lib
+                minSdk: 26
+            """.trimIndent(),
+            "test@android/AndroidOnlyTest.kt" to "class AndroidOnlyTest\n",
+            "src@android/Platform.android.kt" to "// actual\n",
+        ).buildFile()
+
+        assertTrue("id(\"com.android.kotlin.multiplatform.library\")" in build)
+        assertFalse("id(\"com.android.library\")" in build)
+        assertTrue("androidLibrary {" in build)
+        assertTrue("namespace = \"example.lib\"" in build)
+        assertTrue("minSdk = 26" in build)
+        assertTrue("withHostTestBuilder {}.configure {}" in build)
+        assertTrue("maybeCreate(\"androidHostTest\")" in build)
+        assertFalse("maybeCreate(\"androidTest\")" in build)
+    }
+
+    @Test
+    fun aMissingAndroidNamespaceIsDerivedInsteadOfFailing() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, android]
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("namespace = \"ktc.generated." in build)
+    }
+
+    @Test
     fun everyGeneratedFileHasOwnershipMarker() {
         val files = generate("product: jvm/lib\n")
         for (file in files) {
