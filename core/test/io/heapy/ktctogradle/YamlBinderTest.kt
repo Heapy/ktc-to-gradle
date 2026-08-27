@@ -7,6 +7,7 @@ import io.heapy.ktctogradle.load.KtorSettings
 import io.heapy.ktctogradle.load.Layout
 import io.heapy.ktctogradle.load.NativeSettings
 import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.QualifiedSection
 import io.heapy.ktctogradle.load.RawCredentials
 import io.heapy.ktctogradle.load.RawDependency
 import io.heapy.ktctogradle.load.RawRepository
@@ -14,6 +15,7 @@ import io.heapy.ktctogradle.load.SerializationSpec
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.TestSettings
 import io.heapy.ktctogradle.load.ToolchainModel
+import io.heapy.ktctogradle.load.UnsupportedKey
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
 import kotlin.test.Test
@@ -449,7 +451,7 @@ class YamlBinderTest {
     }
 
     @Test
-    fun keysQualifiedSettingsSectionsByTheirQualifier() {
+    fun keepsQualifiedSettingsSectionsInDeclarationOrder() {
         val model = bind(
             """
                 product:
@@ -472,17 +474,28 @@ class YamlBinderTest {
             """.trimIndent(),
         )
 
-        assertEquals(setOf("jvm", "linuxX64"), model.qualifiedSettings.keys)
+        assertEquals(
+            listOf("settings@jvm", "settings@linuxX64", "test-settings@jvm"),
+            model.qualifiedSections.map(QualifiedSection::key),
+        )
         assertEquals(
             KotlinSettings(languageVersion = "2.2", optIns = listOf("kotlin.ExperimentalStdlibApi")),
-            model.qualifiedSettings.getValue("jvm").kotlin,
+            model.qualifiedSections.section("settings@jvm").settings?.kotlin,
         )
         assertEquals(
             KotlinSettings(allWarningsAsErrors = false, progressiveMode = true),
-            model.qualifiedSettings.getValue("linuxX64").kotlin,
+            model.qualifiedSections.section("settings@linuxX64").settings?.kotlin,
         )
-        assertEquals(setOf("jvm"), model.qualifiedTestSettings.keys)
-        assertEquals(true, model.qualifiedTestSettings.getValue("jvm").kotlin?.allWarningsAsErrors)
+        assertEquals(
+            QualifiedSection(
+                key = "test-settings@jvm",
+                qualifier = "jvm",
+                test = true,
+                settings = Settings(kotlin = KotlinSettings(allWarningsAsErrors = true)),
+                unsupportedKeys = emptyList(),
+            ),
+            model.qualifiedSections.section("test-settings@jvm"),
+        )
     }
 
     /**
@@ -508,11 +521,61 @@ class YamlBinderTest {
             """.trimIndent(),
         )
 
-        assertEquals(setOf("jvm"), model.qualifiedSettings.keys)
-        val kotlin = model.qualifiedSettings.getValue("jvm").kotlin
+        assertNull(model.qualifiedSections.section("settings@linuxX64").settings)
+        val kotlin = model.qualifiedSections.section("settings@jvm").settings?.kotlin
         assertNull(kotlin?.languageVersion)
         assertEquals(emptyList(), kotlin?.freeCompilerArgs)
         assertEquals(emptyMap(), model.errors)
+    }
+
+    /**
+     * A key of a qualified section has no field to bind to unless the model knows it, so the binder
+     * records the ones it had to drop. The stage that reports them may not walk the YAML itself, and
+     * the wording and the order of those diagnostics are pinned by the `qualified-settings` golden.
+     */
+    @Test
+    fun recordsEveryDroppedKeyOfAQualifiedSectionInDeclarationOrder() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+                settings@jvm:
+                  kotlin:
+                    languageVersion: [2.2]
+                    allWarningsAsErrors: yes
+                    freeCompilerArgs: nonsense
+                    unknown: true
+                    ksp: enabled
+                  jvm:
+                    release: 21
+                    test:
+                      freeJvmArgs: [-Xmx1g]
+                settings@linuxX64:
+                  kotlin: plain
+                test-settings@jvm:
+                  jvm:
+                    release: 21
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                UnsupportedKey("kotlin.languageVersion", "must be a string"),
+                UnsupportedKey("kotlin.allWarningsAsErrors", "must be true or false"),
+                UnsupportedKey("kotlin.freeCompilerArgs", "must be a list"),
+                UnsupportedKey("kotlin.unknown", UnsupportedKey.UNSUPPORTED),
+                UnsupportedKey("kotlin.ksp", UnsupportedKey.UNSUPPORTED),
+                UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED),
+                UnsupportedKey("jvm.test.freeJvmArgs", UnsupportedKey.UNSUPPORTED),
+            ),
+            model.qualifiedSections.section("settings@jvm").unsupportedKeys,
+        )
+        assertEquals(
+            listOf(UnsupportedKey("kotlin", "must be an object")),
+            model.qualifiedSections.section("settings@linuxX64").unsupportedKeys,
+        )
+        assertEquals(emptyList(), model.qualifiedSections.section("test-settings@jvm").unsupportedKeys)
     }
 
     @Test
@@ -573,8 +636,7 @@ class YamlBinderTest {
                 testDependencies = emptyMap(),
                 repositories = emptyList(),
                 settings = Settings.EMPTY,
-                qualifiedSettings = emptyMap(),
-                qualifiedTestSettings = emptyMap(),
+                qualifiedSections = emptyList(),
                 unsupported = emptyList(),
                 errors = emptyMap(),
             ),
@@ -603,4 +665,6 @@ class YamlBinderTest {
 
     private fun bind(yaml: String): ToolchainModel =
         YamlBinder.bind(parseYaml(yaml, "shared/module.yaml"), "shared")
+
+    private fun List<QualifiedSection>.section(key: String): QualifiedSection = single { it.key == key }
 }

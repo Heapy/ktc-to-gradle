@@ -8,26 +8,30 @@ import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmBuild
 import io.heapy.ktctogradle.model.JvmTestSettings
+import io.heapy.ktctogradle.model.KmpSourceSet
+import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.Layout
+import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.model.Repository
 import io.heapy.ktctogradle.model.RepositoryShorthand
 import io.heapy.ktctogradle.model.Scope
+import io.heapy.ktctogradle.model.TargetKind
 import io.heapy.ktctogradle.model.TestFramework
 
 /**
  * Spells a module out as `build.gradle.kts`.
  *
  * The renderer decides nothing: every default and every choice already reached it as model data.
- * [qualifiedCompilerOptions] is the one exception and is transitional — platform-qualified settings
- * are still interpreted by the caller and arrive as ready-made lines.
+ * [qualifiedCompilerOptions] stays apart from the module-wide ones because it is emitted after them
+ * rather than merged into them, which is how a qualified section overrides what it restates.
  */
 internal fun renderJvmModule(
     plugins: List<PluginDecl>,
     repositories: List<Repository>,
     credentialsImport: Boolean,
     build: JvmBuild,
-    qualifiedCompilerOptions: List<String>,
+    qualifiedCompilerOptions: CompilerOptions,
 ): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendCredentialsImport(credentialsImport)
@@ -87,7 +91,7 @@ internal fun renderAndroidModule(
     repositories: List<Repository>,
     credentialsImport: Boolean,
     build: AndroidBuild,
-    qualifiedCompilerOptions: List<String>,
+    qualifiedCompilerOptions: CompilerOptions,
 ): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendCredentialsImport(credentialsImport)
@@ -132,26 +136,114 @@ internal fun renderAndroidModule(
 }.build()
 
 /**
+ * Spells a multiplatform module out as `build.gradle.kts`.
+ *
+ * Source sets are emitted in the order the interpret stage put them in, which has every parent
+ * before its children: `dependsOn(getByName(...))` resolves a name that must already exist.
+ */
+internal fun renderMultiplatformModule(
+    plugins: List<PluginDecl>,
+    repositories: List<Repository>,
+    credentialsImport: Boolean,
+    build: MultiplatformBuild,
+): String = KtsWriter().apply {
+    line(StaticAssets.header())
+    appendCredentialsImport(credentialsImport)
+    appendPluginBlock(plugins)
+    blank()
+    appendRepositories(repositories)
+    blank()
+    block("kotlin") {
+        for (target in build.targets) appendTarget(target)
+        build.jvmToolchain?.let { line("jvmToolchain($it)") }
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
+        block("sourceSets") {
+            for (sourceSet in build.sourceSets) appendSourceSet(sourceSet)
+        }
+    }
+}.build()
+
+private fun KtsWriter.appendTarget(target: KmpTarget) {
+    when (val kind = target.kind) {
+        is TargetKind.Jvm -> block("jvm") {
+            block("compilerOptions") {
+                line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(kind.release)}))")
+                line("freeCompilerArgs.add(${quote("-Xjdk-release=${kind.release}")})")
+                appendCompilerOptionLines(target.compilerOptions)
+            }
+        }
+        is TargetKind.Android -> appendAndroidLibraryTarget(kind.library, target.compilerOptions)
+        TargetKind.Js -> appendBrowserTarget("js(IR)", target)
+        TargetKind.WasmJs -> appendBrowserTarget("wasmJs", target)
+        TargetKind.WasmWasi -> appendWasmWasiTarget(target)
+        TargetKind.Native -> block(target.name) {
+            if (target.executable) {
+                block("binaries.executable") {
+                    target.entryPoint?.let { line("entryPoint = ${quote(it)}") }
+                }
+            }
+            appendCompilerOptions(target.compilerOptions)
+        }
+    }
+}
+
+/** A target that runs in a browser fits on one line unless it carries compiler options of its own. */
+private fun KtsWriter.appendBrowserTarget(dsl: String, target: KmpTarget) {
+    if (target.compilerOptions.isEmpty) {
+        line("$dsl { ${if (target.executable) "binaries.executable(); " else ""}browser() }")
+        return
+    }
+    block(dsl) {
+        if (target.executable) line("binaries.executable()")
+        line("browser()")
+        appendCompilerOptions(target.compilerOptions)
+    }
+}
+
+private fun KtsWriter.appendWasmWasiTarget(target: KmpTarget) {
+    if (target.compilerOptions.isEmpty) {
+        line("wasmWasi { ${if (target.executable) "binaries.executable()" else ""} }")
+        return
+    }
+    block("wasmWasi") {
+        if (target.executable) line("binaries.executable()")
+        // The wasmWasi target DSL carries no compilerOptions of its own, so the options
+        // have to reach the compile tasks through its compilations.
+        block("compilations.configureEach") {
+            block("compileTaskProvider.configure") {
+                appendCompilerOptions(target.compilerOptions)
+            }
+        }
+    }
+}
+
+private fun KtsWriter.appendSourceSet(sourceSet: KmpSourceSet) {
+    val header = if (sourceSet.builtIn) sourceSet.name else "maybeCreate(${quote(sourceSet.name)}).apply"
+    block(header) {
+        for (parent in sourceSet.parents) line("dependsOn(getByName(${quote(parent)}))")
+        for (directory in sourceSet.sourceDirs) line("kotlin.srcDir(${quote(directory)})")
+        for (directory in sourceSet.resourceDirs) line("resources.srcDir(${quote(directory)})")
+        if (sourceSet.builtIn || sourceSet.dependencies.isNotEmpty()) {
+            block("dependencies") {
+                appendDependencies(sourceSet.dependencies, sourceSet.test, sourceSet = true)
+            }
+        }
+    }
+}
+
+/**
  * The `androidLibrary { }` target of a multiplatform module.
  *
  * `withHostTestBuilder {}` is what registers the unit-test compilation; without it the
  * `androidHostTest` source set the fragments create has nothing to compile into.
  */
-internal fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: List<String>) {
+internal fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: CompilerOptions) {
     block("androidLibrary") {
         line("namespace = ${quote(target.namespace)}")
         line("compileSdk = ${target.compileSdk}")
         line("minSdk = ${target.minSdk}")
         line("withHostTestBuilder {}.configure {}")
-        appendCompilerOptionsBlock(qualifiedOptions)
-    }
-}
-
-/** A `compilerOptions { }` body that is already rendered, as a qualified section reaches a target. */
-internal fun KtsWriter.appendCompilerOptionsBlock(lines: List<String>) {
-    if (lines.isEmpty()) return
-    block("compilerOptions") {
-        for (option in lines) line(option)
+        appendCompilerOptions(qualifiedOptions)
     }
 }
 
@@ -209,28 +301,38 @@ internal fun KtsWriter.appendRepositories(repositories: List<Repository>) {
     }
 }
 
-/** [extraLines] are appended last so a qualified section overrides the module-wide options. */
-internal fun KtsWriter.appendCompilerOptions(options: CompilerOptions, extraLines: List<String> = emptyList()) {
-    if (options.isEmpty && extraLines.isEmpty()) return
+/**
+ * A `compilerOptions { }` block, or nothing at all when there is nothing to say.
+ *
+ * [extra] is emitted after [options] rather than merged into it: Gradle applies the later
+ * statement, so that is how a platform-qualified section overrides what it restates.
+ */
+internal fun KtsWriter.appendCompilerOptions(options: CompilerOptions, extra: CompilerOptions = CompilerOptions.EMPTY) {
+    if (options.isEmpty && extra.isEmpty) return
     block("compilerOptions") {
-        options.languageVersion?.let {
-            line("languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
-        }
-        options.apiVersion?.let {
-            line("apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
-        }
-        options.jvmTarget?.let {
-            line("this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(it)}))")
-        }
-        options.allWarningsAsErrors?.let { line("allWarningsAsErrors.set($it)") }
-        options.progressiveMode?.let { line("progressiveMode.set($it)") }
-        if (options.freeArgs.isNotEmpty()) {
-            line("freeCompilerArgs.addAll(${options.freeArgs.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
-        }
-        if (options.optIns.isNotEmpty()) {
-            line("optIn.addAll(${options.optIns.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
-        }
-        for (extra in extraLines) line(extra)
+        appendCompilerOptionLines(options)
+        appendCompilerOptionLines(extra)
+    }
+}
+
+/** The body of a `compilerOptions { }` block, for the targets that open the block themselves. */
+private fun KtsWriter.appendCompilerOptionLines(options: CompilerOptions) {
+    options.languageVersion?.let {
+        line("languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
+    }
+    options.apiVersion?.let {
+        line("apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
+    }
+    options.jvmTarget?.let {
+        line("this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(it)}))")
+    }
+    options.allWarningsAsErrors?.let { line("allWarningsAsErrors.set($it)") }
+    options.progressiveMode?.let { line("progressiveMode.set($it)") }
+    if (options.freeArgs.isNotEmpty()) {
+        line("freeCompilerArgs.addAll(${options.freeArgs.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+    }
+    if (options.optIns.isNotEmpty()) {
+        line("optIn.addAll(${options.optIns.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
     }
 }
 

@@ -231,3 +231,68 @@ internal data class AndroidLibraryTarget(
     val compileSdk: String,
     val minSdk: String,
 )
+
+/**
+ * A Kotlin Multiplatform module: a set of targets and the source-set hierarchy that feeds them.
+ *
+ * [compilerOptions] and [qualifiedCompilerOptions] stay apart because they are emitted one after
+ * the other rather than merged: a `settings@common` section overrides the module-wide options by
+ * restating them, and Gradle applies the later statement.
+ */
+internal data class MultiplatformBuild(
+    val targets: List<KmpTarget>,
+    /** The `jvmToolchain(...)` level, or `null` when the module declares no JVM platform. */
+    val jvmToolchain: String?,
+    val compilerOptions: CompilerOptions,
+    val qualifiedCompilerOptions: CompilerOptions,
+    /** Parents precede children, which is what lets the renderer emit them in one pass. */
+    val sourceSets: List<KmpSourceSet>,
+) : ModuleBuild
+
+internal data class KmpTarget(
+    /** The Kotlin platform name: `jvm`, `linuxX64`, `js`, `wasmJs`, `android`. */
+    val name: String,
+    val kind: TargetKind,
+    /** The product builds a program rather than a library, so the target needs a binary. */
+    val executable: Boolean,
+    /** `settings.native.entryPoint`, which only a native binary has. */
+    val entryPoint: String?,
+    /** What the platform-qualified sections contribute to this target, and nothing else. */
+    val compilerOptions: CompilerOptions,
+)
+
+/**
+ * What kind of target a platform is, with the data only that kind needs.
+ *
+ * Every Kotlin target family is configured by a DSL of its own, so the renderer branches on this
+ * rather than on the platform name, and a new family cannot be forgotten.
+ */
+internal sealed interface TargetKind {
+    /** [release] is both the bytecode target and the `-Xjdk-release` the compiler is given. */
+    data class Jvm(val release: String) : TargetKind
+
+    data class Android(val library: AndroidLibraryTarget) : TargetKind
+
+    data object Js : TargetKind
+
+    data object WasmJs : TargetKind
+
+    data object WasmWasi : TargetKind
+
+    data object Native : TargetKind
+}
+
+internal data class KmpSourceSet(
+    /** The Gradle source-set name: `commonMain`, `linuxX64Test`, `androidHostTest`. */
+    val name: String,
+    val parents: List<String>,
+    val test: Boolean,
+    /**
+     * `true` = the Kotlin plugin creates the source set itself, so it is configured by name and
+     * always carries a `dependencies { }` block, empty or not.
+     */
+    val builtIn: Boolean,
+    val sourceDirs: List<String>,
+    val resourceDirs: List<String>,
+    val dependencies: List<Dependency>,
+)

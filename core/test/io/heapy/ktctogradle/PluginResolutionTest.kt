@@ -275,8 +275,7 @@ class PluginResolutionTest {
                 ),
             )
         },
-        qualifiedSettings = emptyMap(),
-        qualifiedTestSettings = emptyMap(),
+        qualifiedSections = emptyList(),
         unsupported = emptyList(),
         errors = emptyMap(),
     )

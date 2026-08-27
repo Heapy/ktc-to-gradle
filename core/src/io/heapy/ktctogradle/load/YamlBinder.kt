@@ -38,8 +38,7 @@ internal object YamlBinder {
                     errors = errors,
                 )
             },
-            qualifiedSettings = bindQualifiedSettings(config, "settings@"),
-            qualifiedTestSettings = bindQualifiedSettings(config, "test-settings@"),
+            qualifiedSections = bindQualifiedSections(config),
             unsupported = bindUnsupported(config),
             errors = errors,
         )
@@ -180,14 +179,69 @@ internal object YamlBinder {
     /**
      * A qualified section that is not an object, or whose values are malformed, is reported as a
      * [io.heapy.ktctogradle.Diagnostic] and dropped by the stage that knows the module's platforms.
-     * The binder therefore binds such a section as absent and records no error.
+     * The binder therefore binds such a section as empty and records no error, but it does record
+     * which keys the section got wrong, in declaration order, because that stage may not walk the
+     * YAML itself and a key such as `settings@jvm.foo.bar` has no field of its own to bind to.
      */
-    private fun bindQualifiedSettings(config: Value.Mapping, prefix: String): Map<String, Settings> = buildMap {
+    private fun bindQualifiedSections(config: Value.Mapping): List<QualifiedSection> = buildList {
         for ((key, value) in config.entries) {
-            if (!key.startsWith(prefix)) continue
-            val section = value as? Value.Mapping ?: continue
-            put(key.removePrefix(prefix), bindSettings(section, testSettings = null, lenient = true, errors = null))
+            val test = key.startsWith(TEST_SETTINGS_PREFIX)
+            val qualifier = when {
+                test -> key.removePrefix(TEST_SETTINGS_PREFIX)
+                key.startsWith(SETTINGS_PREFIX) -> key.removePrefix(SETTINGS_PREFIX)
+                else -> continue
+            }
+            val section = value as? Value.Mapping
+            add(
+                QualifiedSection(
+                    key = key,
+                    qualifier = qualifier,
+                    test = test,
+                    settings = section?.let { bindSettings(it, testSettings = null, lenient = true, errors = null) },
+                    // A test-settings@ section is dropped whole, so its keys are never inspected.
+                    unsupportedKeys = if (test || section == null) emptyList() else unsupportedKeys(section),
+                ),
+            )
         }
+    }
+
+    /**
+     * Every key of a qualified section the converter cannot carry into the Gradle build.
+     *
+     * Only `kotlin` has a Gradle equivalent per target, and only six of its keys; everything else is
+     * named by its leaf path so the diagnostic can point at the exact key that was dropped.
+     */
+    private fun unsupportedKeys(settings: Value.Mapping): List<UnsupportedKey> = buildList {
+        for ((section, value) in settings.entries) {
+            if (section != "kotlin") {
+                for (path in leafPaths(section, value)) add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
+                continue
+            }
+            val kotlin = value as? Value.Mapping
+            if (kotlin == null) {
+                add(UnsupportedKey(section, "must be an object"))
+                continue
+            }
+            for ((key, option) in kotlin.entries) {
+                when (key) {
+                    "languageVersion", "apiVersion" ->
+                        if (option.scalarOrNull() == null) add(UnsupportedKey("kotlin.$key", "must be a string"))
+                    "allWarningsAsErrors", "progressiveMode" ->
+                        if (kotlin.boolean(key) == null) add(UnsupportedKey("kotlin.$key", "must be true or false"))
+                    "freeCompilerArgs", "optIns" ->
+                        if (option !is Value.Sequence) add(UnsupportedKey("kotlin.$key", "must be a list"))
+                    else -> for (path in leafPaths("kotlin.$key", option)) {
+                        add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
+                    }
+                }
+            }
+        }
+    }
+
+    /** Every scalar, list or empty node under [prefix], as the dotted path that reaches it. */
+    private fun leafPaths(prefix: String, value: Value): List<String> = when (value) {
+        is Value.Mapping -> value.entries.flatMap { (key, child) -> leafPaths("$prefix.$key", child) }
+        else -> listOf(prefix)
     }
 
     private fun bindSettings(
@@ -289,6 +343,10 @@ internal object YamlBinder {
 
     private fun stringMap(value: Value?): Map<String, String> =
         (value as? Value.Mapping)?.entries?.mapValues { (_, item) -> item.scalarOrNull().orEmpty() }.orEmpty()
+
+    private const val SETTINGS_PREFIX = "settings@"
+
+    private const val TEST_SETTINGS_PREFIX = "test-settings@"
 
     private val SCOPE_SUFFIX = Regex("^(.*):\\s+(all|compile-only|runtime-only|exported)$")
 

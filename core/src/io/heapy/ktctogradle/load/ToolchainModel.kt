@@ -20,10 +20,8 @@ internal data class ToolchainModel(
     val testDependencies: Map<String, List<RawDependency>>,
     val repositories: List<RawRepository>,
     val settings: Settings,
-    /** `settings@<qualifier>` sections, keyed by qualifier. */
-    val qualifiedSettings: Map<String, Settings>,
-    /** `test-settings@<qualifier>` sections, keyed by qualifier. */
-    val qualifiedTestSettings: Map<String, Settings>,
+    /** `settings@<qualifier>` and `test-settings@<qualifier>` sections, in declaration order. */
+    val qualifiedSections: List<QualifiedSection>,
     /** Rejected keys in the order `rejectUnsupported` reports them. */
     val unsupported: List<String>,
     /**
@@ -38,6 +36,41 @@ internal data class ToolchainModel(
      */
     val errors: Map<String, String>,
 )
+
+/**
+ * One `settings@<qualifier>` or `test-settings@<qualifier>` section, as written.
+ *
+ * The sections keep the order they are declared in, because the diagnostics a malformed one
+ * produces are reported in that order and their sequence is part of the converter's output.
+ */
+internal data class QualifiedSection(
+    /** The key as written; a diagnostic quotes it verbatim. */
+    val key: String,
+    val qualifier: String,
+    /** `true` for a `test-settings@` section, which the converter cannot carry at all. */
+    val test: Boolean,
+    /** `null` = the section is not an object, so it carries no settings. */
+    val settings: Settings?,
+    /**
+     * The keys of the section the converter cannot carry into the Gradle build.
+     *
+     * Recorded here because a key such as `settings@jvm.foo.bar` has no field to bind to, and the
+     * stage that reports it may not walk the YAML itself. Empty for a `test-settings@` section,
+     * which is dropped whole and never inspected key by key.
+     */
+    val unsupportedKeys: List<UnsupportedKey>,
+)
+
+/** A key of a qualified section that was dropped, and the wording the diagnostic uses to say so. */
+internal data class UnsupportedKey(
+    /** Leaf path inside the section, such as `jvm.release` or `kotlin.unknown`. */
+    val path: String,
+    val reason: String,
+) {
+    companion object {
+        const val UNSUPPORTED = "is not supported by the converter"
+    }
+}
 
 internal enum class Layout { AMPER, MAVEN_LIKE }
 
