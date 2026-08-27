@@ -301,6 +301,16 @@ class GradleGeneratorTest {
     }
 
     @Test
+    fun gradlePropertiesReserveHeapForNativeLinking() {
+        val properties = generate("product: jvm/lib\n")
+            .first { it.path.name == "gradle.properties" }
+            .content
+
+        assertTrue("org.gradle.jvmargs=-Xmx3g" in properties)
+        assertTrue("kotlin.daemon.jvmargs=-Xmx4g" in properties)
+    }
+
+    @Test
     fun everyGeneratedFileHasOwnershipMarker() {
         val files = generate("product: jvm/lib\n")
         for (file in files) {
