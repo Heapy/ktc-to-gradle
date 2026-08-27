@@ -23,6 +23,9 @@ import io.heapy.ktctogradle.model.Layout as GradleLayout
 internal object JvmInterpreter {
     fun interpret(index: ModuleIndex, module: ToolchainModule, diagnostics: DiagnosticCollector): JvmBuild {
         val model = module.model
+        // Read first: the qualified sections report dropped keys, and those are ordered ahead of the
+        // missing-main-class warning this interpreter ends with.
+        val qualified = QualifiedSettings.singlePlatform(module, "jvm", diagnostics)
         model.errors[SETTINGS_REGION]?.let { message -> throw ConversionException(message) }
         val jdk = model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK
         val release = model.settings.jvm?.release ?: jdk
@@ -34,6 +37,7 @@ internal object JvmInterpreter {
             jdk = jdk,
             release = release,
             compilerOptions = compilerOptions(model.settings.kotlin, jvmTarget = release),
+            qualifiedCompilerOptions = qualified,
             layout = if (model.layout == RawLayout.MAVEN_LIKE) GradleLayout.MAVEN_LIKE else GradleLayout.AMPER,
             dependencies = declared + implied(model, serialization),
             testDependencies = testDependencies,

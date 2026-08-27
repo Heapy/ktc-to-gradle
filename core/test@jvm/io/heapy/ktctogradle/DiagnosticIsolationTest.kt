@@ -11,14 +11,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The generator carries no diagnostics between runs.
+ * The conversion carries no diagnostics between runs.
  *
  * Diagnostics used to live in a field that `generate()` cleared on entry; they are now collected
- * per run, so even a reused generator must report each project on its own.
+ * per run, so two runs in the same process must report each project on its own.
  */
 class DiagnosticIsolationTest {
     @Test
-    fun reusedGeneratorDoesNotCarryDiagnosticsIntoTheNextRun() {
+    fun oneRunDoesNotCarryDiagnosticsIntoTheNext() {
         val warning = projectAt(
             "warning",
             """
@@ -32,9 +32,8 @@ class DiagnosticIsolationTest {
             """.trimIndent(),
         )
 
-        val generator = GradleGenerator()
-        val first = generator.generate(warning)
-        val second = generator.generate(clean)
+        val first = generateBuild(warning)
+        val second = generateBuild(clean)
 
         assertTrue(
             first.diagnostics.any { "could not infer a main class" in it.message },
@@ -52,9 +51,8 @@ class DiagnosticIsolationTest {
             """.trimIndent(),
         )
 
-        val generator = GradleGenerator()
-        val first = generator.generate(project)
-        val second = generator.generate(project)
+        val first = generateBuild(project)
+        val second = generateBuild(project)
 
         assertTrue(first.diagnostics.isNotEmpty())
         assertEquals(first.diagnostics, second.diagnostics)

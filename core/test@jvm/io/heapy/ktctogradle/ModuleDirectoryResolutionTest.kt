@@ -97,7 +97,7 @@ class ModuleDirectoryResolutionTest {
 
     private fun buildFileOf(project: ToolchainProject, notation: String): String {
         val directory = project.modules.first { it.path.notation == notation }.directory
-        return GradleGenerator().generate(project).files
+        return generateBuild(project).files
             .first { it.path == directory / "build.gradle.kts" }
             .content
     }

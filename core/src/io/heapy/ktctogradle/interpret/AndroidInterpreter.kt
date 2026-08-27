@@ -34,6 +34,9 @@ internal object AndroidInterpreter {
             JvmInterpreter.implied(model, serialization)
         val testFramework = JvmInterpreter.testFramework(model)
         val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS)
+        // Read last: the module's own pinned-Kotlin-version warning keeps its place ahead of the
+        // dropped-key ones a qualified section reports.
+        val qualified = QualifiedSettings.singlePlatform(module, "android", diagnostics)
         return AndroidBuild(
             namespace = namespace,
             // An application id the module leaves out is the namespace, which is what the Toolchain
@@ -48,6 +51,7 @@ internal object AndroidInterpreter {
             versionName = android?.versionName ?: Defaults.ANDROID_VERSION_NAME,
             release = release,
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin, jvmTarget = release),
+            qualifiedCompilerOptions = qualified,
             dependencies = dependencies,
             testDependencies = testDependencies,
             testFramework = testFramework,

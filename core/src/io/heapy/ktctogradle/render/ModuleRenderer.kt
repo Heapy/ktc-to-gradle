@@ -5,6 +5,7 @@ import io.heapy.ktctogradle.model.AndroidLibraryTarget
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
+import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmBuild
 import io.heapy.ktctogradle.model.JvmTestSettings
@@ -22,26 +23,42 @@ import io.heapy.ktctogradle.model.TestFramework
 /**
  * Spells a module out as `build.gradle.kts`.
  *
- * The renderer decides nothing: every default and every choice already reached it as model data.
- * [qualifiedCompilerOptions] stays apart from the module-wide ones because it is emitted after them
- * rather than merged into them, which is how a qualified section overrides what it restates.
+ * The renderer decides nothing: every default and every choice already reached it as model data, so
+ * this is the one `when` that has to stay exhaustive when a product family is added.
  */
-internal fun renderJvmModule(
-    plugins: List<PluginDecl>,
-    repositories: List<Repository>,
-    credentialsImport: Boolean,
-    build: JvmBuild,
-    qualifiedCompilerOptions: CompilerOptions,
-): String = KtsWriter().apply {
+internal fun renderModule(module: GradleModule): String = when (val build = module.build) {
+    null -> renderRootShell(module)
+    is JvmBuild -> renderJvmModule(module, build)
+    is AndroidBuild -> renderAndroidModule(module, build)
+    is MultiplatformBuild -> renderMultiplatformModule(module, build)
+}
+
+/**
+ * The root of a project that has no module of its own.
+ *
+ * `base` gives the root the lifecycle tasks a build is expected to answer to; everything else it
+ * declares is a plugin its subprojects apply.
+ */
+private fun renderRootShell(module: GradleModule): String = KtsWriter().apply {
     line(StaticAssets.header())
-    appendCredentialsImport(credentialsImport)
-    appendPluginBlock(plugins)
+    appendPluginBlock(module.plugins)
+}.build()
+
+/**
+ * [JvmBuild.qualifiedCompilerOptions] stays apart from the module-wide ones because it is emitted
+ * after them rather than merged into them, which is how a qualified section overrides what it
+ * restates.
+ */
+private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = KtsWriter().apply {
+    line(StaticAssets.header())
+    appendCredentialsImport(module.requiresCredentialsImport)
+    appendPluginBlock(module.plugins)
     blank()
-    appendRepositories(repositories)
+    appendRepositories(module.repositories)
     blank()
     block("kotlin") {
         line("jvmToolchain(${build.jdk})")
-        appendCompilerOptions(build.compilerOptions, qualifiedCompilerOptions)
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
     }
     blank()
     block("java") {
@@ -86,18 +103,12 @@ internal fun renderJvmModule(
  * The Android Gradle Plugin owns the source layout of the module, so the source-set directories are
  * fixed text rather than model data.
  */
-internal fun renderAndroidModule(
-    plugins: List<PluginDecl>,
-    repositories: List<Repository>,
-    credentialsImport: Boolean,
-    build: AndroidBuild,
-    qualifiedCompilerOptions: CompilerOptions,
-): String = KtsWriter().apply {
+private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): String = KtsWriter().apply {
     line(StaticAssets.header())
-    appendCredentialsImport(credentialsImport)
-    appendPluginBlock(plugins)
+    appendCredentialsImport(module.requiresCredentialsImport)
+    appendPluginBlock(module.plugins)
     blank()
-    appendRepositories(repositories)
+    appendRepositories(module.repositories)
     blank()
     block("android") {
         line("namespace = ${quote(build.namespace)}")
@@ -125,7 +136,7 @@ internal fun renderAndroidModule(
     }
     blank()
     block("kotlin") {
-        appendCompilerOptions(build.compilerOptions, qualifiedCompilerOptions)
+        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions)
     }
     blank()
     block("dependencies") {
@@ -141,17 +152,12 @@ internal fun renderAndroidModule(
  * Source sets are emitted in the order the interpret stage put them in, which has every parent
  * before its children: `dependsOn(getByName(...))` resolves a name that must already exist.
  */
-internal fun renderMultiplatformModule(
-    plugins: List<PluginDecl>,
-    repositories: List<Repository>,
-    credentialsImport: Boolean,
-    build: MultiplatformBuild,
-): String = KtsWriter().apply {
+private fun renderMultiplatformModule(module: GradleModule, build: MultiplatformBuild): String = KtsWriter().apply {
     line(StaticAssets.header())
-    appendCredentialsImport(credentialsImport)
-    appendPluginBlock(plugins)
+    appendCredentialsImport(module.requiresCredentialsImport)
+    appendPluginBlock(module.plugins)
     blank()
-    appendRepositories(repositories)
+    appendRepositories(module.repositories)
     blank()
     block("kotlin") {
         for (target in build.targets) appendTarget(target)

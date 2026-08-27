@@ -96,6 +96,13 @@ internal data class GradleModule(
     val directory: Path,
     val plugins: List<PluginDecl>,
     val repositories: List<Repository>,
+    /**
+     * The script has to read a properties file, so it needs an import of its own.
+     *
+     * Counted over the repositories the module declares and not over [repositories]: a repository
+     * that is only published to still has its credentials read, and never reaches resolution.
+     */
+    val requiresCredentialsImport: Boolean,
     /** `null` = the root of a project that has no module of its own; it renders `plugins { base }`. */
     val build: ModuleBuild?,
 )
@@ -189,6 +196,8 @@ internal data class JvmBuild(
     val jdk: String,
     val release: String,
     val compilerOptions: CompilerOptions,
+    /** What the platform-qualified sections add, emitted after [compilerOptions] rather than merged. */
+    val qualifiedCompilerOptions: CompilerOptions = CompilerOptions.EMPTY,
     val layout: Layout,
     val dependencies: List<Dependency>,
     val testDependencies: List<Dependency>,
@@ -215,6 +224,8 @@ internal data class AndroidBuild(
     val versionName: String,
     val release: String,
     val compilerOptions: CompilerOptions,
+    /** What the platform-qualified sections add, emitted after [compilerOptions] rather than merged. */
+    val qualifiedCompilerOptions: CompilerOptions = CompilerOptions.EMPTY,
     val dependencies: List<Dependency>,
     val testDependencies: List<Dependency>,
     val testFramework: TestFramework,
