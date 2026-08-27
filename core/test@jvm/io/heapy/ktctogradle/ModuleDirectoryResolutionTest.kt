@@ -1,8 +1,12 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.interpret.ProjectInterpreter
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
+import io.heapy.ktctogradle.model.Dependency
+import io.heapy.ktctogradle.model.DependencyTarget
+import io.heapy.ktctogradle.model.JvmBuild
 import okio.FileSystem
 import okio.Path as OkioPath
 import okio.Path.Companion.toPath
@@ -36,8 +40,10 @@ class ModuleDirectoryResolutionTest {
         assertEquals(FileSystem.SYSTEM.canonicalize(real.toString().toPath()), project.root)
         assertEquals(listOf("app", "libs/shared"), project.modules.map { it.path.notation })
         assertTrue(project.modules.all { it.directory == it.canonicalDirectory })
-        val build = buildFileOf(project, "app")
-        assertTrue("project(\":libs:shared\")" in build, "The ./.. dependency did not resolve:\n$build")
+        assertEquals(
+            listOf(Dependency(DependencyTarget.Project(":libs:shared"))),
+            dependenciesOf(project, "app"),
+        )
     }
 
     @Test
@@ -54,7 +60,10 @@ class ModuleDirectoryResolutionTest {
             catalogPath = null,
         )
 
-        assertTrue("project(\":links:shared\")" in buildFileOf(project, "app"))
+        assertEquals(
+            listOf(Dependency(DependencyTarget.Project(":links:shared"))),
+            dependenciesOf(project, "app"),
+        )
     }
 
     @Test
@@ -71,7 +80,7 @@ class ModuleDirectoryResolutionTest {
         )
 
         try {
-            buildFileOf(project, "app")
+            dependenciesOf(project, "app")
             fail("Expected an unknown-module failure")
         } catch (error: ConversionException) {
             assertEquals("app: unknown module './../real/shared'", error.message)
@@ -95,11 +104,10 @@ class ModuleDirectoryResolutionTest {
         )
     }
 
-    private fun buildFileOf(project: ToolchainProject, notation: String): String {
+    private fun dependenciesOf(project: ToolchainProject, notation: String): List<Dependency> {
         val directory = project.modules.first { it.path.notation == notation }.directory
-        return generateBuild(project).files
-            .first { it.path == directory / "build.gradle.kts" }
-            .content
+        val gradle = ProjectInterpreter.interpret(project, DiagnosticCollector())
+        return (gradle.modules.first { it.directory == directory }.build as JvmBuild).dependencies
     }
 
     private fun write(path: Path, content: String) {

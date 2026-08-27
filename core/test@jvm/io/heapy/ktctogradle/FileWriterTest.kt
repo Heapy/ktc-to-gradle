@@ -128,6 +128,30 @@ class FileWriterTest {
         assertTrue(failure is ConversionException, "A dry run has to report what a real run would refuse")
     }
 
+    /**
+     * Every file the converter produces carries the ownership marker [FileWriter] keys on.
+     *
+     * Written once, then written again with changed content: the second run runs the ownership check
+     * over every file on disk, so a generated file that had lost its marker would be refused as
+     * foreign instead of regenerated.
+     */
+    @Test
+    fun everyGeneratedFileIsOneTheWriterWillRecogniseAsItsOwn() {
+        val source = temp("marker")
+        write(source.resolve("module.yaml"), "product: jvm/lib\n")
+        val files = Converter(FileSystem.SYSTEM).generateFiles(source.okio()).files
+
+        writer().write(root = source.okio(), files = files, force = false, dryRun = false)
+        val rewritten = writer().write(
+            root = source.okio(),
+            files = files.map { file -> GeneratedFile(file.path, file.content + "\n") },
+            force = false,
+            dryRun = false,
+        )
+
+        assertEquals(files.map { notation(it.path.relativeTo(source.okio())) }, rewritten.map(::notation))
+    }
+
     private fun writer() = FileWriter(FileSystem.SYSTEM)
 
     /** The written path with `/` on every host, so the assertion does not depend on the separator. */

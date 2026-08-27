@@ -311,6 +311,42 @@ class MultiplatformInterpreterTest {
         )
     }
 
+    /**
+     * An alias qualifier names a set of platforms, so the section it labels reaches every target in
+     * that set — the Android one included — and no target outside it.
+     */
+    @Test
+    fun anAliasQualifiedSectionReachesEveryTargetItCovers() {
+        val build = interpret(
+            module(
+                "lib",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android, linuxX64]
+                aliases:
+                  - jvmAndAndroid: [jvm, android]
+                settings:
+                  android:
+                    namespace: example.qualified
+                settings@jvmAndAndroid:
+                  kotlin:
+                    allWarningsAsErrors: true
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "android" }.compilerOptions,
+        )
+        assertEquals(CompilerOptions.EMPTY, build.targets.single { it.name == "linuxX64" }.compilerOptions)
+    }
+
     private fun sourceSet(name: String, parent: String, test: Boolean = false): KmpSourceSet = KmpSourceSet(
         name = name,
         parents = listOf(parent),

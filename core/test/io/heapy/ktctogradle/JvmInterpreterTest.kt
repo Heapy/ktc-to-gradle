@@ -344,6 +344,7 @@ class JvmInterpreterTest {
                 systemProperties:
                   shared: test
                 extraEnvironment:
+                  SHARED: test
                   TEST_ONLY: present
             """.trimIndent(),
         )
@@ -352,7 +353,7 @@ class JvmInterpreterTest {
             JvmTestSettings(
                 freeJvmArgs = listOf("-Dbase=true", "-Dtest=true"),
                 systemProperties = mapOf("shared" to "test", "baseOnly" to "present"),
-                environment = mapOf("SHARED" to "base", "TEST_ONLY" to "present"),
+                environment = mapOf("SHARED" to "test", "TEST_ONLY" to "present"),
             ),
             interpret(app).testSettings,
         )
@@ -390,6 +391,67 @@ class JvmInterpreterTest {
             ),
             interpret(app).dependencies,
         )
+    }
+
+    /**
+     * The pinned version reaches every serialization artifact at once: the implied core, the runtime
+     * of the declared format, and the `$kotlin.serialization.` accessor a dependency spells out.
+     */
+    @Test
+    fun aPinnedSerializationVersionReachesEveryArtifactItContributes() {
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+
+            settings:
+              kotlin:
+                serialization:
+                  enabled: true
+                  version: 1.9.0
+                  format: json-io
+
+            dependencies:
+              - ${'$'}kotlin.serialization.json-okio
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                Dependency(DependencyTarget.Maven("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.9.0")),
+                Dependency(DependencyTarget.Maven("org.jetbrains.kotlinx:kotlinx-serialization-core:1.9.0")),
+                Dependency(DependencyTarget.Maven("org.jetbrains.kotlinx:kotlinx-serialization-json-io:1.9.0")),
+            ),
+            interpret(app).dependencies,
+        )
+    }
+
+    /** Serialization without a format gets its core runtime and no guess at which format to add. */
+    @Test
+    fun serializationWithoutAFormatContributesOnlyItsCore() {
+        val app = module("app", "product: jvm/lib\nsettings:\n  kotlin:\n    serialization: enabled\n")
+
+        assertEquals(
+            listOf(Dependency(DependencyTarget.Maven("org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0"))),
+            interpret(app).dependencies,
+        )
+    }
+
+    /** A single-platform product has one platform qualifier, and `settings@jvm` is carried by it. */
+    @Test
+    fun theQualifiedJvmSettingsSectionReachesTheModuleOptions() {
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+
+            settings@jvm:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        )
+
+        assertEquals(CompilerOptions(allWarningsAsErrors = true), interpret(app).qualifiedCompilerOptions)
     }
 
     private fun junit(value: String): ToolchainModule =

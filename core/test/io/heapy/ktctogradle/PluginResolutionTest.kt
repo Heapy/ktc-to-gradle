@@ -62,6 +62,7 @@ class PluginResolutionTest {
         assertEquals(emptyList(), diagnostics.drain())
     }
 
+    /** The pin decides the version, and the module that would have taken the default is told so. */
     @Test
     fun anExplicitPinWinsOverTheDefaultEvenWhenItIsLower() {
         val diagnostics = DiagnosticCollector()
@@ -70,6 +71,17 @@ class PluginResolutionTest {
             diagnostics,
         )
         assertEquals("2.0.0", versions.getValue("org.jetbrains.kotlin.jvm"))
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "The kotlin plugin is requested at more than one version (2.0.0, ${Versions.KOTLIN}); " +
+                        "Gradle loads it once for the whole build, so the generated build uses 2.0.0 for " +
+                        "every module",
+                ),
+            ),
+            diagnostics.drain(),
+        )
     }
 
     @Test

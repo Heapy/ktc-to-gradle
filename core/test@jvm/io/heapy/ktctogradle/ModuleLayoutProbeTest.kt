@@ -2,6 +2,8 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.load.ModuleLayoutProbe
 import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.Path as OkioPath
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
@@ -85,6 +87,30 @@ class ModuleLayoutProbeTest {
     @Test
     fun aModuleWithNoSourceDirectoriesReportsAnEmptySet() {
         assertEquals(emptySet<String>(), probe(module()).existingSourceDirs)
+    }
+
+    /**
+     * The probe sorts what it lists, so the main class it reports is the same one whatever order the
+     * file system hands the directories back in.
+     */
+    @Test
+    fun theDetectedMainClassDoesNotDependOnTheDirectoryListingOrder() {
+        val module = module(
+            "src/zzz/main.kt" to "package zzz\n\nfun main() {}\n",
+            "src/aaa/main.kt" to "package aaa\n\nfun main() {}\n",
+            "src/mmm/main.kt" to "package mmm\n\nfun main() {}\n",
+        )
+
+        for (fileSystem in listOf(FileSystem.SYSTEM, ReversedListingFileSystem(FileSystem.SYSTEM))) {
+            assertEquals(
+                "aaa.MainKt",
+                ModuleLayoutProbe(fileSystem).probe(module.toString().toPath()).detectedMainClass,
+            )
+        }
+    }
+
+    private class ReversedListingFileSystem(delegate: FileSystem) : ForwardingFileSystem(delegate) {
+        override fun list(dir: OkioPath): List<OkioPath> = super.list(dir).reversed()
     }
 
     private fun probe(module: Path) =
