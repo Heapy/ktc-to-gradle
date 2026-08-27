@@ -1,9 +1,11 @@
 package io.heapy.ktctogradle.interpret
 
-import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.Versions
+import io.heapy.ktctogradle.load.ModuleIndex
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
 
@@ -17,7 +19,7 @@ import io.heapy.ktctogradle.model.AndroidLibraryTarget
 internal object AndroidInterpreter {
     fun interpret(index: ModuleIndex, module: ToolchainModule, diagnostics: DiagnosticCollector): AndroidBuild {
         val model = module.model
-        model.errors[SETTINGS_REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.SETTINGS)
         model.settings.kotlin?.version?.let { pinned ->
             diagnostics.warn(
                 "${module.displayName}: settings.kotlin.version '$pinned' does not select the Kotlin " +
@@ -61,7 +63,7 @@ internal object AndroidInterpreter {
     /** The `androidLibrary { }` target of a multiplatform module that declares the `android` platform. */
     fun libraryTarget(module: ToolchainModule, diagnostics: DiagnosticCollector): AndroidLibraryTarget {
         val model = module.model
-        model.errors[SETTINGS_REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.SETTINGS)
         val android = model.settings.android
         val namespace = android?.namespace ?: derivedNamespace(module).also {
             diagnostics.warn("${module.displayName}: settings.android.namespace is not set; using '$it'")
@@ -88,6 +90,4 @@ internal object AndroidInterpreter {
 
     /** The unqualified section and the `@android` one, in the order the Toolchain applies them. */
     private val QUALIFIERS = listOf("", "android")
-
-    private const val SETTINGS_REGION = "settings"
 }

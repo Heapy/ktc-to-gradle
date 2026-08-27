@@ -20,16 +20,13 @@ internal object YamlBinder {
     fun bind(config: Value.Mapping, displayName: String): ToolchainModel {
         val errors = mutableMapOf<String, String>()
         return ToolchainModel(
-            product = deferred(errors, "product", ProductSpec("", emptyList())) {
-                val product = product(config)
-                ProductSpec(product.type, product.platforms)
-            },
+            product = deferred(errors, Region.PRODUCT, ProductSpec("", emptyList())) { product(config) },
             layout = if (config.string("layout") == "maven-like") Layout.MAVEN_LIKE else Layout.AMPER,
-            aliases = deferred(errors, "aliases", emptyMap()) { bindAliases(config) },
+            aliases = deferred(errors, Region.ALIASES, emptyMap()) { bindAliases(config) },
             dependencies = bindDependencies(config, "dependencies", displayName, errors),
             testDependencies = bindDependencies(config, "test-dependencies", displayName, errors),
-            repositories = deferred(errors, "repositories", emptyList()) { bindRepositories(config) },
-            settings = deferred(errors, "settings", Settings.EMPTY) {
+            repositories = deferred(errors, Region.REPOSITORIES, emptyList()) { bindRepositories(config) },
+            settings = deferred(errors, Region.SETTINGS, Settings.EMPTY) {
                 bindSettings(
                     settings = config.value("settings") as? Value.Mapping,
                     testSettings = config.value("test-settings") as? Value.Mapping,
@@ -122,7 +119,7 @@ internal object YamlBinder {
             )
         }
         is Value.Mapping -> {
-            if (value.entries.size != 1) throw ConversionException("Dependency objects must have one coordinate")
+            if (value.entries.size != 1) throw ConversionException("A dependency object must have exactly one coordinate")
             val (key, details) = value.entries.entries.single()
             when {
                 key == "bom" -> RawDependency(
@@ -140,7 +137,7 @@ internal object YamlBinder {
                 }
             }
         }
-        else -> throw ConversionException("Dependencies must be strings or objects")
+        else -> throw ConversionException("Dependency entries must be strings or objects")
     }
 
     private fun shorthandDependency(notation: String, shorthand: String): RawDependency = when (shorthand) {
@@ -159,7 +156,6 @@ internal object YamlBinder {
                     id = value.string("id"),
                     url = value.string("url") ?: throw ConversionException("repositories[$index].url is required"),
                     resolve = value.boolean("resolve") ?: true,
-                    publish = value.boolean("publish") ?: false,
                     credentials = (value.value("credentials") as? Value.Mapping)?.let { credentials ->
                         RawCredentials(
                             file = credentials.string("file")

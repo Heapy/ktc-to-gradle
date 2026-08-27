@@ -1,5 +1,7 @@
 package io.heapy.ktctogradle.load
 
+import io.heapy.ktctogradle.ConversionException
+
 /**
  * A module.yaml after template merging, as typed data.
  *
@@ -7,7 +9,7 @@ package io.heapy.ktctogradle.load
  * converter has to decide — default versions, default platforms, repository ids, plugin choice —
  * belongs to the interpret stage.
  *
- * Binding never fails. Every region that would raise a [io.heapy.ktctogradle.ConversionException]
+ * Binding never fails. Every region that would raise a [ConversionException]
  * today records its message in [errors] and binds to an empty value instead, so a failure keeps
  * surfacing where it surfaces today, with the same text and in the same order. See [errors].
  */
@@ -36,6 +38,26 @@ internal data class ToolchainModel(
      */
     val errors: Map<String, String>,
 )
+
+/**
+ * The keys [ToolchainModel.errors] is keyed by, spelled once.
+ *
+ * A raise site that misspells its region silently swallows a user-facing failure, and the same key
+ * is read from as many as three files, so the strings live here rather than as a private const per
+ * consumer. Dependency sections are absent on purpose: their key carries the qualifier as written.
+ */
+internal object Region {
+    const val PRODUCT = "product"
+    const val ALIASES = "aliases"
+    const val REPOSITORIES = "repositories"
+    const val SETTINGS = "settings"
+    const val SERIALIZATION = "settings.kotlin.serialization"
+}
+
+/** Raises the failure [region] deferred, if it deferred one. */
+internal fun ToolchainModel.raiseDeferred(region: String) {
+    errors[region]?.let { message -> throw ConversionException(message) }
+}
 
 /**
  * One `settings@<qualifier>` or `test-settings@<qualifier>` section, as written.
@@ -87,9 +109,8 @@ internal data class RawDependency(
 internal data class RawRepository(
     /** `null` when the repository was written as a bare URL and has no id of its own. */
     val id: String?,
-    val url: String?,
+    val url: String,
     val resolve: Boolean = true,
-    val publish: Boolean = false,
     val credentials: RawCredentials? = null,
 )
 

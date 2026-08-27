@@ -1,12 +1,12 @@
 package io.heapy.ktctogradle
 
-import io.heapy.ktctogradle.interpret.Dependencies
 import io.heapy.ktctogradle.interpret.JvmInterpreter
-import io.heapy.ktctogradle.interpret.ModuleIndex
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
+import io.heapy.ktctogradle.load.validateLocalDependencies
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
@@ -111,7 +111,7 @@ class JvmInterpreterTest {
 
         assertEquals(
             "app depends on unknown module '//libs/missing'",
-            assertFailsWith<ConversionException> { Dependencies.validateLocal(listOf(app)) }.message,
+            assertFailsWith<ConversionException> { validateLocalDependencies(listOf(app)) }.message,
         )
         assertEquals(
             "app: unknown module '//libs/missing'",
@@ -427,6 +427,43 @@ class JvmInterpreterTest {
         )
     }
 
+    /** The accessor is only spellable when the module turned serialization on; it is not implied. */
+    @Test
+    fun aSerializationAccessorWithoutTheSettingIsRejected() {
+        val app = module(
+            "app",
+            "product: jvm/lib\ndependencies:\n  - ${'$'}kotlin.serialization.json\n",
+        )
+
+        assertEquals(
+            "app: '${'$'}kotlin.serialization.json' requires settings.kotlin.serialization to be enabled",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    /** A format kotlinx-serialization does not publish has no coordinate to guess at. */
+    @Test
+    fun anUnknownSerializationAliasIsRejected() {
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+
+            settings:
+              kotlin:
+                serialization: enabled
+
+            dependencies:
+              - ${'$'}kotlin.serialization.yaml
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "Unknown Kotlin serialization catalog alias '${'$'}kotlin.serialization.yaml'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
     /** Serialization without a format gets its core runtime and no guess at which format to add. */
     @Test
     fun serializationWithoutAFormatContributesOnlyItsCore() {
@@ -471,7 +508,6 @@ class JvmInterpreterTest {
         return ToolchainModule(
             path = ModulePath.parse(notation),
             directory = directory,
-            canonicalDirectory = directory,
             model = YamlBinder.bind(config, notation),
             layout = layout,
         )

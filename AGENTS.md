@@ -6,8 +6,9 @@ The conversion runs as four stages, wired in `core/src/io/heapy/ktctogradle/Conv
 load, interpret, render, write.
 
 - **`load/`** reads the project from disk: `ProjectLoader`, `TemplateGraph`, `ModuleLayout`,
-  `YamlBinder`, `YamlValues`. It produces a `ToolchainProject` of `ToolchainModel` data classes.
-  This is the only stage that parses YAML, and the untyped `Value` tree may not leave it.
+  `YamlBinder`, `YamlValues`, `ModuleIndex`. It produces a `ToolchainProject` of `ToolchainModel`
+  data classes. This is the only stage that parses YAML, and the untyped `Value` tree may not leave
+  it. Nothing here imports from a later stage.
 - **`interpret/`** turns a `ToolchainProject` into a `GradleProject`: `ProjectInterpreter`,
   `JvmInterpreter`, `AndroidInterpreter`, `MultiplatformInterpreter`, `KmpFragments`,
   `PluginResolution`, `Dependencies`, `Repositories`, `Serialization`, `Defaults`.
@@ -25,21 +26,33 @@ facts an interpreter needs arrive as a `ModuleLayout` that the load stage filled
 
 ## Tests
 
-There are three layers, and a change belongs in exactly one of them.
+There are five layers, and a change belongs in exactly one of them.
 
 1. **`YamlBinderTest`** — pure `String -> ToolchainModel`. Feed YAML, compare the resulting data
    classes with `assertEquals`. Common code, in `core/test/`.
 2. **Interpreter tests** — pure `ToolchainProject -> GradleProject`, compared with `assertEquals`.
    Hand-build the `ModuleLayout` instead of creating directories. Common code, in `core/test/`.
-3. **Golden snapshots** — 20 cases under `core/testResources@jvm/golden/`, driven by
+3. **Render tests** — pure `GradleProject -> String`, in `core/test/io/heapy/ktctogradle/render/`.
+   Reach for one only for what a golden baseline cannot express as an intent, such as an embedded
+   version constant or a required line ending.
+4. **Load and write stage tests** — the parts of those two stages that need a real tree, so they
+   live in `core/test@jvm/`: `ProjectRootTest`, `TemplateGraphTest`, `TemplateResolutionTest`,
+   `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
+   `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
+   `FileWriter` against a temp directory.
+5. **Golden snapshots** — 20 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.
 
-Substring assertions over generated text (`assertTrue("kotlin(\"jvm\")" in build)`) were removed
-deliberately and must not come back. They pass while the surrounding output is wrong and they say
-nothing about what else changed. A new behaviour gets an equality-based unit test in layer 1 or 2,
-or a new golden case in layer 3.
+Substring assertions over generated *build scripts* (`assertTrue("kotlin(\"jvm\")" in build)`) were
+removed deliberately and must not come back. They pass while the surrounding output is wrong and
+they say nothing about what else changed. A new behaviour gets an equality-based unit test in layer
+1 or 2, or a new golden case in layer 5.
+
+The exception is layer 3: `StaticAssetsTest` asserts substrings over the wrapper assets on purpose,
+because "the properties file names the Gradle version we pin" and "`gradlew.bat` ends its lines with
+CRLF" are intents a byte-for-byte baseline states but does not explain. Do not delete those.
 
 Add a golden case whenever a new product type, a new setting, or a new emitted file appears. An
 existing case that merely grows a line does not need one; something the suite cannot currently
@@ -56,6 +69,21 @@ golden test fails because the generated output changed, which is one of two thin
 change, or a bug. If it is intended, regenerate and then read the whole diff line by line before
 committing it — the diff is the review. If it is not intended, fix the code.
 
+**An update run is red by design.** It deletes each `expected/` directory before regenerating it, so
+it compares nothing; every golden test then fails with a message saying the baselines were rewritten.
+Re-run without the switch to actually verify. `SnapshotSupportTest` additionally fails whenever the
+suite is in update mode, so a leaked switch can never look like a green run.
+
+Three switches turn update mode on, because a runner may drop either of the first two on the way to
+the forked test JVM:
+
+- the `UPDATE_SNAPSHOTS` environment variable,
+- the `-Dktc.updateSnapshots` system property,
+- a `core/testResources@jvm/golden/.update-snapshots` marker file.
+
+The marker sits inside the tracked golden tree. `.gitignore` covers it; it must never be committed,
+and it must be deleted after use.
+
 `.gitattributes` exempts the baselines from line-ending normalisation:
 
 ```
@@ -68,8 +96,14 @@ rewrite it on checkout, so the comparison would fail against a baseline git had 
 ## Multiplatform constraints
 
 `core` is a `kmp/lib` module, so `core/src/` and `core/test/` must compile for every platform: no
-`java.nio`, no `System.getenv`, no `System.getProperty`. Use okio for paths and files. Only
-`core/test@jvm/` may use JVM-only APIs, which is why the snapshot harness lives there.
+`java.nio`, no `System.getenv`, no `System.getProperty`. Use okio for paths and files.
+
+JVM-only APIs are allowed in exactly two places. `core/test@jvm/` holds the tests that need them,
+which is why the snapshot harness lives there. Platform-specific production code goes in
+`core/src@<platform>/` (`src@jvm`, `src@apple`, `src@linux`, `src@mingw`, `src@native`) as the
+`actual` of an `internal expect` declared in `core/src/` — that is how `makeExecutable`,
+`systemFileSystem` and `exitWith` reach `java.io.File`, `kotlin.system.exitProcess` and POSIX
+`chmod` (see `FilePermissions.kt` and `Platform.kt`).
 
 `core/module.yaml` declares no test dependencies, so tests get `kotlin.test` and whatever the module
 itself already depends on. There is no okio fake file system, which is the practical reason layers 1

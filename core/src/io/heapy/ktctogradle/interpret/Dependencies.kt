@@ -1,59 +1,13 @@
 package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
-import io.heapy.ktctogradle.ModulePath
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.RawDependency
 import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.isLocalNotation
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.Scope
-import okio.Path
-
-/** True for the notations that name another module of the same project rather than a coordinate. */
-internal fun isLocalNotation(notation: String): Boolean =
-    notation.startsWith("//") || notation.startsWith("./") || notation.startsWith("../")
-
-/**
- * Finds the module a local dependency notation points at.
- *
- * A module is reachable by its Toolchain path and by its directory, and a directory can be reached
- * through a symlink, so the canonical directory the load stage recorded is a third key. The index
- * exists once per project because the same lookup answers both the load stage's validation and the
- * interpret stage's resolution.
- */
-internal class ModuleIndex private constructor(
-    private val byPath: Map<ModulePath, ToolchainModule>,
-    private val byDirectory: Map<Path, ToolchainModule>,
-    private val byCanonicalDirectory: Map<Path, ToolchainModule>,
-) {
-    fun resolve(module: ToolchainModule, notation: String): ToolchainModule? = if (notation.startsWith("//")) {
-        byPath[ModulePath.parse(notation)]
-    } else {
-        // The plain comparison misses when the module directory is reached through a symlink, so
-        // fall back to the directories the load stage already canonicalized.
-        byDirectory[(module.directory / notation).normalized()]
-            ?: byCanonicalDirectory[(module.canonicalDirectory / notation).normalized()]
-    }
-
-    companion object {
-        fun of(modules: List<ToolchainModule>): ModuleIndex = ModuleIndex(
-            byPath = firstWins(modules, ToolchainModule::path),
-            byDirectory = firstWins(modules, ToolchainModule::directory),
-            byCanonicalDirectory = firstWins(modules, ToolchainModule::canonicalDirectory),
-        )
-
-        /** Keeps the earliest module under a key, matching the `firstOrNull` scan it replaces. */
-        private fun <K> firstWins(
-            modules: List<ToolchainModule>,
-            key: (ToolchainModule) -> K,
-        ): Map<K, ToolchainModule> = buildMap {
-            for (module in modules) {
-                val moduleKey = key(module)
-                if (moduleKey !in this) put(moduleKey, module)
-            }
-        }
-    }
-}
 
 /**
  * Turns declared dependency notations into resolved [Dependency] targets.
@@ -66,9 +20,10 @@ internal object Dependencies {
      * The dependencies of one module, reading [qualifiers] in order with `""` standing for the
      * unqualified section.
      *
-     * A section the binder could not read raises its deferred message here, at the point that reads
-     * it, so a module with a bad `dependencies@js` still converts when nothing asks for that
-     * qualifier.
+     * A section the binder could not read raises its deferred message here too. The load stage has
+     * already raised it for every declared section, so this is the second gate rather than the only
+     * one; it keeps the failure attached to the qualifier that reads it when a build is interpreted
+     * without going through [io.heapy.ktctogradle.load.validateLocalDependencies].
      */
     fun of(
         index: ModuleIndex,
@@ -84,26 +39,6 @@ internal object Dependencies {
             model.errors[key]?.let { message -> throw ConversionException(message) }
             sections[qualifier].orEmpty()
         }.map { raw -> resolve(index, module, raw) }
-    }
-
-    /**
-     * Fails when a module names a local dependency no module of the project provides.
-     *
-     * Reported from the load stage, before anything is generated, so a typo in a module nothing
-     * renders is still caught. A section the binder could not read is skipped: its own message is
-     * raised by [of] when something consumes it.
-     */
-    fun validateLocal(modules: List<ToolchainModule>) {
-        val index = ModuleIndex.of(modules)
-        for (module in modules) {
-            val declared = module.model.dependencies.values + module.model.testDependencies.values
-            for (raw in declared.flatten()) {
-                if (!isLocalNotation(raw.notation)) continue
-                if (index.resolve(module, raw.notation) == null) {
-                    throw ConversionException("${module.displayName} depends on unknown module '${raw.notation}'")
-                }
-            }
-        }
     }
 
     private fun resolve(index: ModuleIndex, module: ToolchainModule, raw: RawDependency): Dependency = Dependency(

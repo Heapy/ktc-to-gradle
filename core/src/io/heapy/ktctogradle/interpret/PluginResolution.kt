@@ -2,6 +2,7 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.Versions
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.PluginDecl
@@ -112,7 +113,7 @@ internal object PluginResolution {
      * keep surfacing from the stage that renders the module.
      */
     fun pluginsOf(model: ToolchainModel): List<GradlePlugin> {
-        if (PRODUCT_REGION in model.errors) return emptyList()
+        if (Region.PRODUCT in model.errors) return emptyList()
         val plugins = mutableListOf<GradlePlugin>()
         when (model.product.type) {
             "jvm/lib" -> plugins += GradlePlugin.Kotlin.JVM
@@ -184,6 +185,4 @@ internal object PluginResolution {
         val version: String,
         val explicit: Boolean,
     )
-
-    private const val PRODUCT_REGION = "product"
 }

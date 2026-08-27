@@ -22,8 +22,9 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
     /**
      * Renders the whole build without touching the destination tree.
      *
-     * The signature is fixed: the golden-snapshot suite drives the converter through it, so it must
-     * stay a member of [Converter] (the file system is private) and keep this shape.
+     * The golden-snapshot suite drives the converter through this, so that a case is converted the
+     * way a real run converts it — through the same [fileSystem] — and only the write stage is left
+     * out.
      */
     internal fun generateFiles(start: Path): GenerationResult =
         generateBuild(ProjectLoader(fileSystem).load(start))

@@ -5,3 +5,6 @@ out/
 .idea/
 *.iml
 .DS_Store
+
+# Snapshot-rewrite marker: it lives inside the tracked golden tree and must never be committed.
+core/testResources@jvm/golden/.update-snapshots

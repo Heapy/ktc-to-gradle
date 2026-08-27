@@ -52,10 +52,20 @@ internal object Snapshots {
      * Three mechanisms are accepted so that a runner which drops environment variables or system
      * properties on the way to the forked test JVM still leaves a usable escape hatch.
      */
-    fun updateSnapshots(): Boolean =
-        isEnabled(System.getenv(UPDATE_ENV)) ||
-            isEnabled(System.getProperty(UPDATE_PROPERTY)) ||
-            goldenRoot().resolve(UPDATE_MARKER).exists()
+    fun updateSnapshots(): Boolean = activeUpdateTrigger() != null
+
+    /**
+     * Which of the three switches asked for a rewrite, or `null` when none did.
+     *
+     * Named rather than reduced to a boolean because a leftover marker file inside the golden tree
+     * is otherwise undiagnosable: the suite would simply stop comparing.
+     */
+    fun activeUpdateTrigger(): String? = when {
+        isEnabled(System.getenv(UPDATE_ENV)) -> "the $UPDATE_ENV environment variable"
+        isEnabled(System.getProperty(UPDATE_PROPERTY)) -> "the -D$UPDATE_PROPERTY system property"
+        goldenRoot().resolve(UPDATE_MARKER).exists() -> "the ${goldenRoot().resolve(UPDATE_MARKER)} marker file"
+        else -> null
+    }
 
     private fun isEnabled(value: String?): Boolean =
         value != null && value.isNotBlank() && value != "0" && !value.equals("false", ignoreCase = true)

@@ -2,8 +2,11 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
+import io.heapy.ktctogradle.load.ModuleIndex
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
@@ -32,7 +35,7 @@ internal object MultiplatformInterpreter {
         }
         // The module-wide options are the first thing read out of `settings:` itself, so a section
         // the binder could not read raises its message here rather than earlier.
-        model.errors[SETTINGS_REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.SETTINGS)
         return MultiplatformBuild(
             targets = targets,
             jvmToolchain = if ("jvm" in platforms) model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK else null,
@@ -140,8 +143,6 @@ internal object MultiplatformInterpreter {
 
     /** Only the unqualified section: a multiplatform module reads its qualified ones per fragment. */
     private val COMMON_QUALIFIERS = listOf("")
-
-    private const val SETTINGS_REGION = "settings"
 }
 
 /**

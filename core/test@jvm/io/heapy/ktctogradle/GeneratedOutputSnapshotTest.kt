@@ -10,6 +10,8 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.test.Test
+import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * Whole-output golden tests: the contract the pipeline refactor must not break.
@@ -59,21 +61,41 @@ class GeneratedOutputSnapshotTest {
     @Test fun staticAssets() = assertCase("static-assets")
 
     private fun assertCase(case: String) {
-        val update = Snapshots.updateSnapshots()
-        if (update) deleteRecursively(Snapshots.goldenRoot().resolve(case).resolve("expected"))
+        val trigger = Snapshots.activeUpdateTrigger()
+        if (trigger != null) deleteRecursively(Snapshots.goldenRoot().resolve(case).resolve("expected"))
 
         val destination = convertedCopyOf(case)
-        val root = FileSystem.SYSTEM.canonicalize(destination.absolutePathString().toPath())
-        val result = Converter().generateFiles(root)
+        try {
+            val root = FileSystem.SYSTEM.canonicalize(destination.absolutePathString().toPath())
+            val result = Converter().generateFiles(root)
 
-        val paths = result.files.associate { file -> file.path.relativeTo(root).toString().replace('\\', '/') to file.content }
-        for ((path, content) in paths.toSortedMap()) assertSnapshot(case, path, content)
-        assertSnapshot(case, "files.txt", paths.keys.sorted().joinToString("") { "$it\n" })
-        assertSnapshot(
-            case,
-            "diagnostics.txt",
-            result.diagnostics.joinToString("") { "${it.severity}: ${it.message}\n" },
-        )
+            // Grouped rather than mapped: two modules writing to one path would otherwise collapse
+            // into a single entry and the regression would be invisible to every case.
+            val byPath = result.files.groupBy { file ->
+                file.path.relativeTo(root).toString().replace('\\', '/')
+            }
+            val duplicates = byPath.filterValues { it.size > 1 }.keys
+            assertTrue(duplicates.isEmpty(), "Case '$case' generated more than one file for: $duplicates")
+
+            val paths = byPath.mapValues { (_, files) -> files.single().content }
+            for ((path, content) in paths.toSortedMap()) assertSnapshot(case, path, content)
+            assertSnapshot(case, "files.txt", paths.keys.sorted().joinToString("") { "$it\n" })
+            assertSnapshot(
+                case,
+                "diagnostics.txt",
+                result.diagnostics.joinToString("") { "${it.severity}: ${it.message}\n" },
+            )
+        } finally {
+            deleteRecursively(destination.parent)
+        }
+
+        // A run that rewrote the baselines compared nothing, so it must never be read as a pass.
+        if (trigger != null) {
+            fail(
+                "Baselines for '$case' were REWRITTEN, not compared, because $trigger asked for it.\n" +
+                    "Read the resulting diff line by line, then re-run without the switch to verify.",
+            )
+        }
     }
 
     /**

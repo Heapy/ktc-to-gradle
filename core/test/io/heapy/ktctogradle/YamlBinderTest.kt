@@ -134,7 +134,7 @@ class YamlBinderTest {
             """.trimIndent(),
         )
 
-        assertEquals("Dependency objects must have one coordinate", model.errors["dependencies"])
+        assertEquals("A dependency object must have exactly one coordinate", model.errors["dependencies"])
         assertEquals(emptyList(), model.dependencies.getValue(""))
     }
 
@@ -279,7 +279,6 @@ class YamlBinderTest {
                 RawRepository(
                     id = "internal",
                     url = "https://repo.example/internal",
-                    publish = true,
                     credentials = RawCredentials("credentials.properties", "mirror.username", "mirror.password"),
                 ),
                 RawRepository(id = null, url = "https://maven.google.com", resolve = false),

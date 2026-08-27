@@ -1,6 +1,6 @@
 package io.heapy.ktctogradle
 
-import io.heapy.ktctogradle.interpret.ModuleIndex
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.interpret.MultiplatformInterpreter
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ToolchainModule
@@ -371,7 +371,6 @@ class MultiplatformInterpreterTest {
         return ToolchainModule(
             path = ModulePath.parse(notation),
             directory = directory,
-            canonicalDirectory = directory,
             model = YamlBinder.bind(config, notation),
             layout = layout,
         )

@@ -19,14 +19,14 @@ internal data class ToolchainProject(
  */
 internal data class ToolchainModule(
     val path: ModulePath,
-    val directory: Path,
     /**
-     * [directory] with every symlink resolved.
+     * Where the module.yaml sits, as [ProjectLoader] walked to it.
      *
-     * Recorded here so that resolving a `./` or `../` dependency to a module never needs a file
+     * Already free of symlinks — the loader canonicalizes the start path and never descends into a
+     * symlinked directory — so resolving a `./` or `../` dependency to a module never needs a file
      * system outside the load stage.
      */
-    val canonicalDirectory: Path,
+    val directory: Path,
     /** The merged module.yaml as typed data. */
     val model: ToolchainModel,
     val layout: ModuleLayout,
@@ -35,16 +35,14 @@ internal data class ToolchainModule(
     val displayName: String = if (path.isRoot) directory.name else path.notation
 }
 
-internal data class Product(val type: String, val platforms: List<String>)
-
-internal fun product(config: Value.Mapping): Product {
+internal fun product(config: Value.Mapping): ProductSpec {
     val node = config.value("product") ?: throw ConversionException("Every module must declare product")
     return when (node) {
-        is Value.Scalar -> Product(node.text, defaultPlatforms(node.text))
+        is Value.Scalar -> ProductSpec(node.text, defaultPlatforms(node.text))
         is Value.Mapping -> {
             val type = node.string("type") ?: throw ConversionException("product.type is required")
             val platforms = node.strings("platforms").ifEmpty { defaultPlatforms(type) }
-            Product(type, platforms)
+            ProductSpec(type, platforms)
         }
         else -> throw ConversionException("product must be a string or object")
     }

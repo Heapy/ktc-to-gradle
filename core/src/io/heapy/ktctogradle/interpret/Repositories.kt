@@ -1,8 +1,9 @@
 package io.heapy.ktctogradle.interpret
 
-import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.load.RawRepository
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.Repository
 import io.heapy.ktctogradle.model.RepositoryCredentials
 import io.heapy.ktctogradle.model.RepositoryShorthand
@@ -16,7 +17,7 @@ import io.heapy.ktctogradle.model.RepositoryShorthand
  */
 internal object Repositories {
     fun resolution(model: ToolchainModel): List<Repository> {
-        raiseDeferredFailure(model)
+        model.raiseDeferred(Region.REPOSITORIES)
         val configured = model.repositories.map { raw -> raw to identify(raw) }
         // Ids are settled before the resolve filter, so disabling a default by its URL still keeps
         // the implied one from coming back.
@@ -48,18 +49,12 @@ internal object Repositories {
      * still needs its credentials read.
      */
     fun requiresCredentialsImport(model: ToolchainModel): Boolean {
-        raiseDeferredFailure(model)
+        model.raiseDeferred(Region.REPOSITORIES)
         return model.repositories.any { it.credentials != null }
     }
 
-    private fun raiseDeferredFailure(model: ToolchainModel) {
-        model.errors[REGION]?.let { message -> throw ConversionException(message) }
-    }
-
-    private fun identify(raw: RawRepository): String {
-        val url = raw.url.orEmpty()
-        return raw.id ?: defaultRepositoryId(url) ?: url
-    }
+    private fun identify(raw: RawRepository): String =
+        raw.id ?: defaultRepositoryId(raw.url) ?: raw.url
 
     /**
      * A repository written as a plain URL has no id of its own, so a module that repeats a default
@@ -72,7 +67,7 @@ internal object Repositories {
     }
 
     private fun repository(raw: RawRepository, id: String): Repository {
-        val url = raw.url.orEmpty()
+        val url = raw.url
         val credentials = raw.credentials?.let {
             RepositoryCredentials(file = it.file, usernameKey = it.usernameKey, passwordKey = it.passwordKey)
         }
@@ -92,6 +87,4 @@ internal object Repositories {
             },
         )
     }
-
-    private const val REGION = "repositories"
 }

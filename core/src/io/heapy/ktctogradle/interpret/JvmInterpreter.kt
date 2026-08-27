@@ -3,8 +3,11 @@ package io.heapy.ktctogradle.interpret
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.load.KotlinSettings
+import io.heapy.ktctogradle.load.ModuleIndex
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
@@ -26,7 +29,7 @@ internal object JvmInterpreter {
         // Read first: the qualified sections report dropped keys, and those are ordered ahead of the
         // missing-main-class warning this interpreter ends with.
         val qualified = QualifiedSettings.singlePlatform(module, "jvm", diagnostics)
-        model.errors[SETTINGS_REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.SETTINGS)
         val jdk = model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK
         val release = model.settings.jvm?.release ?: jdk
         val serialization = Serialization.settings(model)
@@ -115,6 +118,4 @@ internal object JvmInterpreter {
 
     /** The unqualified section and the `@jvm` one, in the order the Toolchain applies them. */
     private val QUALIFIERS = listOf("", "jvm")
-
-    private const val SETTINGS_REGION = "settings"
 }

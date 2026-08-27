@@ -8,6 +8,7 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Self-checks for the golden harness: a snapshot net that cannot fail proves nothing. */
@@ -18,6 +19,22 @@ class SnapshotSupportTest {
 
         assertTrue(root.resolve("project.yaml").exists(), "No project.yaml in the located repository root $root")
         assertTrue(root.resolve("core").resolve("module.yaml").exists(), "$root does not look like this repository")
+    }
+
+    /**
+     * The safety net can switch itself off: three separate triggers put the suite into rewrite mode,
+     * and a rewriting run deletes each `expected/` directory before regenerating it. Nothing else in
+     * the suite would notice, so this is the test that does.
+     */
+    @Test
+    fun aNormalRunComparesTheBaselinesInsteadOfRewritingThem() {
+        val trigger = Snapshots.activeUpdateTrigger()
+
+        assertNull(
+            trigger,
+            "The golden suite is in update mode because $trigger asked for it, so all 20 baselines " +
+                "are being rewritten instead of compared. Clear it and re-run.",
+        )
     }
 
     @Test

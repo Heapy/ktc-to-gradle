@@ -1,7 +1,9 @@
 package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
+import io.heapy.ktctogradle.load.raiseDeferred
 
 /**
  * One source-set fragment of a multiplatform module, before it is split into a main and a test one.
@@ -33,7 +35,7 @@ internal object KmpFragments {
      * module always produces the same source-set order.
      */
     fun of(model: ToolchainModel, displayName: String): List<KmpFragment> {
-        model.errors[ALIASES_REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.ALIASES)
         val declaredPlatforms = model.product.platforms.toSet()
         val aliases = model.aliases
         for ((alias, platforms) in aliases) {
@@ -126,8 +128,6 @@ internal object KmpFragments {
     }
 
     const val COMMON = "common"
-
-    private const val ALIASES_REGION = "aliases"
 
     /** Kotlin's default platform hierarchy, as a child-to-parent map. */
     val naturalPlatformParents = mapOf(

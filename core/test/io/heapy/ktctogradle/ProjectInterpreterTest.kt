@@ -252,7 +252,6 @@ class ProjectInterpreterTest {
         return ToolchainModule(
             path = path,
             directory = directory,
-            canonicalDirectory = directory,
             model = YamlBinder.bind(config, if (path.isRoot) directory.name else path.notation),
             layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
         )

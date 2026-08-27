@@ -19,13 +19,16 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * `./` and `../` dependencies are resolved against module directories, and a module directory can be
- * reached through a symlink. The load stage records [ToolchainModule.canonicalDirectory] so that
- * resolution keeps working without a [FileSystem].
+ * How a `./` or `../` dependency finds the module it points at.
+ *
+ * Module directories are compared as written, with nothing canonicalized at resolution time. That
+ * is sound because [ProjectLoader] canonicalizes the path the conversion starts from and okio never
+ * descends into a symlinked directory, so every recorded directory is already a real one — but it
+ * also means a symlink written into the notation itself is not resolved. Both halves are pinned
+ * here.
  */
 class ModuleDirectoryResolutionTest {
     @Test
@@ -42,30 +45,32 @@ class ModuleDirectoryResolutionTest {
         // The load stage canonicalizes the start path, so every module directory it records is real.
         assertEquals(FileSystem.SYSTEM.canonicalize(real.toString().toPath()), project.root)
         assertEquals(listOf("app", "libs/shared"), project.modules.map { it.path.notation })
-        assertTrue(project.modules.all { it.directory == it.canonicalDirectory })
         assertEquals(
             listOf(Dependency(DependencyTarget.Project(":libs:shared"))),
             dependenciesOf(project, "app"),
         )
     }
 
+    /**
+     * A notation that walks through a symlinked directory is not resolved, and the conversion says
+     * so instead of quietly picking the module the link points at. This is the load stage's rule and
+     * it has not changed: the pre-pipeline converter rejected the same input at the same point.
+     */
     @Test
-    fun aDotDotDependencyResolvesByCanonicalDirectoryWhenThePlainPathMisses() {
-        val root = "/workspace".toPath()
-        val project = ToolchainProject(
-            root = root,
-            name = "workspace",
-            modules = listOf(
-                module("app", root / "app", root / "app", "product: jvm/lib\ndependencies:\n  - ./../real/shared\n"),
-                // Listed under links/, but the directory itself is a symlink into real/.
-                module("links/shared", root / "links" / "shared", root / "real" / "shared", "product: jvm/lib\n"),
-            ),
-            catalogPath = null,
-        )
+    fun aDotDotDependencyThroughASymlinkedDirectoryIsRejected() {
+        val base = Files.createTempDirectory("ktc-to-gradle-notation-symlink-")
+        write(base.resolve("project.yaml"), "modules:\n  - app\n  - real/shared\n")
+        write(base.resolve("app/module.yaml"), "product: jvm/app\ndependencies:\n  - ./../links/shared\n")
+        write(base.resolve("real/shared/module.yaml"), "product: jvm/lib\n")
+        base.resolve("links").createDirectories()
+        Files.createSymbolicLink(base.resolve("links/shared"), base.resolve("real/shared"))
+
+        val failure = runCatching { ProjectLoader(FileSystem.SYSTEM).load(base.toString().toPath()) }
+            .exceptionOrNull()
 
         assertEquals(
-            listOf(Dependency(DependencyTarget.Project(":links:shared"))),
-            dependenciesOf(project, "app"),
+            "app depends on unknown module './../links/shared'",
+            (failure as? ConversionException)?.message,
         )
     }
 
@@ -76,8 +81,8 @@ class ModuleDirectoryResolutionTest {
             root = root,
             name = "workspace",
             modules = listOf(
-                module("app", root / "app", root / "app", "product: jvm/lib\ndependencies:\n  - ./../real/shared\n"),
-                module("links/shared", root / "links" / "shared", root / "links" / "shared", "product: jvm/lib\n"),
+                module("app", root / "app", "product: jvm/lib\ndependencies:\n  - ./../real/shared\n"),
+                module("links/shared", root / "links" / "shared", "product: jvm/lib\n"),
             ),
             catalogPath = null,
         )
@@ -93,14 +98,12 @@ class ModuleDirectoryResolutionTest {
     private fun module(
         notation: String,
         directory: OkioPath,
-        canonicalDirectory: OkioPath,
         yaml: String,
     ): ToolchainModule {
         val config = parseYaml(yaml, "$notation/module.yaml")
         return ToolchainModule(
             path = ModulePath.parse(notation),
             directory = directory,
-            canonicalDirectory = canonicalDirectory,
             model = YamlBinder.bind(config, notation),
             layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
         )

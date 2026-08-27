@@ -1,7 +1,9 @@
 package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
+import io.heapy.ktctogradle.load.raiseDeferred
 
 internal data class SerializationSettings(
     val version: String,
@@ -16,7 +18,7 @@ internal data class SerializationSettings(
  */
 internal object Serialization {
     fun settings(model: ToolchainModel): SerializationSettings? {
-        model.errors[REGION]?.let { message -> throw ConversionException(message) }
+        model.raiseDeferred(Region.SERIALIZATION)
         val spec = model.settings.kotlin?.serialization ?: return null
         return SerializationSettings(spec.version ?: Defaults.SERIALIZATION, spec.format)
     }
@@ -27,19 +29,14 @@ internal object Serialization {
      * Plugin resolution runs for every module of the project, including ones the render stage never
      * reaches, so it must not raise a module's failure on its behalf.
      */
-    fun settingsOrNull(model: ToolchainModel): SerializationSettings? = try {
-        settings(model)
-    } catch (error: ConversionException) {
-        null
-    }
+    fun settingsOrNull(model: ToolchainModel): SerializationSettings? =
+        if (Region.SERIALIZATION in model.errors) null else settings(model)
 
     fun coordinate(key: String, version: String): String {
         val artifact = ARTIFACTS[key]
             ?: throw ConversionException("Unknown Kotlin serialization catalog alias '\$kotlin.serialization.$key'")
         return "org.jetbrains.kotlinx:$artifact:$version"
     }
-
-    private const val REGION = "settings.kotlin.serialization"
 
     private val ARTIFACTS = mapOf(
         "core" to "kotlinx-serialization-core",

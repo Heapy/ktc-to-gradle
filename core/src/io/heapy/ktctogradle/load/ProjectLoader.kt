@@ -2,7 +2,6 @@ package io.heapy.ktctogradle.load
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.ModulePath
-import io.heapy.ktctogradle.interpret.Dependencies
 import okio.FileSystem
 import okio.Path
 
@@ -10,8 +9,10 @@ import okio.Path
  * Stage 1: reads a Kotlin Toolchain project off disk into a [ToolchainProject].
  *
  * This is the only stage that touches a [FileSystem]. Everything a later stage could want to look
- * up — the canonical directory of a module, which source directories exist, which main class was
- * detected — is recorded here instead.
+ * up — which source directories exist, which main class was detected — is recorded here instead.
+ *
+ * The path the conversion starts from is canonicalized, and the module walk never descends into a
+ * symlinked directory, so every module directory recorded here is a real one.
  */
 internal class ProjectLoader(private val fileSystem: FileSystem) {
     private val layoutProbe = ModuleLayoutProbe(fileSystem)
@@ -42,12 +43,11 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
             ToolchainModule(
                 path = path,
                 directory = directory,
-                canonicalDirectory = fileSystem.canonicalize(directory),
                 model = YamlBinder.bind(templates.effectiveConfig(root, moduleFile), displayName),
                 layout = layoutProbe.probe(directory),
             )
         }.sortedBy(ToolchainModule::path)
-        Dependencies.validateLocal(modules)
+        validateLocalDependencies(modules)
 
         val rootCatalog = root / "libs.versions.toml"
         val gradleCatalog = root / "gradle" / "libs.versions.toml"

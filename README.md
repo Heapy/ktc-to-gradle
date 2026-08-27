@@ -51,7 +51,7 @@ The converter generates `gradlew` and `gradlew.bat` in the converted project. Th
 - Kotlin/JVM compiler settings, JDK/release settings, JUnit 4/5, test process settings, Kotlin serialization, and the Ktor BOM;
 - platform-qualified KMP source, resource, test, and dependency sections.
 
-The converter stops with an explanation for Toolchain build plugins, Maven plugins, `ios/app`, Android targets nested in `kmp/lib`, and built-in technologies whose Gradle behavior cannot yet be reproduced safely. Original YAML and source files are never removed.
+The converter stops with an explanation for Toolchain build plugins, Maven plugins, `ios/app`, and built-in technologies whose Gradle behavior cannot yet be reproduced safely. An Android target nested in a `kmp/lib` is converted, as an `androidLibrary { }` target. Original YAML and source files are never removed.
 
 ## Build and test
 

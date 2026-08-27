@@ -2,9 +2,12 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.ToolchainProject
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.GradleProject
@@ -75,7 +78,10 @@ internal object ProjectInterpreter {
         rejectUnsupported(module)
         val product = requireProduct(module)
         // Repositories are read before the build is interpreted for every product family, so a module
-        // that carries more than one deferred failure always reports the same one.
+        // that carries more than one deferred failure always reports the same one. That is a
+        // deliberate change: the pre-pipeline generator read the repositories from inside the build
+        // it was already assembling, so which of two failures a module reported depended on its
+        // product.
         val repositories = Repositories.resolution(module.model)
         val requiresCredentialsImport = Repositories.requiresCredentialsImport(module.model)
         val build: ModuleBuild = when (product.type) {
@@ -122,7 +128,7 @@ internal object ProjectInterpreter {
      * is first actually needed.
      */
     private fun requireProduct(module: ToolchainModule): ProductSpec {
-        module.model.errors["product"]?.let { throw ConversionException(it) }
+        module.model.raiseDeferred(Region.PRODUCT)
         return module.model.product
     }
 

@@ -1,7 +1,7 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.AndroidInterpreter
-import io.heapy.ktctogradle.interpret.ModuleIndex
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.interpret.PluginResolution
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ToolchainModule
@@ -289,6 +289,34 @@ class AndroidInterpreterTest {
         )
     }
 
+    /**
+     * `compileSdk` also has a nested `apiLevel` form, and a library target reads it.
+     *
+     * A deliberate departure from the pre-pipeline converter, which honoured the nested form only
+     * for `android/app` and silently fell back to the default for a `kmp/lib` android target.
+     */
+    @Test
+    fun aLibraryTargetReadsTheNestedCompileSdkForm() {
+        val library = module(
+            "libs/messages",
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, android]
+            settings:
+              android:
+                namespace: example.messages
+                compileSdk:
+                  apiLevel: 34
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "34", minSdk = "24"),
+            AndroidInterpreter.libraryTarget(library, DiagnosticCollector()),
+        )
+    }
+
     private fun interpret(module: ToolchainModule, vararg others: ToolchainModule): AndroidBuild =
         AndroidInterpreter.interpret(ModuleIndex.of(listOf(module) + others), module, DiagnosticCollector())
 
@@ -302,7 +330,6 @@ class AndroidInterpreterTest {
         return ToolchainModule(
             path = ModulePath.parse(notation),
             directory = directory,
-            canonicalDirectory = directory,
             model = YamlBinder.bind(config, notation),
             layout = layout,
         )
