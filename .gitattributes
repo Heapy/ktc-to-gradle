@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.bat text eol=crlf
+
+# Golden baselines are compared byte for byte, including the CRLF endings of gradlew.bat.
+core/testResources@jvm/golden/** -text !eol

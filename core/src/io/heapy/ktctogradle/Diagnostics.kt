@@ -15,3 +15,7 @@ data class ConversionResult(
     val diagnostics: List<Diagnostic>,
 )
 
+internal data class GenerationResult(
+    val files: List<GeneratedFile>,
+    val diagnostics: List<Diagnostic>,
+)

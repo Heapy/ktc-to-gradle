@@ -4,9 +4,23 @@ import okio.FileSystem
 import okio.Path
 
 class Converter(private val fileSystem: FileSystem = systemFileSystem) {
+    /**
+     * Renders the whole build without touching the destination tree.
+     *
+     * The signature is fixed: the golden-snapshot suite drives the converter through it, so it must
+     * stay a member of [Converter] (the file system is private) and keep this shape.
+     */
+    internal fun generateFiles(start: Path): GenerationResult =
+        generateFiles(ProjectLoader(fileSystem).load(start))
+
+    private fun generateFiles(project: ToolchainProject): GenerationResult {
+        val (files, diagnostics) = GradleGenerator(fileSystem).generate(project)
+        return GenerationResult(files, diagnostics)
+    }
+
     fun convert(start: Path, force: Boolean = false, dryRun: Boolean = false): ConversionResult {
         val project = ProjectLoader(fileSystem).load(start)
-        val (generated, diagnostics) = GradleGenerator(fileSystem).generate(project)
+        val (generated, diagnostics) = generateFiles(project)
         val changed = generated.filter { generatedFile ->
             !fileSystem.exists(generatedFile.path) || fileSystem.read(generatedFile.path) { readUtf8() } != generatedFile.content
         }
