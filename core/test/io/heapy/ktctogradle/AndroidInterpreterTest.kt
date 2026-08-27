@@ -4,6 +4,7 @@ import io.heapy.ktctogradle.interpret.AndroidInterpreter
 import io.heapy.ktctogradle.interpret.ModuleIndex
 import io.heapy.ktctogradle.interpret.PluginResolution
 import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
 import io.heapy.ktctogradle.model.AndroidBuild
@@ -302,7 +303,6 @@ class AndroidInterpreterTest {
             path = ModulePath.parse(notation),
             directory = directory,
             canonicalDirectory = directory,
-            config = config,
             model = YamlBinder.bind(config, notation),
             layout = layout,
         )

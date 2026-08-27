@@ -2,8 +2,8 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
-import io.heapy.ktctogradle.ToolchainModule
 import io.heapy.ktctogradle.load.Settings
+import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget

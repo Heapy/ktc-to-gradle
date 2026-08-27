@@ -1,6 +1,8 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.ProjectInterpreter
+import io.heapy.ktctogradle.load.ProjectLoader
+import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.model.GeneratedFile
 import io.heapy.ktctogradle.model.GradleProject
 import io.heapy.ktctogradle.render.StaticAssets

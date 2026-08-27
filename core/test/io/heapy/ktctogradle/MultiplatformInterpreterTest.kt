@@ -3,6 +3,7 @@ package io.heapy.ktctogradle
 import io.heapy.ktctogradle.interpret.ModuleIndex
 import io.heapy.ktctogradle.interpret.MultiplatformInterpreter
 import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
 import io.heapy.ktctogradle.model.CompilerOptions
@@ -371,7 +372,6 @@ class MultiplatformInterpreterTest {
             path = ModulePath.parse(notation),
             directory = directory,
             canonicalDirectory = directory,
-            config = config,
             model = YamlBinder.bind(config, notation),
             layout = layout,
         )

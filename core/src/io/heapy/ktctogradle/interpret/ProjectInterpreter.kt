@@ -2,15 +2,14 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
-import io.heapy.ktctogradle.ToolchainModule
-import io.heapy.ktctogradle.ToolchainProject
-import io.heapy.ktctogradle.load.value
+import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.GradleProject
 import io.heapy.ktctogradle.model.ModuleBuild
 import io.heapy.ktctogradle.model.PluginDecl
-import io.heapy.ktctogradle.product
 
 /**
  * Stage 2: turns the loaded Toolchain project into the Gradle build it stands for.
@@ -74,7 +73,7 @@ internal object ProjectInterpreter {
         diagnostics: DiagnosticCollector,
     ): GradleModule {
         rejectUnsupported(module)
-        val product = product(module.config)
+        val product = requireProduct(module)
         // Repositories are read before the build is interpreted for every product family, so a module
         // that carries more than one deferred failure always reports the same one.
         val repositories = Repositories.resolution(module.model)
@@ -110,18 +109,23 @@ internal object ProjectInterpreter {
      * product at the same time is told about `plugins:` — the key it can actually do something about.
      */
     private fun rejectUnsupported(module: ToolchainModule) {
-        for (key in UNSUPPORTED_KEYS) if (module.config.value(key) != null) {
-            throw ConversionException("${module.displayName}: '$key' cannot be converted automatically")
-        }
-        for (path in UNSUPPORTED_SETTINGS) if (module.config.value(path) != null) {
-            throw ConversionException("${module.displayName}: '$path' is not supported yet")
-        }
+        val rejected = module.model.unsupported.firstOrNull() ?: return
+        val reason = if (rejected in TOP_LEVEL_KEYS) "cannot be converted automatically" else "is not supported yet"
+        throw ConversionException("${module.displayName}: '$rejected' $reason")
     }
 
-    private val UNSUPPORTED_KEYS = listOf("plugins", "mavenPlugins")
+    /**
+     * Reads the product the module declares, raising the failure the binder deferred for it first.
+     *
+     * The binder never throws, so a module whose `product:` is missing or malformed binds to an
+     * empty product and carries the message instead. It surfaces here, which is where the product
+     * is first actually needed.
+     */
+    private fun requireProduct(module: ToolchainModule): ProductSpec {
+        module.model.errors["product"]?.let { throw ConversionException(it) }
+        return module.model.product
+    }
 
-    private val UNSUPPORTED_SETTINGS = listOf(
-        "settings.compose", "settings.springBoot", "settings.lombok", "settings.kotlin.ksp",
-        "settings.kotlin.rpc", "settings.kotlin.dataframe", "settings.kotlin.compilerPlugins",
-    )
+    /** The rejected keys that are not `settings.` paths; those are phrased differently. */
+    private val TOP_LEVEL_KEYS = setOf("plugins", "mavenPlugins")
 }

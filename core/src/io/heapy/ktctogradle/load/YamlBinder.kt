@@ -1,7 +1,6 @@
 package io.heapy.ktctogradle.load
 
 import io.heapy.ktctogradle.ConversionException
-import io.heapy.ktctogradle.product
 
 /**
  * Turns a merged module.yaml into a [ToolchainModel].

@@ -1,8 +1,9 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.load.ProjectLoader
 import io.heapy.ktctogradle.load.RawCredentials
+import io.heapy.ktctogradle.load.RawDependency
 import io.heapy.ktctogradle.load.RawRepository
-import io.heapy.ktctogradle.load.strings
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,12 +30,16 @@ class TemplateResolutionTest {
             "product: jvm/lib\napply: [//left.module-template.yaml, //right.module-template.yaml]\n",
         )
 
-        val config = ProjectLoader(okio.FileSystem.SYSTEM)
-            .load(root.absolutePathString().toPath()).modules.single().config
+        val model = ProjectLoader(okio.FileSystem.SYSTEM)
+            .load(root.absolutePathString().toPath()).modules.single().model
 
         assertEquals(
-            listOf("org.example:base:1", "org.example:left:1", "org.example:right:1"),
-            config.strings("dependencies"),
+            listOf(
+                RawDependency("org.example:base:1"),
+                RawDependency("org.example:left:1"),
+                RawDependency("org.example:right:1"),
+            ),
+            model.dependencies[""],
         )
     }
 

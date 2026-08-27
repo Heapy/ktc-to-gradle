@@ -1,8 +1,5 @@
 package io.heapy.ktctogradle.render
 
-import io.heapy.ktctogradle.load.Value
-import io.heapy.ktctogradle.load.scalarOrNull
-
 /**
  * Emits Gradle Kotlin DSL text and owns the indentation, so a renderer never passes an indent
  * string around.
@@ -36,6 +33,3 @@ internal class KtsWriter {
 }
 
 internal fun quote(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")}\""
-
-internal fun mappingStrings(value: Value?): Map<String, String> =
-    (value as? Value.Mapping)?.entries?.mapValues { (_, item) -> item.scalarOrNull().orEmpty() }.orEmpty()

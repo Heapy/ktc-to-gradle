@@ -2,6 +2,8 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.ProjectInterpreter
 import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
 import io.heapy.ktctogradle.model.GradleModule
@@ -251,7 +253,6 @@ class ProjectInterpreterTest {
             path = path,
             directory = directory,
             canonicalDirectory = directory,
-            config = config,
             model = YamlBinder.bind(config, if (path.isRoot) directory.name else path.notation),
             layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
         )

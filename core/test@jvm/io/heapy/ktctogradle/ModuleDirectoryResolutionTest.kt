@@ -2,6 +2,9 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.ProjectInterpreter
 import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.ProjectLoader
+import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.ToolchainProject
 import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.parseYaml
 import io.heapy.ktctogradle.model.Dependency
@@ -98,7 +101,6 @@ class ModuleDirectoryResolutionTest {
             path = ModulePath.parse(notation),
             directory = directory,
             canonicalDirectory = canonicalDirectory,
-            config = config,
             model = YamlBinder.bind(config, notation),
             layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
         )

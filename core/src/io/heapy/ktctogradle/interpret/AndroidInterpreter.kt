@@ -2,8 +2,8 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
-import io.heapy.ktctogradle.ToolchainModule
 import io.heapy.ktctogradle.Versions
+import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
 
