@@ -9,6 +9,7 @@ import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -380,6 +381,188 @@ class GradleGeneratorTest {
         assertTrue("implementation(project(\":libs:messages\"))" in build)
     }
 
+    @Test
+    fun subprojectPluginsCarryNoVersionAndTheRootDeclaresThemOnce() {
+        val root = Files.createTempDirectory("ktc-to-gradle-plugins-")
+        write(root.resolve("project.yaml"), "modules:\n  - lib\n  - jsmod\n")
+        write(
+            root.resolve("lib/module.yaml"),
+            """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        )
+        write(
+            root.resolve("jsmod/module.yaml"),
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, js]
+            settings:
+              kotlin:
+                version: 2.4.10
+                serialization: json
+            """.trimIndent(),
+        )
+        val files = generate(root)
+
+        val rootBuild = files.buildFile()
+        val rootPlugins = rootBuild.pluginBlock()
+        assertEquals(
+            listOf(
+                "base",
+                "kotlin(\"multiplatform\") version \"2.4.10\" apply false",
+                "kotlin(\"plugin.serialization\") version \"2.4.10\" apply false",
+                "kotlin(\"jvm\") version \"2.4.10\" apply false",
+            ),
+            rootPlugins,
+            rootBuild,
+        )
+
+        assertEquals(listOf("kotlin(\"jvm\")"), files.moduleBuildFile("lib").pluginBlock())
+        assertEquals(
+            listOf("kotlin(\"multiplatform\")", "kotlin(\"plugin.serialization\")"),
+            files.moduleBuildFile("jsmod").pluginBlock(),
+        )
+    }
+
+    @Test
+    fun aChildAskingForThePluginTheRootAlreadyAppliesGetsNoSecondDeclaration() {
+        val root = Files.createTempDirectory("ktc-to-gradle-same-plugin-")
+        write(root.resolve("project.yaml"), "modules:\n  - .\n  - child\n")
+        val moduleYaml = """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.4.10
+        """.trimIndent()
+        write(root.resolve("module.yaml"), moduleYaml)
+        write(root.resolve("child/module.yaml"), moduleYaml)
+        val files = generate(root)
+
+        assertEquals(listOf("kotlin(\"jvm\") version \"2.4.10\""), files.buildFile().pluginBlock())
+        assertEquals(listOf("kotlin(\"jvm\")"), files.moduleBuildFile("child").pluginBlock())
+    }
+
+    @Test
+    fun aStableReleaseOutranksAPreReleaseCarryingTheSameNumbers() {
+        val root = Files.createTempDirectory("ktc-to-gradle-prerelease-")
+        write(root.resolve("project.yaml"), "modules:\n  - stable\n  - beta\n")
+        write(
+            root.resolve("beta/module.yaml"),
+            "product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10-Beta2\n",
+        )
+        write(
+            root.resolve("stable/module.yaml"),
+            "product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10\n",
+        )
+        val files = generate(root)
+
+        assertEquals(listOf("base", "kotlin(\"jvm\") version \"2.4.10\" apply false"), files.buildFile().pluginBlock())
+    }
+
+    @Test
+    fun anAndroidKotlinPinDoesNotDecideTheKotlinVersionOfTheOtherModules() {
+        val root = Files.createTempDirectory("ktc-to-gradle-android-pin-")
+        write(root.resolve("project.yaml"), "modules:\n  - app\n  - lib\n")
+        write(
+            root.resolve("app/module.yaml"),
+            """
+            product: android/app
+            settings:
+              android:
+                namespace: example.android
+              kotlin:
+                version: 2.3.20
+                serialization: json
+            """.trimIndent(),
+        )
+        write(root.resolve("lib/module.yaml"), "product: jvm/lib\n")
+        val files = generate(root)
+
+        assertEquals(
+            listOf(
+                "base",
+                "id(\"com.android.application\") version \"9.0.0\" apply false",
+                "kotlin(\"plugin.serialization\") version \"2.4.10\" apply false",
+                "kotlin(\"jvm\") version \"2.4.10\" apply false",
+            ),
+            files.buildFile().pluginBlock(),
+        )
+    }
+
+    @Test
+    fun conflictingKotlinVersionsResolveToThePinnedOneWithAWarning() {
+        val root = Files.createTempDirectory("ktc-to-gradle-plugin-conflict-")
+        write(root.resolve("project.yaml"), "modules:\n  - pinned\n  - defaulted\n")
+        write(
+            root.resolve("pinned/module.yaml"),
+            """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.3.20
+            """.trimIndent(),
+        )
+        write(root.resolve("defaulted/module.yaml"), "product: jvm/lib\n")
+        val (files, diagnostics) = generateAll(root)
+
+        assertTrue("kotlin(\"jvm\") version \"2.3.20\" apply false" in files.buildFile(), files.buildFile())
+        assertTrue(
+            diagnostics.any { it.severity == Diagnostic.Severity.WARNING && "2.3.20" in it.message && "2.4.10" in it.message },
+            "Expected a diagnostic about the conflicting Kotlin versions, got $diagnostics",
+        )
+    }
+
+    @Test
+    fun aRootOnlyModuleStillDeclaresItsOwnPluginVersion() {
+        val build = generate(
+            """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("kotlin(\"jvm\") version \"2.4.10\"" in build, build)
+        assertFalse("apply false" in build, build)
+    }
+
+    @Test
+    fun aRootModuleAppliesItsOwnPluginsAndDeclaresTheSubprojectOnes() {
+        val root = Files.createTempDirectory("ktc-to-gradle-root-module-")
+        write(root.resolve("project.yaml"), "modules:\n  - .\n  - jsmod\n")
+        write(
+            root.resolve("module.yaml"),
+            """
+            product: jvm/lib
+            settings:
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        )
+        write(
+            root.resolve("jsmod/module.yaml"),
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, js]
+            settings:
+              kotlin:
+                version: 2.4.10
+            """.trimIndent(),
+        )
+        val files = generate(root)
+
+        val rootBuild = files.buildFile()
+        assertTrue("kotlin(\"jvm\") version \"2.4.10\"\n" in rootBuild, rootBuild)
+        assertTrue("kotlin(\"multiplatform\") version \"2.4.10\" apply false" in rootBuild, rootBuild)
+        assertFalse("kotlin(\"jvm\") version \"2.4.10\" apply false" in rootBuild, rootBuild)
+    }
+
     private fun generate(moduleYaml: String, vararg files: Pair<String, String>): List<GeneratedFile> =
         generateAll(moduleYaml, *files).first
 
@@ -401,6 +584,12 @@ class GradleGeneratorTest {
     }
 
     private fun List<GeneratedFile>.buildFile(): String = first { it.path.name == "build.gradle.kts" }.content
+
+    private fun String.pluginBlock(): List<String> =
+        substringAfter("plugins {").substringBefore("\n}").lines().map(String::trim).filter(String::isNotEmpty)
+
+    private fun List<GeneratedFile>.moduleBuildFile(directory: String): String =
+        first { it.path.name == "build.gradle.kts" && it.path.parent?.name == directory }.content
 
     private fun write(path: Path, content: String) {
         path.parent.createDirectories()
