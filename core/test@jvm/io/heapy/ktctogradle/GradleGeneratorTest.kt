@@ -157,7 +157,7 @@ class GradleGeneratorTest {
 
         for (fileSystem in listOf(FileSystem.SYSTEM, ReversedListingFileSystem(FileSystem.SYSTEM))) {
             val project = ProjectLoader(fileSystem).load(root.toString().toPath())
-            val build = GradleGenerator(fileSystem).generate(project).first.buildFile()
+            val build = GradleGenerator().generate(project).first.buildFile()
             assertTrue(
                 "mainClass.set(\"aaa.MainKt\")" in build,
                 "Main class depends on the directory listing order:\n$build",
@@ -773,7 +773,7 @@ class GradleGeneratorTest {
 
     private fun generateAll(root: Path): Pair<List<GeneratedFile>, List<Diagnostic>> {
         val project = ProjectLoader(FileSystem.SYSTEM).load(root.toString().toPath())
-        return GradleGenerator(FileSystem.SYSTEM).generate(project)
+        return GradleGenerator().generate(project)
     }
 
     private fun List<GeneratedFile>.buildFile(): String = first { it.path.name == "build.gradle.kts" }.content

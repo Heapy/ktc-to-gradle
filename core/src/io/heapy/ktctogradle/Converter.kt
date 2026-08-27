@@ -14,7 +14,7 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
         generateFiles(ProjectLoader(fileSystem).load(start))
 
     private fun generateFiles(project: ToolchainProject): GenerationResult {
-        val (files, diagnostics) = GradleGenerator(fileSystem).generate(project)
+        val (files, diagnostics) = GradleGenerator().generate(project)
         return GenerationResult(files, diagnostics)
     }
 

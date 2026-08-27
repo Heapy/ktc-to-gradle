@@ -4,12 +4,11 @@ import io.heapy.ktctogradle.render.KtsWriter
 import io.heapy.ktctogradle.render.StaticAssets
 import io.heapy.ktctogradle.render.mappingStrings
 import io.heapy.ktctogradle.render.quote
-import okio.FileSystem
 import okio.Path
 
 internal data class GeneratedFile(val path: Path, val content: String)
 
-internal class GradleGenerator(private val fileSystem: FileSystem) {
+internal class GradleGenerator {
     private val diagnostics = mutableListOf<Diagnostic>()
 
     fun generate(project: ToolchainProject): Pair<List<GeneratedFile>, List<Diagnostic>> {
@@ -104,7 +103,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val serialization = serializationSettings(config)
         val dependencies = dependenciesFor(module, listOf("dependencies", "dependencies@jvm"))
         val tests = dependenciesFor(module, listOf("test-dependencies", "test-dependencies@jvm"))
-        val mainClass = config.string("settings.jvm.mainClass") ?: detectMainClass(module)
+        val mainClass = config.string("settings.jvm.mainClass") ?: module.layout.detectedMainClass
         return writeKts {
             line(StaticAssets.header())
             appendRepositoryCredentialsImport(config)
@@ -427,8 +426,8 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val resources = if (test) "testResources" else "resources"
         val dependencyKey = if (test) "test-dependencies@$qualifier" else "dependencies@$qualifier"
         val deps = dependenciesFor(module, listOf(dependencyKey))
-        val sourceExists = fileSystem.exists(module.directory / "$prefix@$qualifier")
-        val resourcesExist = fileSystem.exists(module.directory / "$resources@$qualifier")
+        val sourceExists = "$prefix@$qualifier" in module.layout.existingSourceDirs
+        val resourcesExist = "$resources@$qualifier" in module.layout.existingSourceDirs
         val suffix = if (test) "Test" else "Main"
         // The Android Gradle Plugin calls the unit-test source set androidHostTest;
         // androidTest is its on-device suite, so tests placed there never run.
@@ -606,8 +605,11 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             }
             notation.startsWith("./") || notation.startsWith("../") -> {
                 val targetDirectory = (module.directory / notation).normalized()
+                // The plain comparison misses when the module directory is reached through a symlink,
+                // so fall back to the directories the load stage already canonicalized.
+                val canonicalTargetDirectory = (module.canonicalDirectory / notation).normalized()
                 val target = project.modules.firstOrNull { it.directory == targetDirectory }
-                    ?: project.modules.firstOrNull { fileSystem.canonicalize(it.directory) == fileSystem.canonicalize(targetDirectory) }
+                    ?: project.modules.firstOrNull { it.canonicalDirectory == canonicalTargetDirectory }
                     ?: throw ConversionException("${module.displayName}: unknown module '$notation'")
                 "project(${quote(target.gradlePath)})"
             }
@@ -820,28 +822,6 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         "compile-only", "runtime-only" -> Dependency(notation, scope = shorthand)
         "exported" -> Dependency(notation, exported = true)
         else -> throw ConversionException("Dependency '$notation' has unknown scope '$shorthand'")
-    }
-
-    private fun detectMainClass(module: ToolchainModule): String? {
-        val sourceRoots = listOf(module.directory / "src", module.directory / "src@jvm")
-        for (root in sourceRoots.filter(fileSystem::exists)) {
-            val files = mutableListOf<Path>()
-            collectKotlinFiles(root, files)
-            val main = files.firstOrNull { it.name.equals("main.kt", ignoreCase = true) } ?: continue
-            val text = fileSystem.read(main) { readUtf8() }
-            if (!Regex("\\bfun\\s+main\\s*\\(").containsMatchIn(text)) continue
-            val packageName = Regex("(?m)^\\s*package\\s+([A-Za-z_][\\w.]*)").find(text)?.groupValues?.get(1)
-            val className = main.name.removeSuffix(".kt").replaceFirstChar { it.uppercase() } + "Kt"
-            return if (packageName == null) className else "$packageName.$className"
-        }
-        return null
-    }
-
-    private fun collectKotlinFiles(directory: Path, destination: MutableList<Path>) {
-        for (child in fileSystem.list(directory).sortedBy(Path::name)) {
-            if (fileSystem.metadata(child).isDirectory) collectKotlinFiles(child, destination)
-            else if (child.name.endsWith(".kt", ignoreCase = true)) destination += child
-        }
     }
 
     private data class PluginRef(

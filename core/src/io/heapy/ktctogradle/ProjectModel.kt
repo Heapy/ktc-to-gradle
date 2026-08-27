@@ -1,5 +1,7 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.load.ModuleLayout
+import io.heapy.ktctogradle.load.ModuleLayoutProbe
 import okio.FileSystem
 import okio.Path
 
@@ -13,7 +15,15 @@ internal data class ToolchainProject(
 internal data class ToolchainModule(
     val path: ModulePath,
     val directory: Path,
+    /**
+     * [directory] with every symlink resolved.
+     *
+     * Recorded here so that resolving a `./` or `../` dependency to a module never needs a
+     * [FileSystem] outside the load stage.
+     */
+    val canonicalDirectory: Path,
     val config: Value.Mapping,
+    val layout: ModuleLayout,
 ) {
     val gradlePath: String = path.gradlePath
     val displayName: String = if (path.isRoot) directory.name else path.notation
@@ -22,6 +32,8 @@ internal data class ToolchainModule(
 internal data class Product(val type: String, val platforms: List<String>)
 
 internal class ProjectLoader(private val fileSystem: FileSystem) {
+    private val layoutProbe = ModuleLayoutProbe(fileSystem)
+
     fun load(start: Path): ToolchainProject {
         val requested = fileSystem.canonicalize(start)
         val root = findRoot(requested)
@@ -43,7 +55,13 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
             val directory = moduleFile.parent!!
             val path = ModulePath.relativize(root, directory)
                 ?: throw ConversionException("Module directory $directory is outside project root $root")
-            ToolchainModule(path, directory, loadEffectiveConfig(root, moduleFile))
+            ToolchainModule(
+                path = path,
+                directory = directory,
+                canonicalDirectory = fileSystem.canonicalize(directory),
+                config = loadEffectiveConfig(root, moduleFile),
+                layout = layoutProbe.probe(directory),
+            )
         }.sortedBy(ToolchainModule::path)
         validateLocalDependencies(root, modules)
 
