@@ -44,20 +44,22 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
 /**
  * Stages 2 and 3: interprets a loaded project and renders every file of the Gradle build.
  *
- * Kept apart from [Converter] because neither stage may touch a file system, and a top-level
- * function is the shape that makes that impossible rather than merely true.
+ * Kept apart from [Converter] because neither stage may touch a file system: this function is
+ * handed no `FileSystem`, so a renderer that wanted one would have to reach for the platform
+ * default by hand instead of using what it was passed.
  */
 internal fun generateBuild(project: ToolchainProject): GenerationResult {
     val diagnostics = DiagnosticCollector()
     val gradle = ProjectInterpreter.interpret(project, diagnostics)
-    return GenerationResult(renderProject(gradle), diagnostics.drain())
+    return GenerationResult(renderProject(gradle), diagnostics.collected())
 }
 
 /**
  * Every file the build consists of, in the order a conversion reports them.
  *
- * The module scripts come before the wrapper because that is the order the written-file list has
- * always had, and a caller diffing two runs reads it top to bottom.
+ * Settings first, then one script per module in project order, then the wrapper and its
+ * properties. A caller diffing two runs reads the list top to bottom, and the golden baselines
+ * compare it as written.
  */
 private fun renderProject(project: GradleProject): List<GeneratedFile> = buildList {
     add(GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project)))

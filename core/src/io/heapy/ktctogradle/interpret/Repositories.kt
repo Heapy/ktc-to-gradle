@@ -16,7 +16,7 @@ import io.heapy.ktctogradle.model.RepositoryShorthand
  * copy of the YAML.
  */
 internal object Repositories {
-    fun resolution(model: ToolchainModel): List<Repository> {
+    fun of(model: ToolchainModel): List<Repository> {
         model.raiseDeferred(Region.REPOSITORIES)
         val configured = model.repositories.map { raw -> raw to identify(raw) }
         // Ids are settled before the resolve filter, so disabling a default by its URL still keeps
@@ -24,12 +24,12 @@ internal object Repositories {
         val configuredIds = configured.mapTo(mutableSetOf()) { (_, id) -> id }
         val defaults = listOf(
             Repository(
-                id = "mavenCentral",
+                id = MAVEN_CENTRAL_ID,
                 url = Defaults.MAVEN_CENTRAL_URL,
                 shorthand = RepositoryShorthand.MAVEN_CENTRAL,
             ),
             Repository(
-                id = "mavenGoogle",
+                id = MAVEN_GOOGLE_ID,
                 url = Defaults.GOOGLE_MAVEN_URL,
                 shorthand = RepositoryShorthand.GOOGLE,
             ),
@@ -61,8 +61,8 @@ internal object Repositories {
      * repository would otherwise be treated as a separate one and emitted next to it.
      */
     private fun defaultRepositoryId(url: String): String? = when (url.trimEnd('/')) {
-        Defaults.MAVEN_CENTRAL_URL -> "mavenCentral"
-        Defaults.GOOGLE_MAVEN_URL -> "mavenGoogle"
+        Defaults.MAVEN_CENTRAL_URL -> MAVEN_CENTRAL_ID
+        Defaults.GOOGLE_MAVEN_URL -> MAVEN_GOOGLE_ID
         else -> null
     }
 
@@ -78,13 +78,21 @@ internal object Repositories {
             // A mirror behind credentials is not the public repository the shorthand stands for,
             // even when it carries its id.
             shorthand = when {
-                url == "mavenLocal" -> RepositoryShorthand.MAVEN_LOCAL
-                id == "mavenCentral" && url == Defaults.MAVEN_CENTRAL_URL && credentials == null ->
+                url == MAVEN_LOCAL_ID -> RepositoryShorthand.MAVEN_LOCAL
+                id == MAVEN_CENTRAL_ID && url == Defaults.MAVEN_CENTRAL_URL && credentials == null ->
                     RepositoryShorthand.MAVEN_CENTRAL
-                id == "mavenGoogle" && url == Defaults.GOOGLE_MAVEN_URL && credentials == null ->
+                id == MAVEN_GOOGLE_ID && url == Defaults.GOOGLE_MAVEN_URL && credentials == null ->
                     RepositoryShorthand.GOOGLE
                 else -> null
             },
         )
     }
+
+    /** The ids Kotlin Toolchain gives the repositories it implies; a module names them to turn one off. */
+    private const val MAVEN_CENTRAL_ID = "mavenCentral"
+
+    private const val MAVEN_GOOGLE_ID = "mavenGoogle"
+
+    /** Written in the `url` position rather than as an id, which is how the Toolchain spells it. */
+    private const val MAVEN_LOCAL_ID = "mavenLocal"
 }

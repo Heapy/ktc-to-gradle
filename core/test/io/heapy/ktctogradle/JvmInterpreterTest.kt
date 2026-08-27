@@ -172,7 +172,7 @@ class JvmInterpreterTest {
                     "app: could not infer a main class; set settings.jvm.mainClass or application.mainClass",
                 ),
             ),
-            diagnostics.drain(),
+            diagnostics.collected(),
         )
     }
 

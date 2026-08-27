@@ -6,6 +6,7 @@ import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.ToolchainModule
+import io.heapy.ktctogradle.load.UnsupportedKey
 import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
@@ -25,7 +26,7 @@ import io.heapy.ktctogradle.model.TargetKind
 internal object MultiplatformInterpreter {
     fun interpret(index: ModuleIndex, module: ToolchainModule, diagnostics: DiagnosticCollector): MultiplatformBuild {
         val model = module.model
-        val serialization = Serialization.settings(model)
+        val serialization = Serialization.of(model)
         val fragments = KmpFragments.of(model, module.displayName)
         val qualified = QualifiedSettings.of(module, fragments.map { it.name to it.platforms }, diagnostics)
         val platforms = model.product.platforms
@@ -61,7 +62,7 @@ internal object MultiplatformInterpreter {
             "js" -> TargetKind.Js
             "wasmJs" -> TargetKind.WasmJs
             "wasmWasi" -> TargetKind.WasmWasi
-            in KmpFragments.nativeTargets -> TargetKind.Native
+            in KmpFragments.NATIVE_TARGETS -> TargetKind.Native
             else -> throw ConversionException("Unsupported Kotlin platform '$platform'")
         }
         return KmpTarget(
@@ -177,7 +178,7 @@ internal object QualifiedSettings {
         val sections = mutableListOf<Triple<Int, Set<String>, CompilerOptions>>()
         for (section in module.model.qualifiedSections) {
             if (section.test) {
-                drop(diagnostics, module, section.key, "is not supported by the converter")
+                drop(diagnostics, module, section.key, UnsupportedKey.UNSUPPORTED)
                 continue
             }
             val platforms = platformsOf[section.qualifier]

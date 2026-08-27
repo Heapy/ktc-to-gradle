@@ -1,7 +1,7 @@
 package io.heapy.ktctogradle
 
-import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.interpret.MultiplatformInterpreter
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.YamlBinder
@@ -201,7 +201,7 @@ class MultiplatformInterpreterTest {
                 "shared: 'settings@linuxX64' must be an object and was dropped",
                 "shared: 'test-settings@jvm' is not supported by the converter and was dropped",
             ),
-            diagnostics.drain().map(Diagnostic::message),
+            diagnostics.collected().map(Diagnostic::message),
         )
     }
 
@@ -348,16 +348,6 @@ class MultiplatformInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, build.targets.single { it.name == "linuxX64" }.compilerOptions)
     }
 
-    private fun sourceSet(name: String, parent: String, test: Boolean = false): KmpSourceSet = KmpSourceSet(
-        name = name,
-        parents = listOf(parent),
-        test = test,
-        builtIn = false,
-        sourceDirs = emptyList(),
-        resourceDirs = emptyList(),
-        dependencies = emptyList(),
-    )
-
     /** `settings.jvm.test` reaches no multiplatform target, so a malformed value is not read here. */
     @Test
     fun aMalformedJvmTestArgumentListDoesNotFailAMultiplatformModule() {
@@ -376,6 +366,16 @@ class MultiplatformInterpreterTest {
 
         assertEquals(listOf("jvm", "linuxX64"), interpret(shared).targets.map(KmpTarget::name))
     }
+
+    private fun sourceSet(name: String, parent: String, test: Boolean = false): KmpSourceSet = KmpSourceSet(
+        name = name,
+        parents = listOf(parent),
+        test = test,
+        builtIn = false,
+        sourceDirs = emptyList(),
+        resourceDirs = emptyList(),
+        dependencies = emptyList(),
+    )
 
     private fun interpret(module: ToolchainModule): MultiplatformBuild =
         MultiplatformInterpreter.interpret(ModuleIndex.of(listOf(module)), module, DiagnosticCollector())

@@ -27,7 +27,7 @@ internal object AndroidInterpreter {
                     "supplies its own Kotlin",
             )
         }
-        val serialization = Serialization.settings(model)
+        val serialization = Serialization.of(model)
         val android = model.settings.android
         val release = model.settings.jvm?.release ?: Defaults.ANDROID_RELEASE
         val namespace = android?.namespace ?: Defaults.ANDROID_NAMESPACE_FALLBACK
@@ -85,7 +85,7 @@ internal object AndroidInterpreter {
             val sanitized = segment.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
             if (sanitized.firstOrNull()?.isDigit() != false) "_$sanitized" else sanitized
         }
-        return (listOf("ktc", "generated") + packageSegments).joinToString(".")
+        return (Defaults.ANDROID_NAMESPACE_PREFIX + packageSegments).joinToString(".")
     }
 
     /** The unqualified section and the `@android` one, in the order the Toolchain applies them. */

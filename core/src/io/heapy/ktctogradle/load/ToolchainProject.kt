@@ -49,15 +49,15 @@ internal fun product(config: Value.Mapping): ProductSpec {
 }
 
 private fun defaultPlatforms(type: String): List<String> = when (type) {
-    "jvm/app", "jvm/lib", "jvm/amper-plugin" -> listOf("jvm")
-    "android/app" -> listOf("android")
-    "ios/app" -> listOf("iosArm64", "iosSimulatorArm64")
-    "js/app" -> listOf("js")
-    "wasm-js/app" -> listOf("wasmJs")
-    "wasm-wasi/app" -> listOf("wasmWasi")
-    "linux/app" -> listOf("linuxX64", "linuxArm64")
-    "macos/app" -> listOf("macosArm64")
-    "windows/app" -> listOf("mingwX64")
-    "kmp/lib" -> throw ConversionException("kmp/lib requires product.platforms")
+    ProductType.JVM_APP, ProductType.JVM_LIB, ProductType.JVM_AMPER_PLUGIN -> listOf("jvm")
+    ProductType.ANDROID_APP -> listOf("android")
+    ProductType.IOS_APP -> listOf("iosArm64", "iosSimulatorArm64")
+    ProductType.JS_APP -> listOf("js")
+    ProductType.WASM_JS_APP -> listOf("wasmJs")
+    ProductType.WASM_WASI_APP -> listOf("wasmWasi")
+    ProductType.LINUX_APP -> listOf("linuxX64", "linuxArm64")
+    ProductType.MACOS_APP -> listOf("macosArm64")
+    ProductType.WINDOWS_APP -> listOf("mingwX64")
+    ProductType.KMP_LIB -> throw ConversionException("kmp/lib requires product.platforms")
     else -> throw ConversionException("Unsupported product type '$type'")
 }

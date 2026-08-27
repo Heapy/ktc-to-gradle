@@ -36,7 +36,7 @@ internal class ModuleIndex private constructor(
             byDirectory = firstWins(modules, ToolchainModule::directory),
         )
 
-        /** Keeps the earliest module under a key, matching the `firstOrNull` scan it replaces. */
+        /** Keeps the earliest module under a key: two modules may claim one, and the first declared wins. */
         private fun <K> firstWins(
             modules: List<ToolchainModule>,
             key: (ToolchainModule) -> K,

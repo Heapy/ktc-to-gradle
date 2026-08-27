@@ -4,6 +4,7 @@ import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.load.KotlinSettings
 import io.heapy.ktctogradle.load.ModuleIndex
+import io.heapy.ktctogradle.load.ProductType
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.ToolchainModule
@@ -32,7 +33,7 @@ internal object JvmInterpreter {
         model.raiseDeferred(Region.SETTINGS)
         val jdk = model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK
         val release = model.settings.jvm?.release ?: jdk
-        val serialization = Serialization.settings(model)
+        val serialization = Serialization.of(model)
         val declared = Dependencies.of(index, module, test = false, qualifiers = QUALIFIERS)
         val testFramework = testFramework(model)
         val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS)
@@ -111,7 +112,7 @@ internal object JvmInterpreter {
      * A library never gets an `application { }` block, even when it happens to contain a `main.kt`.
      */
     private fun mainClass(module: ToolchainModule, diagnostics: DiagnosticCollector): String? {
-        if (module.model.product.type != "jvm/app") return null
+        if (module.model.product.type != ProductType.JVM_APP) return null
         val mainClass = module.model.settings.jvm?.mainClass ?: module.layout.detectedMainClass
         if (mainClass == null) {
             diagnostics.warn(

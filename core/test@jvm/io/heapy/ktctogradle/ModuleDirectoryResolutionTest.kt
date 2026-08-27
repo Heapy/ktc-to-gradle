@@ -11,7 +11,6 @@ import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.JvmBuild
 import okio.FileSystem
-import okio.Path as OkioPath
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +19,7 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.fail
+import okio.Path as OkioPath
 
 /**
  * How a `./` or `../` dependency finds the module it points at.

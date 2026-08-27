@@ -45,7 +45,7 @@ internal object KmpFragments {
                     "$displayName: alias '$alias' contains undeclared platforms ${unknown.sorted().joinToString()}",
                 )
             }
-            if (alias == COMMON || alias in naturalPlatformParents) {
+            if (alias == COMMON || alias in NATURAL_PLATFORM_PARENTS) {
                 throw ConversionException("$displayName: alias '$alias' conflicts with the default platform hierarchy")
             }
         }
@@ -56,7 +56,7 @@ internal object KmpFragments {
                 var current: String? = platform
                 while (current != null) {
                     add(current)
-                    current = naturalPlatformParents[current]
+                    current = NATURAL_PLATFORM_PARENTS[current]
                 }
             }
         }
@@ -105,11 +105,11 @@ internal object KmpFragments {
         listOf(COMMON to setOf(platform), platform to setOf(platform))
 
     /** Whether [ancestor] is reached by following [descendant]'s natural parent chain upwards. */
-    fun isNaturalAncestor(ancestor: String, descendant: String): Boolean {
-        var current = naturalPlatformParents[descendant]
+    private fun isNaturalAncestor(ancestor: String, descendant: String): Boolean {
+        var current = NATURAL_PLATFORM_PARENTS[descendant]
         while (current != null) {
             if (current == ancestor) return true
-            current = naturalPlatformParents[current]
+            current = NATURAL_PLATFORM_PARENTS[current]
         }
         return false
     }
@@ -130,7 +130,7 @@ internal object KmpFragments {
     const val COMMON = "common"
 
     /** Kotlin's default platform hierarchy, as a child-to-parent map. */
-    val naturalPlatformParents = mapOf(
+    private val NATURAL_PLATFORM_PARENTS = mapOf(
         "jvm" to "common",
         "android" to "common",
         "web" to "common",
@@ -168,7 +168,7 @@ internal object KmpFragments {
     )
 
     /** The platforms Kotlin/Native compiles to a binary, which is what gives them their target DSL. */
-    val nativeTargets = setOf(
+    val NATIVE_TARGETS = setOf(
         "linuxX64", "linuxArm64", "macosX64", "macosArm64", "mingwX64", "iosX64", "iosArm64",
         "iosSimulatorArm64", "watchosArm32", "watchosArm64", "watchosDeviceArm64",
         "watchosSimulatorArm64", "tvosArm64", "tvosSimulatorArm64", "tvosX64", "androidNativeArm32",

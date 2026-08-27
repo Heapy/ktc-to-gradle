@@ -4,9 +4,11 @@ import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.ProductType
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.ToolchainProject
+import io.heapy.ktctogradle.load.YamlBinder
 import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.GradlePlugin
@@ -82,18 +84,16 @@ internal object ProjectInterpreter {
         // deliberate change: the pre-pipeline generator read the repositories from inside the build
         // it was already assembling, so which of two failures a module reported depended on its
         // product.
-        val repositories = Repositories.resolution(module.model)
+        val repositories = Repositories.of(module.model)
         val requiresCredentialsImport = Repositories.requiresCredentialsImport(module.model)
         val build: ModuleBuild = when (product.type) {
-            "jvm/app", "jvm/lib" -> JvmInterpreter.interpret(index, module, diagnostics)
-            "android/app" -> AndroidInterpreter.interpret(index, module, diagnostics)
-            "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app",
-            -> MultiplatformInterpreter.interpret(index, module, diagnostics)
-            "ios/app" -> throw ConversionException(
+            ProductType.JVM_APP, ProductType.JVM_LIB -> JvmInterpreter.interpret(index, module, diagnostics)
+            ProductType.ANDROID_APP -> AndroidInterpreter.interpret(index, module, diagnostics)
+            in ProductType.MULTIPLATFORM -> MultiplatformInterpreter.interpret(index, module, diagnostics)
+            ProductType.IOS_APP -> throw ConversionException(
                 "${module.displayName}: ios/app contains an Xcode/Swift application and cannot be represented by a standalone Gradle module",
             )
-            "jvm/amper-plugin" -> throw ConversionException(
+            ProductType.JVM_AMPER_PLUGIN -> throw ConversionException(
                 "${module.displayName}: Kotlin Toolchain build plugins have no automatic Gradle equivalent",
             )
             else -> throw ConversionException("${module.displayName}: unsupported product '${product.type}'")
@@ -133,5 +133,5 @@ internal object ProjectInterpreter {
     }
 
     /** The rejected keys that are not `settings.` paths; those are phrased differently. */
-    private val TOP_LEVEL_KEYS = setOf("plugins", "mavenPlugins")
+    private val TOP_LEVEL_KEYS = YamlBinder.UNSUPPORTED_KEYS.toSet()
 }

@@ -11,7 +11,6 @@ import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmBuild
 import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
-import io.heapy.ktctogradle.render.renderSettings
 import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.test.Test
@@ -90,44 +89,42 @@ class ProjectInterpreterTest {
     }
 
     @Test
-    fun everySubprojectIsIncludedWithTheDirectoryItWasLoadedFrom() {
-        val settings = renderSettings(
-            interpret(
-                project(
-                    module("app", "product: jvm/lib\n"),
-                    module("libs/shared", "product: jvm/lib\n"),
-                ),
+    fun everySubprojectKeepsTheDirectoryItWasLoadedFrom() {
+        val project = interpret(
+            project(
+                module("app", "product: jvm/lib\n"),
+                module("libs/shared", "product: jvm/lib\n"),
             ),
         )
 
         assertEquals(
             listOf(
-                "include(\":app\")",
-                "project(\":app\").projectDir = file(\"app\")",
-                "include(\":libs:shared\")",
-                "project(\":libs:shared\").projectDir = file(\"libs/shared\")",
+                ":" to ROOT,
+                ":app" to ROOT / "app",
+                ":libs:shared" to ROOT / "libs" / "shared",
             ),
-            settings.lines().filter { it.startsWith("include(") || it.startsWith("project(") },
+            project.modules.map { module -> module.gradlePath to module.directory },
         )
     }
 
+    /**
+     * Where the catalog sits is a fact about the project, so the model carries the path as loaded.
+     * Whether Gradle has to be told about it is a rendering decision and is pinned by
+     * `render/SettingsRendererTest`.
+     */
     @Test
-    fun aVersionCatalogNextToTheSettingsFileIsDeclaredAndOneUnderGradleIsNot() {
+    fun theVersionCatalogReachesTheModelWhereverTheProjectKeepsIt() {
         val modules = arrayOf(module("app", "product: jvm/lib\n"))
 
-        val atRoot = renderSettings(interpret(project(*modules, catalog = ROOT / "libs.versions.toml")))
-        val underGradle = renderSettings(
-            interpret(project(*modules, catalog = ROOT / "gradle" / "libs.versions.toml")),
+        assertEquals(
+            ROOT / "libs.versions.toml",
+            interpret(project(*modules, catalog = ROOT / "libs.versions.toml")).catalog,
         )
-
-        assertTrue(
-            "create(\"libs\") { from(files(\"libs.versions.toml\")) }" in atRoot,
-            "A catalog next to settings.gradle.kts has to be declared:\n$atRoot",
+        assertEquals(
+            ROOT / "gradle" / "libs.versions.toml",
+            interpret(project(*modules, catalog = ROOT / "gradle" / "libs.versions.toml")).catalog,
         )
-        assertTrue(
-            "versionCatalogs" !in underGradle,
-            "Gradle finds gradle/libs.versions.toml itself, so declaring it again is an error:\n$underGradle",
-        )
+        assertNull(interpret(project(*modules)).catalog)
     }
 
     @Test

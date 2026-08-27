@@ -15,8 +15,8 @@ import kotlin.test.assertTrue
 /**
  * The conversion carries no diagnostics between runs.
  *
- * Diagnostics used to live in a field that `generate()` cleared on entry; they are now collected
- * per run, so two runs in the same process must report each project on its own.
+ * Diagnostics are collected per run rather than held on the converter, so two runs in the same
+ * process must report each project on its own.
  */
 class DiagnosticIsolationTest {
     @Test

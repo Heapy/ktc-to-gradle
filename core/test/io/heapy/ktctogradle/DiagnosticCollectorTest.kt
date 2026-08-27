@@ -17,20 +17,20 @@ class DiagnosticCollectorTest {
                 Diagnostic(Diagnostic.Severity.INFO, "second"),
                 Diagnostic(Diagnostic.Severity.WARNING, "third"),
             ),
-            collector.drain(),
+            collector.collected(),
         )
     }
 
     @Test
-    fun drainReturnsAnImmutableSnapshot() {
+    fun collectedReturnsASnapshotAndLeavesTheCollectorUsable() {
         val collector = DiagnosticCollector()
         collector.warn("first")
 
-        val snapshot = collector.drain()
+        val snapshot = collector.collected()
         collector.warn("second")
 
         assertEquals(listOf(Diagnostic(Diagnostic.Severity.WARNING, "first")), snapshot)
-        assertEquals(2, collector.drain().size)
+        assertEquals(2, collector.collected().size)
     }
 
     @Test
@@ -39,6 +39,6 @@ class DiagnosticCollectorTest {
         val second = DiagnosticCollector()
         first.warn("only mine")
 
-        assertEquals(emptyList<Diagnostic>(), second.drain())
+        assertEquals(emptyList<Diagnostic>(), second.collected())
     }
 }

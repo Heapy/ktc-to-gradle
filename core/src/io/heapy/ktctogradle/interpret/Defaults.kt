@@ -19,4 +19,7 @@ internal object Defaults {
     const val JUNIT = "junit-5"
     const val MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2"
     const val GOOGLE_MAVEN_URL = "https://maven.google.com"
+
+    /** Prefix of the namespace the converter derives from a module path when the module names none. */
+    val ANDROID_NAMESPACE_PREFIX = listOf("ktc", "generated")
 }

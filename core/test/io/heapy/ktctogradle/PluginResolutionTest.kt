@@ -59,7 +59,7 @@ class PluginResolutionTest {
         val diagnostics = DiagnosticCollector()
         val versions = PluginResolution.resolveVersions(listOf(jvmModel()), diagnostics)
         assertEquals(mapOf("org.jetbrains.kotlin.jvm" to Versions.KOTLIN), versions)
-        assertEquals(emptyList(), diagnostics.drain())
+        assertEquals(emptyList(), diagnostics.collected())
     }
 
     /** The pin decides the version, and the module that would have taken the default is told so. */
@@ -80,7 +80,7 @@ class PluginResolutionTest {
                         "every module",
                 ),
             ),
-            diagnostics.drain(),
+            diagnostics.collected(),
         )
     }
 
@@ -124,7 +124,7 @@ class PluginResolutionTest {
                         "once for the whole build, so the generated build uses 2.4.20 for every module",
                 ),
             ),
-            diagnostics.drain(),
+            diagnostics.collected(),
         )
     }
 
@@ -132,7 +132,7 @@ class PluginResolutionTest {
     fun oneVersionAcrossTheProjectWarnsAboutNothing() {
         val diagnostics = DiagnosticCollector()
         PluginResolution.resolveVersions(listOf(jvmModel(), jvmModel()), diagnostics)
-        assertEquals(emptyList(), diagnostics.drain())
+        assertEquals(emptyList(), diagnostics.collected())
     }
 
     @Test

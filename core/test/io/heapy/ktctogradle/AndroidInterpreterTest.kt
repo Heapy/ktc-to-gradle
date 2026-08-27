@@ -1,8 +1,8 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.AndroidInterpreter
-import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.interpret.PluginResolution
+import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ModuleLayout
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.YamlBinder
@@ -148,7 +148,7 @@ class AndroidInterpreterTest {
                         "its own Kotlin",
                 ),
             ),
-            diagnostics.drain(),
+            diagnostics.collected(),
         )
     }
 
@@ -235,7 +235,7 @@ class AndroidInterpreterTest {
             AndroidLibraryTarget(namespace = "example.messages", compileSdk = "37", minSdk = "24"),
             AndroidInterpreter.libraryTarget(library, diagnostics),
         )
-        assertEquals(emptyList<Diagnostic>(), diagnostics.drain())
+        assertEquals(emptyList<Diagnostic>(), diagnostics.collected())
     }
 
     @Test
@@ -254,7 +254,7 @@ class AndroidInterpreterTest {
                     "libs/messages: settings.android.namespace is not set; using 'ktc.generated.libs.messages'",
                 ),
             ),
-            diagnostics.drain(),
+            diagnostics.collected(),
         )
     }
 

@@ -243,7 +243,7 @@ private fun KtsWriter.appendSourceSet(sourceSet: KmpSourceSet) {
  * `withHostTestBuilder {}` is what registers the unit-test compilation; without it the
  * `androidHostTest` source set the fragments create has nothing to compile into.
  */
-internal fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: CompilerOptions) {
+private fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: CompilerOptions) {
     block("androidLibrary") {
         line("namespace = ${quote(target.namespace)}")
         line("compileSdk = ${target.compileSdk}")
@@ -253,7 +253,7 @@ internal fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, 
     }
 }
 
-internal fun KtsWriter.appendPluginBlock(plugins: List<PluginDecl>) {
+private fun KtsWriter.appendPluginBlock(plugins: List<PluginDecl>) {
     block("plugins") {
         for (plugin in plugins) line(plugin.declaration())
     }
@@ -275,14 +275,14 @@ internal fun GradlePlugin.dsl(): String = when (this) {
 }
 
 /** Credentials are read from a properties file, which is the only import a script ever needs. */
-internal fun KtsWriter.appendCredentialsImport(required: Boolean) {
+private fun KtsWriter.appendCredentialsImport(required: Boolean) {
     if (!required) return
     blank()
     line("import java.util.Properties")
     blank()
 }
 
-internal fun KtsWriter.appendRepositories(repositories: List<Repository>) {
+private fun KtsWriter.appendRepositories(repositories: List<Repository>) {
     block("repositories") {
         for ((index, repository) in repositories.withIndex()) {
             when (repository.shorthand) {
@@ -313,7 +313,7 @@ internal fun KtsWriter.appendRepositories(repositories: List<Repository>) {
  * [extra] is emitted after [options] rather than merged into it: Gradle applies the later
  * statement, so that is how a platform-qualified section overrides what it restates.
  */
-internal fun KtsWriter.appendCompilerOptions(options: CompilerOptions, extra: CompilerOptions = CompilerOptions.EMPTY) {
+private fun KtsWriter.appendCompilerOptions(options: CompilerOptions, extra: CompilerOptions = CompilerOptions.EMPTY) {
     if (options.isEmpty && extra.isEmpty) return
     block("compilerOptions") {
         appendCompilerOptionLines(options)
@@ -342,7 +342,7 @@ private fun KtsWriter.appendCompilerOptionLines(options: CompilerOptions) {
     }
 }
 
-internal fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings) {
+private fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings) {
     if (settings.freeJvmArgs.isNotEmpty()) line("jvmArgs(${settings.freeJvmArgs.joinToString(transform = ::quote)})")
     for ((key, value) in settings.systemProperties) line("systemProperty(${quote(key)}, ${quote(value)})")
     for ((key, value) in settings.environment) line("environment(${quote(key)}, ${quote(value)})")
@@ -352,7 +352,7 @@ internal fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings) {
  * [sourceSet] switches to the Kotlin Multiplatform source-set DSL, which names its configurations
  * without the `test` prefix because the source set already says which compilation it belongs to.
  */
-internal fun KtsWriter.appendDependencies(
+private fun KtsWriter.appendDependencies(
     dependencies: List<Dependency>,
     test: Boolean,
     sourceSet: Boolean = false,

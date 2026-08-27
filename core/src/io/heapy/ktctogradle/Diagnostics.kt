@@ -40,5 +40,5 @@ internal class DiagnosticCollector {
     }
 
     /** Everything collected so far, in the order it was reported, as a snapshot later calls cannot change. */
-    fun drain(): List<Diagnostic> = entries.toList()
+    fun collected(): List<Diagnostic> = entries.toList()
 }

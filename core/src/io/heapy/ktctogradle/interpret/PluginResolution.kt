@@ -2,6 +2,7 @@ package io.heapy.ktctogradle.interpret
 
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.Versions
+import io.heapy.ktctogradle.load.ProductType
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.model.GradlePlugin
@@ -116,21 +117,19 @@ internal object PluginResolution {
         if (Region.PRODUCT in model.errors) return emptyList()
         val plugins = mutableListOf<GradlePlugin>()
         when (model.product.type) {
-            "jvm/lib" -> plugins += GradlePlugin.Kotlin.JVM
-            "jvm/app" -> {
+            ProductType.JVM_LIB -> plugins += GradlePlugin.Kotlin.JVM
+            ProductType.JVM_APP -> {
                 plugins += GradlePlugin.Kotlin.JVM
                 plugins += GradlePlugin.Builtin.APPLICATION
             }
-            "android/app" -> plugins += GradlePlugin.Android.APPLICATION
-            "kmp/lib", "js/app", "wasm-js/app", "wasm-wasi/app",
-            "linux/app", "macos/app", "windows/app",
-            -> {
+            ProductType.ANDROID_APP -> plugins += GradlePlugin.Android.APPLICATION
+            in ProductType.MULTIPLATFORM -> {
                 plugins += GradlePlugin.Kotlin.MULTIPLATFORM
                 if ("android" in model.product.platforms) plugins += GradlePlugin.Android.KMP_LIBRARY
             }
             else -> return emptyList()
         }
-        if (Serialization.settingsOrNull(model) != null) plugins += GradlePlugin.Kotlin.SERIALIZATION
+        if (Serialization.isEnabled(model)) plugins += GradlePlugin.Kotlin.SERIALIZATION
         return plugins
     }
 

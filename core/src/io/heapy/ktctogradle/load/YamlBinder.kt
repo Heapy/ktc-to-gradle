@@ -14,8 +14,8 @@ import io.heapy.ktctogradle.ConversionException
  */
 internal object YamlBinder {
     /**
-     * [displayName] is the module name the deferred messages quote, matching what the render stage
-     * puts in front of `.dependencies` today.
+     * [displayName] is the module name the deferred messages quote: a malformed `dependencies:` in
+     * module `app` is reported against `app.dependencies`.
      */
     fun bind(config: Value.Mapping, displayName: String): ToolchainModel {
         val errors = mutableMapOf<String, String>()
@@ -377,7 +377,9 @@ internal object YamlBinder {
         }
         else -> {
             if (!lenient) {
-                errors?.put("settings.kotlin.serialization", "settings.kotlin.serialization must be a string or object")
+                errors?.getOrPut(Region.SERIALIZATION) {
+                    "settings.kotlin.serialization must be a string or object"
+                }
             }
             null
         }
@@ -385,8 +387,7 @@ internal object YamlBinder {
 
     /**
      * A list of scalars. In a qualified section a malformed list is dropped instead of reported;
-     * elsewhere it raises the message it raises today, which quotes the path from the module root,
-     * hence [prefix].
+     * elsewhere it raises, quoting the path from the module root, hence [prefix].
      */
     private fun Value.Mapping.stringList(path: String, prefix: String, lenient: Boolean): List<String> = if (lenient) {
         (value(path) as? Value.Sequence)?.items?.mapNotNull(Value::scalarOrNull).orEmpty()
@@ -405,7 +406,11 @@ internal object YamlBinder {
 
     private val SCOPE_SUFFIX = Regex("^(.*):\\s+(all|compile-only|runtime-only|exported)$")
 
-    private val UNSUPPORTED_KEYS = listOf("plugins", "mavenPlugins")
+    /**
+     * The top-level keys the converter refuses. `ProjectInterpreter` phrases these differently from
+     * the `settings.` paths below, so it reads this list rather than restating it.
+     */
+    internal val UNSUPPORTED_KEYS = listOf("plugins", "mavenPlugins")
 
     private val UNSUPPORTED_SETTINGS = listOf(
         "settings.compose", "settings.springBoot", "settings.lombok", "settings.kotlin.ksp",

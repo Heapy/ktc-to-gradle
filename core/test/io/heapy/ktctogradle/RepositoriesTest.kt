@@ -33,7 +33,7 @@ class RepositoriesTest {
                 Repository("mavenGoogle", GOOGLE, shorthand = RepositoryShorthand.GOOGLE),
                 Repository("internal", "https://repo.example.com/second"),
             ),
-            Repositories.resolution(model),
+            Repositories.of(model),
         )
     }
 
@@ -47,7 +47,7 @@ class RepositoriesTest {
                 Repository("mavenGoogle", GOOGLE, shorthand = RepositoryShorthand.GOOGLE),
                 Repository("mavenCentral", "$MAVEN_CENTRAL/"),
             ),
-            Repositories.resolution(model),
+            Repositories.of(model),
         )
     }
 
@@ -59,7 +59,7 @@ class RepositoriesTest {
         assertTrue("repositories" in model.errors)
         assertEquals(
             "repositories[0].url is required",
-            assertFailsWith<ConversionException> { Repositories.resolution(model) }.message,
+            assertFailsWith<ConversionException> { Repositories.of(model) }.message,
         )
         assertEquals(
             "repositories[0].url is required",

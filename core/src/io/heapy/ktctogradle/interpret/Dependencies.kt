@@ -6,6 +6,7 @@ import io.heapy.ktctogradle.load.RawDependency
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.isLocalNotation
+import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.Scope
@@ -38,8 +39,8 @@ internal object Dependencies {
         val prefix = if (test) "test-dependencies" else "dependencies"
         return qualifiers.flatMap { qualifier ->
             val key = if (qualifier.isEmpty()) prefix else "$prefix@$qualifier"
-            val failure = model.errors[key] ?: model.errors[Region.dependencyContent(key)]
-            failure?.let { message -> throw ConversionException(message) }
+            model.raiseDeferred(key)
+            model.raiseDeferred(Region.dependencyContent(key))
             sections[qualifier].orEmpty()
         }.map { raw -> resolve(index, module, raw) }
     }
@@ -51,7 +52,7 @@ internal object Dependencies {
         bom = raw.bom,
     )
 
-    /** An unknown scope keeps the behaviour it has today and lands on the default configuration. */
+    /** Anything but a narrowing scope lands on the default configuration. */
     private fun scopeOf(scope: String): Scope = when (scope) {
         "compile-only" -> Scope.COMPILE_ONLY
         "runtime-only" -> Scope.RUNTIME_ONLY
@@ -81,7 +82,7 @@ internal object Dependencies {
             if (serializationKey == key) {
                 throw ConversionException("${module.displayName}: unsupported Kotlin catalog alias '\$kotlin.$key'")
             }
-            val serialization = Serialization.settings(module.model)
+            val serialization = Serialization.of(module.model)
                 ?: throw ConversionException(
                     "${module.displayName}: '\$kotlin.$key' requires settings.kotlin.serialization to be enabled",
                 )

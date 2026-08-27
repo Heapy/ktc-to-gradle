@@ -118,6 +118,32 @@ internal enum class Layout { AMPER, MAVEN_LIKE }
 
 internal data class ProductSpec(val type: String, val platforms: List<String>)
 
+/**
+ * The `product:` types the Toolchain format defines, spelled once.
+ *
+ * Three `when` blocks branch on them — the default platforms of a type here in the load stage, the
+ * build to interpret in `ProjectInterpreter`, and the plugins to apply in `PluginResolution` — and
+ * a type missing from one of them falls into that block's `else`. Sharing the strings does not make
+ * a new type reach all three, but it does keep a typo from silently routing a module to `else`.
+ */
+internal object ProductType {
+    const val JVM_APP = "jvm/app"
+    const val JVM_LIB = "jvm/lib"
+    const val JVM_AMPER_PLUGIN = "jvm/amper-plugin"
+    const val ANDROID_APP = "android/app"
+    const val IOS_APP = "ios/app"
+    const val KMP_LIB = "kmp/lib"
+    const val JS_APP = "js/app"
+    const val WASM_JS_APP = "wasm-js/app"
+    const val WASM_WASI_APP = "wasm-wasi/app"
+    const val LINUX_APP = "linux/app"
+    const val MACOS_APP = "macos/app"
+    const val WINDOWS_APP = "windows/app"
+
+    /** The types a Kotlin Multiplatform build is generated for, whatever platforms they name. */
+    val MULTIPLATFORM = setOf(KMP_LIB, JS_APP, WASM_JS_APP, WASM_WASI_APP, LINUX_APP, MACOS_APP, WINDOWS_APP)
+}
+
 internal data class RawDependency(
     val notation: String,
     /** `all`, `compile-only` or `runtime-only`, as written. */
