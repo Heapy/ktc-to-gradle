@@ -115,7 +115,12 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine()
             appendLine("kotlin {")
             appendLine("    jvmToolchain($jdk)")
-            appendCompilerOptions(config, "    ", jvmTarget = release)
+            appendCompilerOptions(
+                config,
+                "    ",
+                jvmTarget = release,
+                extraLines = singlePlatformQualifiedLines(module, "jvm"),
+            )
             appendLine("}")
             appendLine()
             appendLine("java {")
@@ -221,7 +226,12 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendLine("}")
             appendLine()
             appendLine("kotlin {")
-            appendCompilerOptions(config, "    ", jvmTarget = release)
+            appendCompilerOptions(
+                config,
+                "    ",
+                jvmTarget = release,
+                extraLines = singlePlatformQualifiedLines(module, "android"),
+            )
             appendLine("}")
             appendLine()
             appendLine("dependencies {")
@@ -261,11 +271,14 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
             appendRepositories(config)
             appendLine()
             appendLine("kotlin {")
-            for (platform in product.platforms) appendTarget(platform, product.type, config, module)
+            val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms })
+            for (platform in product.platforms) {
+                appendTarget(platform, product.type, config, module, qualifiedCompilerOptionLines(qualified.byPlatform[platform]))
+            }
             if ("jvm" in product.platforms) {
                 appendLine("    jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
             }
-            appendCompilerOptions(config, "    ")
+            appendCompilerOptions(config, "    ", extraLines = qualifiedCompilerOptionLines(qualified.common))
             appendLine("    sourceSets {")
             appendLine("        commonMain {")
             appendLine("            kotlin.srcDir(\"src\")")
@@ -298,6 +311,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         productType: String,
         config: Value.Mapping,
         module: ToolchainModule,
+        qualifiedOptions: List<String>,
     ) {
         val executable = productType.endsWith("/app")
         when (platform) {
@@ -309,13 +323,29 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 appendLine("        compilerOptions {")
                 appendLine("            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
                 appendLine("            freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
+                for (line in qualifiedOptions) appendLine("            $line")
                 appendLine("        }")
                 appendLine("    }")
             }
-            "android" -> appendAndroidLibraryTarget(config, module)
-            "js" -> appendLine("    js(IR) { ${if (executable) "binaries.executable(); " else ""}browser() }")
-            "wasmJs" -> appendLine("    wasmJs { ${if (executable) "binaries.executable(); " else ""}browser() }")
-            "wasmWasi" -> appendLine("    wasmWasi { ${if (executable) "binaries.executable()" else ""} }")
+            "android" -> appendAndroidLibraryTarget(config, module, qualifiedOptions)
+            "js" -> appendBrowserTarget("js(IR)", executable, qualifiedOptions)
+            "wasmJs" -> appendBrowserTarget("wasmJs", executable, qualifiedOptions)
+            "wasmWasi" -> {
+                if (qualifiedOptions.isEmpty()) {
+                    appendLine("    wasmWasi { ${if (executable) "binaries.executable()" else ""} }")
+                } else {
+                    appendLine("    wasmWasi {")
+                    if (executable) appendLine("        binaries.executable()")
+                    // The wasmWasi target DSL carries no compilerOptions of its own, so the options
+                    // have to reach the compile tasks through its compilations.
+                    appendLine("        compilations.configureEach {")
+                    appendLine("            compileTaskProvider.configure {")
+                    appendCompilerOptionsBlock(qualifiedOptions, "                ")
+                    appendLine("            }")
+                    appendLine("        }")
+                    appendLine("    }")
+                }
+            }
             in nativeTargets -> {
                 appendLine("    $platform {")
                 if (executable) {
@@ -323,13 +353,37 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                     config.string("settings.native.entryPoint")?.let { appendLine("            entryPoint = ${quote(it)}") }
                     appendLine("        }")
                 }
+                appendCompilerOptionsBlock(qualifiedOptions, "        ")
                 appendLine("    }")
             }
             else -> throw ConversionException("Unsupported Kotlin platform '$platform'")
         }
     }
 
-    private fun StringBuilder.appendAndroidLibraryTarget(config: Value.Mapping, module: ToolchainModule) {
+    private fun StringBuilder.appendBrowserTarget(target: String, executable: Boolean, qualifiedOptions: List<String>) {
+        if (qualifiedOptions.isEmpty()) {
+            appendLine("    $target { ${if (executable) "binaries.executable(); " else ""}browser() }")
+            return
+        }
+        appendLine("    $target {")
+        if (executable) appendLine("        binaries.executable()")
+        appendLine("        browser()")
+        appendCompilerOptionsBlock(qualifiedOptions, "        ")
+        appendLine("    }")
+    }
+
+    private fun StringBuilder.appendCompilerOptionsBlock(lines: List<String>, indent: String) {
+        if (lines.isEmpty()) return
+        appendLine("${indent}compilerOptions {")
+        for (line in lines) appendLine("$indent    $line")
+        appendLine("$indent}")
+    }
+
+    private fun StringBuilder.appendAndroidLibraryTarget(
+        config: Value.Mapping,
+        module: ToolchainModule,
+        qualifiedOptions: List<String>,
+    ) {
         val namespace = config.string("settings.android.namespace") ?: derivedAndroidNamespace(module).also {
             diagnostics += Diagnostic(
                 Diagnostic.Severity.WARNING,
@@ -341,6 +395,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         appendLine("        compileSdk = ${config.string("settings.android.compileSdk") ?: "37"}")
         appendLine("        minSdk = ${config.string("settings.android.minSdk") ?: "24"}")
         appendLine("        withHostTestBuilder {}.configure {}")
+        appendCompilerOptionsBlock(qualifiedOptions, "        ")
         appendLine("    }")
     }
 
@@ -475,12 +530,17 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         }
     }
 
-    private fun StringBuilder.appendCompilerOptions(config: Value.Mapping, indent: String, jvmTarget: String? = null) {
+    private fun StringBuilder.appendCompilerOptions(
+        config: Value.Mapping,
+        indent: String,
+        jvmTarget: String? = null,
+        extraLines: List<String> = emptyList(),
+    ) {
         val language = config.string("settings.kotlin.languageVersion")
         val api = config.string("settings.kotlin.apiVersion")
         val freeArgs = config.strings("settings.kotlin.freeCompilerArgs")
         val optIns = config.strings("settings.kotlin.optIns")
-        if (language == null && api == null && freeArgs.isEmpty() && optIns.isEmpty() &&
+        if (language == null && api == null && freeArgs.isEmpty() && optIns.isEmpty() && extraLines.isEmpty() &&
             config.boolean("settings.kotlin.allWarningsAsErrors") != true && config.boolean("settings.kotlin.progressiveMode") != true && jvmTarget == null
         ) return
         appendLine("${indent}compilerOptions {")
@@ -491,6 +551,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         if (config.boolean("settings.kotlin.progressiveMode") == true) appendLine("${indent}    progressiveMode.set(true)")
         if (freeArgs.isNotEmpty()) appendLine("${indent}    freeCompilerArgs.addAll(${freeArgs.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
         if (optIns.isNotEmpty()) appendLine("${indent}    optIn.addAll(${optIns.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+        for (line in extraLines) appendLine("${indent}    $line")
         appendLine("${indent}}")
     }
 
@@ -922,6 +983,137 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
     private fun qualifierTokens(qualifier: String): List<String> =
         Regex("\\d+|\\D+").findAll(qualifier).map { it.value }.toList()
 
+    private data class QualifiedSettings(val common: Value.Mapping?, val byPlatform: Map<String, Value.Mapping>)
+
+    /**
+     * Splits the `settings@<qualifier>` sections of a module into the part that applies to every
+     * platform and the part that applies to single ones. [fragmentOrder] lists the qualifiers the
+     * module accepts, broadest first, so a narrower section overrides a broader one even when both
+     * happen to cover the same leaves.
+     */
+    private fun qualifiedSettings(
+        module: ToolchainModule,
+        fragmentOrder: List<Pair<String, Set<String>>>,
+    ): QualifiedSettings {
+        val rank = fragmentOrder.withIndex().associate { (index, entry) -> entry.first to index }
+        val platformsOf = fragmentOrder.toMap()
+        val sections = mutableListOf<Triple<Int, Set<String>, Value.Mapping>>()
+        for ((key, value) in module.config.entries) {
+            if (key.startsWith("test-settings@")) {
+                diagnostics += Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "${module.displayName}: '$key' is not supported by the converter and was dropped",
+                )
+                continue
+            }
+            if (!key.startsWith("settings@")) continue
+            val qualifier = key.removePrefix("settings@")
+            val platforms = platformsOf[qualifier]
+            if (platforms == null) {
+                diagnostics += Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "${module.displayName}: '$key' names no platform of this module and was dropped",
+                )
+                continue
+            }
+            if (value !is Value.Mapping) {
+                diagnostics += Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "${module.displayName}: '$key' must be an object and was dropped",
+                )
+                continue
+            }
+            validateQualifiedSettings(module, qualifier, value)
+            sections += Triple(rank.getValue(qualifier), platforms, value)
+        }
+        sections.sortBy { (index, _, _) -> index }
+
+        var common: Value.Mapping? = null
+        val byPlatform = mutableMapOf<String, Value.Mapping>()
+        for ((index, platforms, settings) in sections) {
+            if (fragmentOrder[index].first == "common") {
+                common = common?.let { mergeValues(it, settings) as Value.Mapping } ?: settings
+                continue
+            }
+            for (platform in platforms) {
+                byPlatform[platform] = byPlatform[platform]?.let { mergeValues(it, settings) as Value.Mapping } ?: settings
+            }
+        }
+        return QualifiedSettings(common, byPlatform)
+    }
+
+    /** Reports every key of a qualified section the converter cannot carry into the Gradle build. */
+    private fun validateQualifiedSettings(module: ToolchainModule, qualifier: String, settings: Value.Mapping) {
+        fun drop(path: String, reason: String = "is not supported by the converter") {
+            diagnostics += Diagnostic(
+                Diagnostic.Severity.WARNING,
+                "${module.displayName}: 'settings@$qualifier.$path' $reason and was dropped",
+            )
+        }
+        for ((section, value) in settings.entries) {
+            if (section != "kotlin") {
+                for (path in leafPaths(section, value)) drop(path)
+                continue
+            }
+            val kotlin = value as? Value.Mapping ?: run {
+                drop(section, "must be an object")
+                continue
+            }
+            for ((key, option) in kotlin.entries) {
+                when (key) {
+                    "languageVersion", "apiVersion" ->
+                        if (option.scalarOrNull() == null) drop("kotlin.$key", "must be a string")
+                    "allWarningsAsErrors", "progressiveMode" ->
+                        if (kotlin.boolean(key) == null) drop("kotlin.$key", "must be true or false")
+                    "freeCompilerArgs", "optIns" ->
+                        if (option !is Value.Sequence) drop("kotlin.$key", "must be a list")
+                    else -> for (path in leafPaths("kotlin.$key", option)) drop(path)
+                }
+            }
+        }
+    }
+
+    private fun leafPaths(prefix: String, value: Value): List<String> = when (value) {
+        is Value.Mapping -> value.entries.flatMap { (key, child) -> leafPaths("$prefix.$key", child) }
+        else -> listOf(prefix)
+    }
+
+    /**
+     * The compilerOptions body a qualified section contributes. Only the keys the section declares
+     * are emitted: a Gradle target inherits the module-wide options and overrides what it restates,
+     * so a section that turns a flag off has to say so explicitly. Malformed values were already
+     * reported by [validateQualifiedSettings] and are skipped here.
+     */
+    private fun qualifiedCompilerOptionLines(settings: Value.Mapping?): List<String> {
+        val kotlin = settings?.entries?.get("kotlin") as? Value.Mapping ?: return emptyList()
+        return buildList {
+            kotlin.string("languageVersion")?.let {
+                add("languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
+            }
+            kotlin.string("apiVersion")?.let {
+                add("apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
+            }
+            kotlin.boolean("allWarningsAsErrors")?.let { add("allWarningsAsErrors.set($it)") }
+            kotlin.boolean("progressiveMode")?.let { add("progressiveMode.set($it)") }
+            addAll(listOption(kotlin, "freeCompilerArgs", "freeCompilerArgs"))
+            addAll(listOption(kotlin, "optIns", "optIn"))
+        }
+    }
+
+    private fun listOption(kotlin: Value.Mapping, key: String, property: String): List<String> {
+        val items = (kotlin.entries[key] as? Value.Sequence)?.items?.mapNotNull(Value::scalarOrNull).orEmpty()
+        if (items.isEmpty()) return emptyList()
+        return listOf("$property.addAll(${items.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
+    }
+
+    /** The compilerOptions lines of a single-platform product, module-wide and qualified together. */
+    private fun singlePlatformQualifiedLines(module: ToolchainModule, platform: String): List<String> {
+        val qualified = qualifiedSettings(module, listOf("common" to setOf(platform), platform to setOf(platform)))
+        val merged = listOfNotNull(qualified.common, qualified.byPlatform[platform])
+            .reduceOrNull { lower, higher -> mergeValues(lower, higher) as Value.Mapping }
+        return qualifiedCompilerOptionLines(merged)
+    }
+
     private fun rejectUnsupported(module: ToolchainModule) {
         val unsupportedKeys = listOf("plugins", "mavenPlugins")
         for (key in unsupportedKeys) if (module.config.value(key) != null) {
@@ -1046,6 +1238,10 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         private const val DEFAULT_SERIALIZATION_VERSION = "1.11.0"
         private const val MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2"
         private const val GOOGLE_MAVEN_URL = "https://maven.google.com"
+
+        private val qualifiedKotlinOptionKeys = setOf(
+            "languageVersion", "apiVersion", "allWarningsAsErrors", "progressiveMode", "freeCompilerArgs", "optIns",
+        )
 
         private val serializationArtifacts = mapOf(
             "core" to "kotlinx-serialization-core",

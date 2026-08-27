@@ -151,8 +151,10 @@ The conversion succeeds. The generated `build.gradle.kts` is where the case is:
 - **`settings.publishing` produces nothing.** No `maven-publish` plugin, no `publishing` block, no
   POM, no signing. The module publishes to Maven Central under Toolchain and cannot publish at all
   after conversion.
-- **`settings@jvm` and the four other platform-qualified blocks produce nothing.**
-  `allWarningsAsErrors` is declared five times in `module.yaml` and appears zero times in the output.
+- **`settings@jvm` and the four other platform-qualified blocks are carried over.**
+  `allWarningsAsErrors` is declared five times in `module.yaml` and appears five times in the
+  output: once inside `jvm { compilerOptions { } }`, once inside `androidLibrary { }`, and once in
+  each of the three iOS target blocks.
 - **`test-settings.jvm.release: 25` produces nothing.** The whole point of that key is that the JVM
   differential tests compile against JDK 25 while the published bytecode targets 21.
 - The alias hierarchy *is* honored: look for `jvmAndAndroidMain`, `nativeMain` and their

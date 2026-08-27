@@ -563,6 +563,199 @@ class GradleGeneratorTest {
         assertFalse("kotlin(\"jvm\") version \"2.4.10\" apply false" in rootBuild, rootBuild)
     }
 
+    @Test
+    fun platformQualifiedSettingsReachTheMatchingTargets() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, android, linuxX64]
+            aliases:
+              - jvmAndAndroid: [jvm, android]
+            settings:
+              android:
+                namespace: example.qualified
+            settings@jvmAndAndroid:
+              kotlin:
+                allWarningsAsErrors: true
+            settings@linuxX64:
+              kotlin:
+                progressiveMode: true
+                optIns: [kotlin.ExperimentalStdlibApi]
+            """.trimIndent(),
+        ).buildFile()
+
+        assertEquals(
+            listOf("allWarningsAsErrors.set(true)"),
+            build.targetCompilerOptions("jvm").filterNot { it.startsWith("jvmTarget") || it.startsWith("freeCompilerArgs") },
+            build,
+        )
+        assertEquals(listOf("allWarningsAsErrors.set(true)"), build.targetCompilerOptions("androidLibrary"), build)
+        assertEquals(
+            listOf("progressiveMode.set(true)", "optIn.addAll(listOf(\"kotlin.ExperimentalStdlibApi\"))"),
+            build.targetCompilerOptions("linuxX64"),
+            build,
+        )
+    }
+
+    @Test
+    fun aQualifiedSectionCanTurnAModuleWideFlagBackOff() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings:
+              kotlin:
+                allWarningsAsErrors: true
+            settings@linuxX64:
+              kotlin:
+                allWarningsAsErrors: false
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("allWarningsAsErrors.set(true)" in build, build)
+        assertEquals(listOf("allWarningsAsErrors.set(false)"), build.targetCompilerOptions("linuxX64"), build)
+    }
+
+    @Test
+    fun aQualifiedSettingOnASinglePlatformProductReachesTheModuleOptions() {
+        val build = generate(
+            """
+            product: jvm/lib
+            settings@jvm:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("allWarningsAsErrors.set(true)" in build, build)
+    }
+
+    @Test
+    fun aQualifierNamingNoPlatformIsReportedInsteadOfDropped() {
+        val (_, diagnostics) = generateAll(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings@macosArm64:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            diagnostics.any { it.severity == Diagnostic.Severity.WARNING && "settings@macosArm64" in it.message },
+            "Expected a diagnostic about the unknown qualifier, got $diagnostics",
+        )
+    }
+
+    @Test
+    fun aQualifiedSettingWithNoGradleEquivalentIsReportedInsteadOfDropped() {
+        val (_, diagnostics) = generateAll(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings@jvm:
+              jvm:
+                release: 21
+              kotlin:
+                ksp: enabled
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            diagnostics.any { "settings@jvm.jvm.release" in it.message },
+            "Expected a diagnostic naming the dropped section, got $diagnostics",
+        )
+        assertTrue(
+            diagnostics.any { "settings@jvm.kotlin.ksp" in it.message },
+            "Expected a diagnostic naming the dropped key, got $diagnostics",
+        )
+    }
+
+    @Test
+    fun aNarrowerQualifierWinsOverABroaderOneCoveringTheSameLeaf() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, iosArm64]
+            settings@iosArm64:
+              kotlin:
+                allWarningsAsErrors: false
+            settings@ios:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        ).buildFile()
+
+        assertEquals(listOf("allWarningsAsErrors.set(false)"), build.targetCompilerOptions("iosArm64"), build)
+    }
+
+    @Test
+    fun settingsAtCommonLandOnTheModuleWideOptionsNotOnEveryTarget() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings@common:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        ).buildFile()
+
+        assertEquals(1, Regex("allWarningsAsErrors").findAll(build).count(), build)
+        assertEquals(emptyList(), build.targetCompilerOptions("linuxX64"), build)
+    }
+
+    @Test
+    fun theWasmWasiTargetCarriesQualifiedOptionsThroughItsCompilations() {
+        val build = generate(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, wasmWasi]
+            settings@wasmWasi:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        ).buildFile()
+
+        assertTrue("compilations.configureEach {" in build, build)
+        assertTrue("compileTaskProvider.configure {" in build, build)
+        assertFalse("wasmWasi {\n        compilerOptions" in build, build)
+    }
+
+    @Test
+    fun malformedQualifiedValuesAreReportedInsteadOfDropped() {
+        val (files, diagnostics) = generateAll(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings@jvm:
+              kotlin:
+                allWarningsAsErrors: yes
+                freeCompilerArgs: -Xfoo
+            settings@linuxX64: plain
+            test-settings@jvm:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        )
+
+        val messages = diagnostics.map { it.message }
+        assertTrue(messages.any { "settings@jvm.kotlin.allWarningsAsErrors" in it }, "$messages")
+        assertTrue(messages.any { "settings@jvm.kotlin.freeCompilerArgs" in it }, "$messages")
+        assertTrue(messages.any { "'settings@linuxX64' must be an object" in it }, "$messages")
+        assertTrue(messages.any { "test-settings@jvm" in it }, "$messages")
+        assertFalse("allWarningsAsErrors" in files.buildFile(), files.buildFile())
+    }
+
     private fun generate(moduleYaml: String, vararg files: Pair<String, String>): List<GeneratedFile> =
         generateAll(moduleYaml, *files).first
 
@@ -584,6 +777,17 @@ class GradleGeneratorTest {
     }
 
     private fun List<GeneratedFile>.buildFile(): String = first { it.path.name == "build.gradle.kts" }.content
+
+    /** The compilerOptions lines a generated `kotlin { }` target block carries. */
+    private fun String.targetCompilerOptions(target: String): List<String> {
+        val opener = "    $target {"
+        val start = indexOf(opener)
+        require(start >= 0) { "No '$target' target in the generated file:\n$this" }
+        val block = substring(start + opener.length).substringBefore("\n    }")
+        if ("compilerOptions {" !in block) return emptyList()
+        return block.substringAfter("compilerOptions {").substringBefore("}").lines()
+            .map(String::trim).filter(String::isNotEmpty)
+    }
 
     private fun String.pluginBlock(): List<String> =
         substringAfter("plugins {").substringBefore("\n}").lines().map(String::trim).filter(String::isNotEmpty)
