@@ -323,7 +323,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
      * but the Android Gradle Plugin insists on a real one, so derive a stable package here.
      */
     private fun derivedAndroidNamespace(module: ToolchainModule): String {
-        val segments = module.path.split('/').filter(String::isNotEmpty).ifEmpty { listOf(module.displayName) }
+        val segments = module.path.segments.ifEmpty { listOf(module.displayName) }
         val packageSegments = segments.map { segment ->
             val sanitized = segment.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
             if (sanitized.firstOrNull()?.isDigit() != false) "_$sanitized" else sanitized
