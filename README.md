@@ -62,10 +62,12 @@ The code uses the `io.heapy.ktctogradle` package and [kotaml](https://github.com
 ./kotlin build -m macos -p macosArm64 -v release  # choose the host module/platform
 ```
 
+The `core` suite includes whole-output golden snapshots under `core/testResources@jvm/golden`. `AGENTS.md` describes the four pipeline stages, the three test layers, and how the baselines are regenerated.
+
 Run the Kotlin Toolchain integration-test module separately:
 
 ```shell
 ./kotlin test -m integration-tests -p jvm
 ```
 
-The suite copies three real Toolchain fixtures, converts them, and executes `build` on every generated Gradle 9.7.1 project. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.
+The suite copies five Toolchain fixtures, converts them, and executes `build` on every generated Gradle 9.7.1 project; the two Android fixtures are skipped when no Android SDK is available. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.
