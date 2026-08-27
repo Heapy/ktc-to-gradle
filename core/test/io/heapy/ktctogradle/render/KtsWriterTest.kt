@@ -54,6 +54,38 @@ class KtsWriterTest {
     }
 
     @Test
+    fun threeNestedBlocksMatchTheMultiplatformSourceSetShape() {
+        val text = KtsWriter().apply {
+            block("kotlin") {
+                block("sourceSets") {
+                    block("maybeCreate(\"jvmMain\").apply") {
+                        line("dependsOn(getByName(\"commonMain\"))")
+                        block("dependencies") {
+                            line("implementation(\"com.squareup.okio:okio:3.17.0\")")
+                        }
+                    }
+                }
+            }
+        }.build()
+        assertEquals(
+            """
+            kotlin {
+                sourceSets {
+                    maybeCreate("jvmMain").apply {
+                        dependsOn(getByName("commonMain"))
+                        dependencies {
+                            implementation("com.squareup.okio:okio:3.17.0")
+                        }
+                    }
+                }
+            }
+
+            """.trimIndent(),
+            text,
+        )
+    }
+
+    @Test
     fun blankLinesCarryNoIndentationAtAnyDepth() {
         val text = KtsWriter().apply {
             blank()

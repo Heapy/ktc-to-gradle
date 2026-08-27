@@ -73,14 +73,6 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
 
     private fun writeKts(body: KtsWriter.() -> Unit): String = KtsWriter().apply(body).build()
 
-    /**
-     * Bridges the renderers that still build their text in a [StringBuilder] to the helpers that
-     * already write through a [KtsWriter]. Removed once every renderer owns a writer.
-     */
-    private fun StringBuilder.appendKts(level: Int, body: KtsWriter.() -> Unit) {
-        append(KtsWriter(level).apply(body).build())
-    }
-
     private fun renderModule(project: ToolchainProject, module: ToolchainModule, context: PluginContext): String {
         rejectUnsupported(module)
         val product = product(module.config)
@@ -200,65 +192,59 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val compileSdk = config.string("settings.android.compileSdk") ?: config.string("settings.android.compileSdk.apiLevel") ?: "37"
         val minSdk = config.string("settings.android.minSdk") ?: "24"
         val targetSdk = config.string("settings.android.targetSdk") ?: compileSdk
-        return buildString {
-            appendLine(StaticAssets.header())
-            appendKts(0) {
-                appendRepositoryCredentialsImport(config)
-                appendPluginBlock(
-                    buildList {
-                        add(pluginLine(androidPlugin("com.android.application"), context))
-                        if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                    },
-                    context,
-                )
+        return writeKts {
+            line(StaticAssets.header())
+            appendRepositoryCredentialsImport(config)
+            appendPluginBlock(
+                buildList {
+                    add(pluginLine(androidPlugin("com.android.application"), context))
+                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
+                },
+                context,
+            )
+            blank()
+            appendRepositories(config)
+            blank()
+            block("android") {
+                line("namespace = ${quote(namespace)}")
+                line("compileSdk = $compileSdk")
+                block("defaultConfig") {
+                    line("applicationId = ${quote(config.string("settings.android.applicationId") ?: namespace)}")
+                    line("minSdk = $minSdk")
+                    line("targetSdk = $targetSdk")
+                    line("versionCode = ${config.string("settings.android.versionCode") ?: "1"}")
+                    line("versionName = ${quote(config.string("settings.android.versionName") ?: "unspecified")}")
+                }
+                block("compileOptions") {
+                    line("sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
+                    line("targetCompatibility = JavaVersion.toVersion(${quote(release)})")
+                }
+                block("sourceSets.named(\"main\")") {
+                    line("kotlin.srcDirs(\"src\", \"src@android\")")
+                    line("resources.srcDirs(\"resources\", \"resources@android\")")
+                    line("manifest.srcFile(\"src/AndroidManifest.xml\")")
+                }
+                block("sourceSets.named(\"test\")") {
+                    line("kotlin.srcDirs(\"test\", \"test@android\")")
+                    line("resources.srcDirs(\"testResources\", \"testResources@android\")")
+                }
             }
-            appendLine()
-            appendKts(0) { appendRepositories(config) }
-            appendLine()
-            appendLine("android {")
-            appendLine("    namespace = ${quote(namespace)}")
-            appendLine("    compileSdk = $compileSdk")
-            appendLine("    defaultConfig {")
-            appendLine("        applicationId = ${quote(config.string("settings.android.applicationId") ?: namespace)}")
-            appendLine("        minSdk = $minSdk")
-            appendLine("        targetSdk = $targetSdk")
-            appendLine("        versionCode = ${config.string("settings.android.versionCode") ?: "1"}")
-            appendLine("        versionName = ${quote(config.string("settings.android.versionName") ?: "unspecified")}")
-            appendLine("    }")
-            appendLine("    compileOptions {")
-            appendLine("        sourceCompatibility = JavaVersion.toVersion(${quote(release)})")
-            appendLine("        targetCompatibility = JavaVersion.toVersion(${quote(release)})")
-            appendLine("    }")
-            appendLine("    sourceSets.named(\"main\") {")
-            appendLine("        kotlin.srcDirs(\"src\", \"src@android\")")
-            appendLine("        resources.srcDirs(\"resources\", \"resources@android\")")
-            appendLine("        manifest.srcFile(\"src/AndroidManifest.xml\")")
-            appendLine("    }")
-            appendLine("    sourceSets.named(\"test\") {")
-            appendLine("        kotlin.srcDirs(\"test\", \"test@android\")")
-            appendLine("        resources.srcDirs(\"testResources\", \"testResources@android\")")
-            appendLine("    }")
-            appendLine("}")
-            appendLine()
-            appendLine("kotlin {")
-            appendKts(1) {
+            blank()
+            block("kotlin") {
                 appendCompilerOptions(
                     config,
                     jvmTarget = release,
                     extraLines = singlePlatformQualifiedLines(module, "android"),
                 )
             }
-            appendLine("}")
-            appendLine()
-            appendLine("dependencies {")
-            appendKts(1) {
+            blank()
+            block("dependencies") {
                 appendDependencies(project, module, dependenciesFor(module, listOf("dependencies", "dependencies@android")), false)
                 appendSerializationDependencies(serialization)
                 appendBuiltInDependencies(config)
                 line("testImplementation(kotlin(${quote(testLibrary(config))}))")
                 appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies", "test-dependencies@android")), true)
             }
-            appendLine("}")
         }
     }
 
@@ -272,65 +258,59 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         val kotlinVersion = config.string("settings.kotlin.version") ?: Versions.KOTLIN
         val serialization = serializationSettings(config)
         val fragments = kmpFragments(module, product)
-        return buildString {
-            appendLine(StaticAssets.header())
-            appendKts(0) {
-                appendRepositoryCredentialsImport(config)
-                appendPluginBlock(
-                    buildList {
-                        add(pluginLine(kotlinPlugin("multiplatform", kotlinVersion), context))
-                        if ("android" in product.platforms) {
-                            add(pluginLine(androidPlugin("com.android.kotlin.multiplatform.library"), context))
+        return writeKts {
+            line(StaticAssets.header())
+            appendRepositoryCredentialsImport(config)
+            appendPluginBlock(
+                buildList {
+                    add(pluginLine(kotlinPlugin("multiplatform", kotlinVersion), context))
+                    if ("android" in product.platforms) {
+                        add(pluginLine(androidPlugin("com.android.kotlin.multiplatform.library"), context))
+                    }
+                    if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
+                },
+                context,
+            )
+            blank()
+            appendRepositories(config)
+            blank()
+            block("kotlin") {
+                val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms })
+                for (platform in product.platforms) {
+                    appendTarget(platform, product.type, config, module, qualifiedCompilerOptionLines(qualified.byPlatform[platform]))
+                }
+                if ("jvm" in product.platforms) {
+                    line("jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
+                }
+                appendCompilerOptions(config, extraLines = qualifiedCompilerOptionLines(qualified.common))
+                block("sourceSets") {
+                    block("commonMain") {
+                        line("kotlin.srcDir(\"src\")")
+                        line("resources.srcDir(\"resources\")")
+                        block("dependencies") {
+                            appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, sourceSet = true)
+                            appendSerializationDependencies(serialization)
+                            appendBuiltInDependencies(config)
                         }
-                        if (serialization != null) add(pluginLine(kotlinPlugin("plugin.serialization", kotlinVersion), context))
-                    },
-                    context,
-                )
+                    }
+                    block("commonTest") {
+                        line("kotlin.srcDir(\"test\")")
+                        line("resources.srcDir(\"testResources\")")
+                        block("dependencies") {
+                            line("implementation(kotlin(\"test\"))")
+                            appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, sourceSet = true)
+                        }
+                    }
+                    for (fragment in fragments.filterNot { it.name == "common" }) {
+                        appendQualifiedSourceSet(project, module, fragment, false)
+                        appendQualifiedSourceSet(project, module, fragment, true)
+                    }
+                }
             }
-            appendLine()
-            appendKts(0) { appendRepositories(config) }
-            appendLine()
-            appendLine("kotlin {")
-            val qualified = qualifiedSettings(module, fragments.map { it.name to it.platforms })
-            for (platform in product.platforms) {
-                appendTarget(platform, product.type, config, module, qualifiedCompilerOptionLines(qualified.byPlatform[platform]))
-            }
-            if ("jvm" in product.platforms) {
-                appendLine("    jvmToolchain(${config.string("settings.jvm.jdk.version") ?: "25"})")
-            }
-            appendKts(1) { appendCompilerOptions(config, extraLines = qualifiedCompilerOptionLines(qualified.common)) }
-            appendLine("    sourceSets {")
-            appendLine("        commonMain {")
-            appendLine("            kotlin.srcDir(\"src\")")
-            appendLine("            resources.srcDir(\"resources\")")
-            appendLine("            dependencies {")
-            appendKts(4) {
-                appendDependencies(project, module, dependenciesFor(module, listOf("dependencies")), false, sourceSet = true)
-                appendSerializationDependencies(serialization)
-                appendBuiltInDependencies(config)
-            }
-            appendLine("            }")
-            appendLine("        }")
-            appendLine("        commonTest {")
-            appendLine("            kotlin.srcDir(\"test\")")
-            appendLine("            resources.srcDir(\"testResources\")")
-            appendLine("            dependencies {")
-            appendLine("                implementation(kotlin(\"test\"))")
-            appendKts(4) {
-                appendDependencies(project, module, dependenciesFor(module, listOf("test-dependencies")), true, sourceSet = true)
-            }
-            appendLine("            }")
-            appendLine("        }")
-            for (fragment in fragments.filterNot { it.name == "common" }) {
-                appendQualifiedSourceSet(project, module, fragment, false)
-                appendQualifiedSourceSet(project, module, fragment, true)
-            }
-            appendLine("    }")
-            appendLine("}")
         }
     }
 
-    private fun StringBuilder.appendTarget(
+    private fun KtsWriter.appendTarget(
         platform: String,
         productType: String,
         config: Value.Mapping,
@@ -343,67 +323,67 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 val release = config.string("settings.jvm.release")
                     ?: config.string("settings.jvm.jdk.version")
                     ?: "25"
-                appendLine("    jvm {")
-                appendLine("        compilerOptions {")
-                appendLine("            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
-                appendLine("            freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
-                for (line in qualifiedOptions) appendLine("            $line")
-                appendLine("        }")
-                appendLine("    }")
+                block("jvm") {
+                    block("compilerOptions") {
+                        line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
+                        line("freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
+                        for (option in qualifiedOptions) line(option)
+                    }
+                }
             }
             "android" -> appendAndroidLibraryTarget(config, module, qualifiedOptions)
             "js" -> appendBrowserTarget("js(IR)", executable, qualifiedOptions)
             "wasmJs" -> appendBrowserTarget("wasmJs", executable, qualifiedOptions)
             "wasmWasi" -> {
                 if (qualifiedOptions.isEmpty()) {
-                    appendLine("    wasmWasi { ${if (executable) "binaries.executable()" else ""} }")
+                    line("wasmWasi { ${if (executable) "binaries.executable()" else ""} }")
                 } else {
-                    appendLine("    wasmWasi {")
-                    if (executable) appendLine("        binaries.executable()")
-                    // The wasmWasi target DSL carries no compilerOptions of its own, so the options
-                    // have to reach the compile tasks through its compilations.
-                    appendLine("        compilations.configureEach {")
-                    appendLine("            compileTaskProvider.configure {")
-                    appendCompilerOptionsBlock(qualifiedOptions, "                ")
-                    appendLine("            }")
-                    appendLine("        }")
-                    appendLine("    }")
+                    block("wasmWasi") {
+                        if (executable) line("binaries.executable()")
+                        // The wasmWasi target DSL carries no compilerOptions of its own, so the options
+                        // have to reach the compile tasks through its compilations.
+                        block("compilations.configureEach") {
+                            block("compileTaskProvider.configure") {
+                                appendCompilerOptionsBlock(qualifiedOptions)
+                            }
+                        }
+                    }
                 }
             }
             in nativeTargets -> {
-                appendLine("    $platform {")
-                if (executable) {
-                    appendLine("        binaries.executable {")
-                    config.string("settings.native.entryPoint")?.let { appendLine("            entryPoint = ${quote(it)}") }
-                    appendLine("        }")
+                block(platform) {
+                    if (executable) {
+                        block("binaries.executable") {
+                            config.string("settings.native.entryPoint")?.let { line("entryPoint = ${quote(it)}") }
+                        }
+                    }
+                    appendCompilerOptionsBlock(qualifiedOptions)
                 }
-                appendCompilerOptionsBlock(qualifiedOptions, "        ")
-                appendLine("    }")
             }
             else -> throw ConversionException("Unsupported Kotlin platform '$platform'")
         }
     }
 
-    private fun StringBuilder.appendBrowserTarget(target: String, executable: Boolean, qualifiedOptions: List<String>) {
+    private fun KtsWriter.appendBrowserTarget(target: String, executable: Boolean, qualifiedOptions: List<String>) {
         if (qualifiedOptions.isEmpty()) {
-            appendLine("    $target { ${if (executable) "binaries.executable(); " else ""}browser() }")
+            line("$target { ${if (executable) "binaries.executable(); " else ""}browser() }")
             return
         }
-        appendLine("    $target {")
-        if (executable) appendLine("        binaries.executable()")
-        appendLine("        browser()")
-        appendCompilerOptionsBlock(qualifiedOptions, "        ")
-        appendLine("    }")
+        block(target) {
+            if (executable) line("binaries.executable()")
+            line("browser()")
+            appendCompilerOptionsBlock(qualifiedOptions)
+        }
     }
 
-    private fun StringBuilder.appendCompilerOptionsBlock(lines: List<String>, indent: String) {
+    private fun KtsWriter.appendCompilerOptionsBlock(lines: List<String>) {
         if (lines.isEmpty()) return
-        appendLine("${indent}compilerOptions {")
-        for (line in lines) appendLine("$indent    $line")
-        appendLine("$indent}")
+        block("compilerOptions") {
+            for (option in lines) line(option)
+        }
     }
 
-    private fun StringBuilder.appendAndroidLibraryTarget(
+    private fun KtsWriter.appendAndroidLibraryTarget(
         config: Value.Mapping,
         module: ToolchainModule,
         qualifiedOptions: List<String>,
@@ -414,13 +394,13 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
                 "${module.displayName}: settings.android.namespace is not set; using '$it'",
             )
         }
-        appendLine("    androidLibrary {")
-        appendLine("        namespace = ${quote(namespace)}")
-        appendLine("        compileSdk = ${config.string("settings.android.compileSdk") ?: "37"}")
-        appendLine("        minSdk = ${config.string("settings.android.minSdk") ?: "24"}")
-        appendLine("        withHostTestBuilder {}.configure {}")
-        appendCompilerOptionsBlock(qualifiedOptions, "        ")
-        appendLine("    }")
+        block("androidLibrary") {
+            line("namespace = ${quote(namespace)}")
+            line("compileSdk = ${config.string("settings.android.compileSdk") ?: "37"}")
+            line("minSdk = ${config.string("settings.android.minSdk") ?: "24"}")
+            line("withHostTestBuilder {}.configure {}")
+            appendCompilerOptionsBlock(qualifiedOptions)
+        }
     }
 
     /**
@@ -436,7 +416,7 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         return (listOf("ktc", "generated") + packageSegments).joinToString(".")
     }
 
-    private fun StringBuilder.appendQualifiedSourceSet(
+    private fun KtsWriter.appendQualifiedSourceSet(
         project: ToolchainProject,
         module: ToolchainModule,
         fragment: KmpFragment,
@@ -453,18 +433,18 @@ internal class GradleGenerator(private val fileSystem: FileSystem) {
         // The Android Gradle Plugin calls the unit-test source set androidHostTest;
         // androidTest is its on-device suite, so tests placed there never run.
         val sourceSet = if (qualifier == "android" && test) "androidHostTest" else "$qualifier$suffix"
-        appendLine("        maybeCreate(${quote(sourceSet)}).apply {")
-        for (parent in fragment.parents) {
-            appendLine("            dependsOn(getByName(${quote("${parent}$suffix")}))")
+        block("maybeCreate(${quote(sourceSet)}).apply") {
+            for (parent in fragment.parents) {
+                line("dependsOn(getByName(${quote("${parent}$suffix")}))")
+            }
+            if (sourceExists) line("kotlin.srcDir(${quote("$prefix@$qualifier")})")
+            if (resourcesExist) line("resources.srcDir(${quote("$resources@$qualifier")})")
+            if (deps.isNotEmpty()) {
+                block("dependencies") {
+                    appendDependencies(project, module, deps, test, sourceSet = true)
+                }
+            }
         }
-        if (sourceExists) appendLine("            kotlin.srcDir(${quote("$prefix@$qualifier")})")
-        if (resourcesExist) appendLine("            resources.srcDir(${quote("$resources@$qualifier")})")
-        if (deps.isNotEmpty()) {
-            appendLine("            dependencies {")
-            appendKts(4) { appendDependencies(project, module, deps, test, sourceSet = true) }
-            appendLine("            }")
-        }
-        appendLine("        }")
     }
 
     private fun KtsWriter.appendRepositories(config: Value.Mapping) {

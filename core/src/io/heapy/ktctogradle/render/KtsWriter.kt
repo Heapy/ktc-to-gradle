@@ -5,12 +5,11 @@ import io.heapy.ktctogradle.scalarOrNull
 
 /**
  * Emits Gradle Kotlin DSL text and owns the indentation, so a renderer never passes an indent
- * string around. [baseIndent] exists only while some renderers still build their text in a
- * [StringBuilder] and need a writer that starts inside an already-open block.
+ * string around.
  */
-internal class KtsWriter(baseIndent: Int = 0) {
+internal class KtsWriter {
     private val builder = StringBuilder()
-    private var level = baseIndent
+    private var level = 0
 
     fun line(text: String) {
         repeat(level) { builder.append(INDENT) }
