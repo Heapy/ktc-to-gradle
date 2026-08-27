@@ -3,6 +3,7 @@ package io.heapy.ktctogradle.interpret
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.RawDependency
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.isLocalNotation
 import io.heapy.ktctogradle.model.Dependency
@@ -20,10 +21,11 @@ internal object Dependencies {
      * The dependencies of one module, reading [qualifiers] in order with `""` standing for the
      * unqualified section.
      *
-     * A section the binder could not read raises its deferred message here too. The load stage has
-     * already raised it for every declared section, so this is the second gate rather than the only
-     * one; it keeps the failure attached to the qualifier that reads it when a build is interpreted
-     * without going through [io.heapy.ktctogradle.load.validateLocalDependencies].
+     * A section the binder could not read raises its deferred message here. The load stage has
+     * already raised the *shape* failures for every declared section, so for those this is the
+     * second gate rather than the only one; an unknown scope shorthand and a malformed `bom`
+     * coordinate are only ever raised here, which is why declaring one under a qualifier this
+     * product never reads has never failed a conversion.
      */
     fun of(
         index: ModuleIndex,
@@ -36,7 +38,8 @@ internal object Dependencies {
         val prefix = if (test) "test-dependencies" else "dependencies"
         return qualifiers.flatMap { qualifier ->
             val key = if (qualifier.isEmpty()) prefix else "$prefix@$qualifier"
-            model.errors[key]?.let { message -> throw ConversionException(message) }
+            val failure = model.errors[key] ?: model.errors[Region.dependencyContent(key)]
+            failure?.let { message -> throw ConversionException(message) }
             sections[qualifier].orEmpty()
         }.map { raw -> resolve(index, module, raw) }
     }

@@ -11,6 +11,7 @@ import io.heapy.ktctogradle.load.QualifiedSection
 import io.heapy.ktctogradle.load.RawCredentials
 import io.heapy.ktctogradle.load.RawDependency
 import io.heapy.ktctogradle.load.RawRepository
+import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.SerializationSpec
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.TestSettings
@@ -138,11 +139,21 @@ class YamlBinderTest {
         assertEquals(emptyList(), model.dependencies.getValue(""))
     }
 
+    /**
+     * A scope is only judged by the stage that reads the section, so its failure defers under the
+     * content key and not under the section key the load stage gates on. The section still binds to
+     * the notation it named, which is what lets the load stage resolve a local reference either way.
+     */
     @Test
-    fun defersTheFailureOfAnUnknownDependencyScope() {
+    fun defersTheFailureOfAnUnknownDependencyScopeUnderTheContentKey() {
         val model = bind("product: jvm/lib\ndependencies:\n  - org.example:one:1.0: sometimes\n")
 
-        assertEquals("Dependency 'org.example:one:1.0' has unknown scope 'sometimes'", model.errors["dependencies"])
+        assertEquals(null, model.errors["dependencies"])
+        assertEquals(
+            "Dependency 'org.example:one:1.0' has unknown scope 'sometimes'",
+            model.errors[Region.dependencyContent("dependencies")],
+        )
+        assertEquals(listOf(RawDependency("org.example:one:1.0")), model.dependencies.getValue(""))
     }
 
     /** One bad section must not take the others down, so each dependency key defers on its own. */

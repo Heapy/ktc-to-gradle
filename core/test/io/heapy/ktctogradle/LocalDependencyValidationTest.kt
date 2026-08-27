@@ -14,8 +14,13 @@ import kotlin.test.assertFailsWith
 /**
  * What the load stage checks about dependency sections before anything is interpreted.
  *
- * Every declared section is checked, not only the ones the module's product will read, so a typo
- * fails the conversion instead of being dropped on the floor.
+ * The reach of the two checks is not the same, and both halves are pinned here. The *shape* of a
+ * section — a list of strings or one-coordinate objects — and the modules its notations point at are
+ * checked for every declared section, not only the ones the module's product will read, so a typo
+ * fails the conversion instead of being dropped on the floor. What only a reader of a section
+ * decides — an unknown scope shorthand, a malformed `bom` coordinate, the module a `bom` points at —
+ * is left to [io.heapy.ktctogradle.interpret.Dependencies], so an ignored qualifier cannot fail a
+ * conversion over it.
  */
 class LocalDependencyValidationTest {
     @Test
@@ -56,6 +61,67 @@ class LocalDependencyValidationTest {
 
         assertEquals(
             "A dependency object must have exactly one coordinate",
+            assertFailsWith<ConversionException> { validateLocalDependencies(listOf(app)) }.message,
+        )
+    }
+
+    /**
+     * A scope shorthand is only ever read by the stage that renders the section, so a `jvm/app` that
+     * misspells one under `@js` still converts. The load stage never read them either.
+     */
+    @Test
+    fun anUnknownScopeUnderAnUnreadQualifierIsLeftToTheStageThatReadsIt() {
+        val app = module("app", "product: jvm/app\ndependencies@js:\n  - com.example:lib:1.0: bogus\n")
+
+        validateLocalDependencies(listOf(app))
+    }
+
+    @Test
+    fun aMalformedBomCoordinateIsLeftToTheStageThatReadsIt() {
+        val app = module("app", "product: jvm/app\ndependencies@js:\n  - bom: [not-a-scalar]\n")
+
+        validateLocalDependencies(listOf(app))
+    }
+
+    /** A `bom` names the coordinate `bom` to this stage, so the module it holds is never resolved. */
+    @Test
+    fun anUnknownModuleUnderABomIsLeftToTheStageThatReadsIt() {
+        val app = module("app", "product: jvm/lib\ndependencies:\n  - bom: ./missing\n")
+
+        validateLocalDependencies(listOf(app))
+    }
+
+    /**
+     * The unknown-module scan does not depend on the entry being readable: an entry whose scope this
+     * stage cannot judge still names a module, and that module still has to exist.
+     */
+    @Test
+    fun anUnknownModuleIsFoundEvenWhenTheSameEntryHasAnUnknownScope() {
+        val app = module("app", "product: jvm/lib\ndependencies@js:\n  - //libs/missing: bogus\n")
+
+        assertEquals(
+            "app depends on unknown module '//libs/missing'",
+            assertFailsWith<ConversionException> { validateLocalDependencies(listOf(app)) }.message,
+        )
+    }
+
+    /** No product reads `dependencies-dev`, but a section named like one is still a section. */
+    @Test
+    fun aKeyThatOnlyStartsWithASectionNameIsCheckedToo() {
+        val app = module("app", "product: jvm/lib\ndependencies-dev:\n  - //libs/missing\n")
+
+        assertEquals(
+            "app depends on unknown module '//libs/missing'",
+            assertFailsWith<ConversionException> { validateLocalDependencies(listOf(app)) }.message,
+        )
+    }
+
+    @Test
+    fun aKeyThatOnlyStartsWithASectionNameIsShapeCheckedToo() {
+        val app = module("app", "product: jvm/lib\ntest-dependencies-dev: not-a-list\n")
+
+        assertEquals(
+            "Expected a list at app.test-dependencies-dev",
             assertFailsWith<ConversionException> { validateLocalDependencies(listOf(app)) }.message,
         )
     }

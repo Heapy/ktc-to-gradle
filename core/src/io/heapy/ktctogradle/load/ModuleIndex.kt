@@ -52,11 +52,17 @@ internal class ModuleIndex private constructor(
 /**
  * Validates every dependency section of every module, before anything is generated.
  *
- * Two things are checked, in the order the load stage has always checked them: a section the binder
- * could not read raises its deferred message here rather than waiting for a consumer that may never
- * come, and a local notation that names no module of the project is reported as unknown. Both run
- * for every declared section, so a typo under a qualifier this product never reads — or in a module
- * the render stage never reaches — still fails the conversion.
+ * Two things are checked: a section whose *shape* the binder could not read raises its deferred
+ * message here rather than waiting for a consumer that may never come, and a local notation that
+ * names no module of the project is reported as unknown. Both run for every declared section, so a
+ * typo under a qualifier this product never reads — or in a module the render stage never reaches —
+ * still fails the conversion.
+ *
+ * What this stage deliberately does *not* check is anything only a reader of a section decides: an
+ * unknown scope shorthand and a malformed `bom` coordinate belong to
+ * [io.heapy.ktctogradle.interpret.Dependencies], and a `bom` names no module here at all, so an
+ * unknown module under a `bom:` is reported by that reader too. A section no product reads must not
+ * be able to fail a conversion over either.
  */
 internal fun validateLocalDependencies(modules: List<ToolchainModule>) {
     val index = ModuleIndex.of(modules)
@@ -64,7 +70,7 @@ internal fun validateLocalDependencies(modules: List<ToolchainModule>) {
         raiseDependencySectionFailures(module)
         val declared = module.model.dependencies.values + module.model.testDependencies.values
         for (raw in declared.flatten()) {
-            if (!isLocalNotation(raw.notation)) continue
+            if (raw.bom || !isLocalNotation(raw.notation)) continue
             if (index.resolve(module, raw.notation) == null) {
                 throw ConversionException("${module.displayName} depends on unknown module '${raw.notation}'")
             }
@@ -78,7 +84,11 @@ private fun raiseDependencySectionFailures(module: ToolchainModule) {
     }
 }
 
-private fun isDependencySection(key: String): Boolean =
-    DEPENDENCY_PREFIXES.any { prefix -> key == prefix || key.startsWith("$prefix@") }
+/**
+ * Every key that names a dependency section, including oddballs such as `dependencies-dev` that no
+ * product reads but that are still checked. [Region.dependencyContent] keys are excluded by being
+ * prefixed rather than suffixed.
+ */
+private fun isDependencySection(key: String): Boolean = DEPENDENCY_PREFIXES.any(key::startsWith)
 
 private val DEPENDENCY_PREFIXES = listOf("dependencies", "test-dependencies")

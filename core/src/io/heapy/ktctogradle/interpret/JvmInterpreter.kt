@@ -92,13 +92,18 @@ internal object JvmInterpreter {
      * `test-settings:` is applied on top of `settings.jvm.test`, so a key declared in both keeps the
      * test-specific value while the rest of the base section survives.
      */
-    private fun testSettings(model: ToolchainModel): JvmTestSettings = JvmTestSettings(
-        freeJvmArgs = model.settings.jvm?.testFreeJvmArgs.orEmpty() + model.settings.test?.freeJvmArgs.orEmpty(),
-        systemProperties = model.settings.jvm?.testSystemProperties.orEmpty() +
-            model.settings.test?.systemProperties.orEmpty(),
-        environment = model.settings.jvm?.testExtraEnvironment.orEmpty() +
-            model.settings.test?.extraEnvironment.orEmpty(),
-    )
+    private fun testSettings(model: ToolchainModel): JvmTestSettings {
+        // Only this interpreter renders a test task, so this is the one place the argument list a
+        // module got wrong can be reported.
+        model.raiseDeferred(Region.JVM_TEST_SETTINGS)
+        return JvmTestSettings(
+            freeJvmArgs = model.settings.jvm?.testFreeJvmArgs.orEmpty() + model.settings.test?.freeJvmArgs.orEmpty(),
+            systemProperties = model.settings.jvm?.testSystemProperties.orEmpty() +
+                model.settings.test?.systemProperties.orEmpty(),
+            environment = model.settings.jvm?.testExtraEnvironment.orEmpty() +
+                model.settings.test?.extraEnvironment.orEmpty(),
+        )
+    }
 
     /**
      * The entry point of a `jvm/app`, or `null` when the module builds no application.

@@ -9,9 +9,10 @@ import io.heapy.ktctogradle.ConversionException
  * converter has to decide — default versions, default platforms, repository ids, plugin choice —
  * belongs to the interpret stage.
  *
- * Binding never fails. Every region that would raise a [ConversionException]
- * today records its message in [errors] and binds to an empty value instead, so a failure keeps
- * surfacing where it surfaces today, with the same text and in the same order. See [errors].
+ * Binding never fails. Every region that would raise a [ConversionException] today records its
+ * message in [errors] and binds to an empty value instead, so a failure keeps surfacing from a stage
+ * that reads the region, with the same text. Which failure a module with two independent defects
+ * reports first is not guaranteed to match the pre-pipeline converter. See [errors].
  */
 internal data class ToolchainModel(
     val product: ProductSpec,
@@ -28,8 +29,9 @@ internal data class ToolchainModel(
     val unsupported: List<String>,
     /**
      * The message of the failure a region defers, keyed by the region that defers it: `product`,
-     * `aliases`, `repositories`, `settings`, `settings.kotlin.serialization`, or a dependency
-     * section key such as `dependencies` or `test-dependencies@jvm`.
+     * `aliases`, `repositories`, `settings`, `settings.jvm.test`, `settings.kotlin.serialization`,
+     * a dependency section key such as `dependencies` or `test-dependencies@jvm`, or the
+     * [Region.dependencyContent] form of such a key.
      *
      * A region that failed is bound as if it were absent, so a consumer must raise its message
      * before reading it. This is what keeps the binder lenient: `pluginsOf` swallows the failures
@@ -44,7 +46,7 @@ internal data class ToolchainModel(
  *
  * A raise site that misspells its region silently swallows a user-facing failure, and the same key
  * is read from as many as three files, so the strings live here rather than as a private const per
- * consumer. Dependency sections are absent on purpose: their key carries the qualifier as written.
+ * consumer. A dependency section has no const of its own: its key is the qualifier as written.
  */
 internal object Region {
     const val PRODUCT = "product"
@@ -52,6 +54,24 @@ internal object Region {
     const val REPOSITORIES = "repositories"
     const val SETTINGS = "settings"
     const val SERIALIZATION = "settings.kotlin.serialization"
+
+    /**
+     * The JVM test task's argument list, which only a `jvm/app` or `jvm/lib` ever renders.
+     *
+     * Separate from [SETTINGS] because an Android or multiplatform module never reads it, and a
+     * malformed value there has never failed such a conversion.
+     */
+    const val JVM_TEST_SETTINGS = "settings.jvm.test"
+
+    /**
+     * Where a dependency section defers what only a reader of that section decides: an unknown scope
+     * shorthand, or a `bom` that is not a coordinate.
+     *
+     * The section's own key holds the failures the load stage gates on instead. The marker is a
+     * *prefix* on purpose — a suffix would still satisfy the `startsWith` test that recognises a
+     * dependency section, and the load stage would go back to failing qualifiers nobody reads.
+     */
+    fun dependencyContent(key: String): String = "content:$key"
 }
 
 /** Raises the failure [region] deferred, if it deferred one. */

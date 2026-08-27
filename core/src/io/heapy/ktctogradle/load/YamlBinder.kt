@@ -48,9 +48,22 @@ internal object YamlBinder {
     ): T = try {
         bind()
     } catch (error: ConversionException) {
-        errors[region] = error.message.orEmpty()
+        // First failure wins: a region fed by more than one key reports the key read first, which is
+        // the one the pre-pipeline renderer reached first.
+        errors.getOrPut(region) { error.message.orEmpty() }
         fallback
     }
+
+    /**
+     * [deferred] where the caller may have no error map, which is the case for a qualified section:
+     * it binds leniently and raises nothing, so there is nothing to defer.
+     */
+    private inline fun <T> deferring(
+        errors: MutableMap<String, String>?,
+        region: String,
+        fallback: T,
+        bind: () -> T,
+    ): T = if (errors == null) bind() else deferred(errors, region, fallback, bind)
 
     private fun bindUnsupported(config: Value.Mapping): List<String> = buildList {
         for (key in UNSUPPORTED_KEYS) if (config.value(key) != null) add(key)
@@ -86,6 +99,17 @@ internal object YamlBinder {
      * The `<prefix>` section plus every `<prefix>@<qualifier>` section, keyed by qualifier with `""`
      * standing for the unqualified one. Each section defers its own failure, because a module can
      * name a bad dependency under one qualifier and a good one under another.
+     *
+     * A section is read twice, because its two classes of failure reach the user from two different
+     * stages. The *shape* of a section — that it is a list of strings or one-coordinate objects — is
+     * what the load stage gates on, for every declared section; whether an entry names a known scope
+     * shorthand or a well-formed `bom` coordinate is only ever decided when a section is actually
+     * read, so it defers under [Region.dependencyContent] instead and never fails a qualifier this
+     * product ignores. When the content pass fails, the section still binds to the notations the
+     * shape pass found, so the load stage can resolve their local references either way.
+     *
+     * A key that merely starts with the prefix — `dependencies-dev` — is bound under itself as the
+     * qualifier: no product reads such a qualifier, but the load stage still checks the section.
      */
     private fun bindDependencies(
         config: Value.Mapping,
@@ -97,15 +121,45 @@ internal object YamlBinder {
             val qualifier = when {
                 key == prefix -> ""
                 key.startsWith("$prefix@") -> key.removePrefix("$prefix@")
+                key.startsWith(prefix) -> key
                 else -> continue
             }
-            put(
-                qualifier,
-                deferred(errors, key, emptyList()) {
-                    value.asSequence("$displayName.$key").map(::bindDependency)
-                },
-            )
+            put(qualifier, bindDependencySection(value, "$displayName.$key", key, errors))
         }
+    }
+
+    private fun bindDependencySection(
+        value: Value,
+        path: String,
+        key: String,
+        errors: MutableMap<String, String>,
+    ): List<RawDependency> {
+        val items: List<Value>
+        val notations: List<String>
+        try {
+            items = value.asSequence(path)
+            notations = items.map(::dependencyNotation)
+        } catch (error: ConversionException) {
+            errors[key] = error.message.orEmpty()
+            return emptyList()
+        }
+        return deferred(errors, Region.dependencyContent(key), notations.map { RawDependency(it) }) {
+            items.map(::bindDependency)
+        }
+    }
+
+    /**
+     * The coordinate an entry names, checking only what the load stage checks.
+     *
+     * A `bom` entry names the coordinate `bom` here, not the coordinate it holds: the load stage has
+     * never resolved a bom's notation, so an unknown module under a `bom:` is left to the stage that
+     * reads it.
+     */
+    private fun dependencyNotation(value: Value): String = when (value) {
+        is Value.Scalar -> SCOPE_SUFFIX.matchEntire(value.text)?.groupValues?.get(1) ?: value.text
+        is Value.Mapping -> value.entries.keys.singleOrNull()
+            ?: throw ConversionException("A dependency object must have exactly one coordinate")
+        else -> throw ConversionException("Dependency entries must be strings or objects")
     }
 
     private fun bindDependency(value: Value): RawDependency = when (value) {
@@ -265,7 +319,11 @@ internal object YamlBinder {
                     jdkVersion = present.string("jvm.jdk.version"),
                     release = present.string("jvm.release"),
                     mainClass = present.string("jvm.mainClass"),
-                    testFreeJvmArgs = present.stringList("jvm.test.freeJvmArgs", "settings.", lenient),
+                    // Only a JVM module ever renders the test task, so a malformed argument list
+                    // defers under its own region and never fails an Android or KMP conversion.
+                    testFreeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
+                        present.stringList("jvm.test.freeJvmArgs", "settings.", lenient)
+                    },
                     testSystemProperties = stringMap(present.value("jvm.test.systemProperties")),
                     testExtraEnvironment = stringMap(present.value("jvm.test.extraEnvironment")),
                 )
@@ -291,7 +349,9 @@ internal object YamlBinder {
             },
             test = testSettings?.let {
                 TestSettings(
-                    freeJvmArgs = it.stringList("jvm.freeJvmArgs", "test-settings.", lenient),
+                    freeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
+                        it.stringList("jvm.freeJvmArgs", "test-settings.", lenient)
+                    },
                     systemProperties = stringMap(it.value("jvm.systemProperties")),
                     extraEnvironment = stringMap(it.value("jvm.extraEnvironment")),
                 )

@@ -358,6 +358,25 @@ class MultiplatformInterpreterTest {
         dependencies = emptyList(),
     )
 
+    /** `settings.jvm.test` reaches no multiplatform target, so a malformed value is not read here. */
+    @Test
+    fun aMalformedJvmTestArgumentListDoesNotFailAMultiplatformModule() {
+        val shared = module(
+            "shared",
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            settings:
+              jvm:
+                test:
+                  freeJvmArgs: nope
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("jvm", "linuxX64"), interpret(shared).targets.map(KmpTarget::name))
+    }
+
     private fun interpret(module: ToolchainModule): MultiplatformBuild =
         MultiplatformInterpreter.interpret(ModuleIndex.of(listOf(module)), module, DiagnosticCollector())
 

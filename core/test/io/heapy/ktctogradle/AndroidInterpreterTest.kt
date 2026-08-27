@@ -317,6 +317,17 @@ class AndroidInterpreterTest {
         )
     }
 
+    /**
+     * Only a JVM module renders a test task, so `settings.jvm.test` is never read here and a value
+     * the module got wrong has never stopped an Android conversion.
+     */
+    @Test
+    fun aMalformedJvmTestArgumentListDoesNotFailAnAndroidModule() {
+        val app = module("app", "product: android/app\nsettings:\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
+
+        assertEquals(emptyList(), interpret(app).dependencies)
+    }
+
     private fun interpret(module: ToolchainModule, vararg others: ToolchainModule): AndroidBuild =
         AndroidInterpreter.interpret(ModuleIndex.of(listOf(module) + others), module, DiagnosticCollector())
 

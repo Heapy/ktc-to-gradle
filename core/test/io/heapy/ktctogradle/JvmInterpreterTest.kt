@@ -365,7 +365,7 @@ class JvmInterpreterTest {
     fun aMalformedDependencySectionRaisesItsDeferredMessage() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - org.example:one:1.0: sometimes\n")
 
-        assertTrue("dependencies" in app.model.errors)
+        validateLocalDependencies(listOf(app))
         assertEquals(
             "Dependency 'org.example:one:1.0' has unknown scope 'sometimes'",
             assertFailsWith<ConversionException> { interpret(app) }.message,
@@ -490,6 +490,60 @@ class JvmInterpreterTest {
         )
 
         assertEquals(CompilerOptions(allWarningsAsErrors = true), interpret(app).qualifiedCompilerOptions)
+    }
+
+    /**
+     * The reach of the dependency checks, from the reading end: a `jvm/app` reads `dependencies` and
+     * `dependencies@jvm` only, so a scope it cannot spell under `@js` is nobody's business.
+     */
+    @Test
+    fun anUnknownScopeUnderAQualifierTheProductNeverReadsIsIgnored() {
+        val app = module("app", "product: jvm/app\ndependencies@js:\n  - com.example:lib:1.0: bogus\n")
+
+        validateLocalDependencies(listOf(app))
+        assertEquals(emptyList(), interpret(app).dependencies)
+    }
+
+    @Test
+    fun anUnknownScopeUnderAQualifierTheProductReadsIsRejected() {
+        val app = module("app", "product: jvm/app\ndependencies@jvm:\n  - com.example:lib:1.0: bogus\n")
+
+        assertEquals(
+            "Dependency 'com.example:lib:1.0' has unknown scope 'bogus'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    /** A `bom` names no module to the load stage, so the module it holds is resolved here. */
+    @Test
+    fun anUnknownModuleUnderABomIsReportedByTheStageThatReadsIt() {
+        val app = module("app", "product: jvm/lib\ndependencies:\n  - bom: ./missing\n")
+
+        validateLocalDependencies(listOf(app))
+        assertEquals(
+            "app: unknown module './missing'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    @Test
+    fun aMalformedTestArgumentListIsRejectedByTheModuleThatRendersATestTask() {
+        val app = module("app", "product: jvm/lib\nsettings:\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
+
+        assertEquals(
+            "Expected a list at settings.jvm.test.freeJvmArgs",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    @Test
+    fun aMalformedTestSettingsArgumentListIsRejectedTheSameWay() {
+        val app = module("app", "product: jvm/lib\ntest-settings:\n  jvm:\n    freeJvmArgs: nope\n")
+
+        assertEquals(
+            "Expected a list at test-settings.jvm.freeJvmArgs",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
     }
 
     private fun junit(value: String): ToolchainModule =
