@@ -19,6 +19,14 @@ internal object StaticAssets {
         kotlin.code.style=official
     """.trimIndent() + "\n"
 
+    /**
+     * The one wrapper file the converter writes itself rather than embedding.
+     *
+     * It carries `distributionSha256Sum`, which `gradle wrapper` does not write: the converter
+     * knows the checksum of the release it embedded, and a wrapper that verifies what it
+     * downloaded is worth the one line of divergence. `retries` is 3 and not Gradle's own 0,
+     * which is the retry behaviour the hand-written launcher had before this file replaced it.
+     */
     fun wrapperProperties(): String = """
         # ${GENERATED_MARKER}. Safe to regenerate.
         distributionBase=GRADLE_USER_HOME
@@ -26,65 +34,12 @@ internal object StaticAssets {
         distributionUrl=https\://services.gradle.org/distributions/gradle-${Versions.GRADLE}-bin.zip
         distributionSha256Sum=${Versions.GRADLE_SHA256}
         networkTimeout=10000
+        retries=3
+        retryBackOffMs=500
         validateDistributionUrl=true
         zipStoreBase=GRADLE_USER_HOME
         zipStorePath=wrapper/dists
     """.trimIndent() + "\n"
-
-    fun unixGradleLauncher(): String = $$"""
-        #!/usr/bin/env sh
-        # $${GENERATED_MARKER}. This thin wrapper downloads Gradle automatically.
-        set -eu
-        GRADLE_VERSION="$${Versions.GRADLE}"
-        GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
-        INSTALL_DIR="$GRADLE_USER_HOME/ktc-to-gradle/gradle-$GRADLE_VERSION"
-        ARCHIVE="$GRADLE_USER_HOME/ktc-to-gradle/gradle-$GRADLE_VERSION-bin.zip"
-        if [ ! -x "$INSTALL_DIR/bin/gradle" ]; then
-          if ! command -v unzip >/dev/null 2>&1; then
-            echo "ktc-to-gradle: unzip is required to unpack Gradle" >&2
-            exit 1
-          fi
-          mkdir -p "$(dirname "$ARCHIVE")"
-          URL="https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
-          if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o "$ARCHIVE" "$URL"
-          elif command -v wget >/dev/null 2>&1; then wget -O "$ARCHIVE" "$URL"
-          else echo "ktc-to-gradle: curl or wget is required" >&2; exit 1; fi
-          if command -v sha256sum >/dev/null 2>&1; then
-            printf '%s  %s\n' '$${Versions.GRADLE_SHA256}' "$ARCHIVE" | sha256sum -c -
-          else
-            printf '%s  %s\n' '$${Versions.GRADLE_SHA256}' "$ARCHIVE" | shasum -a 256 -c -
-          fi
-          TMP="$INSTALL_DIR.tmp.$$"
-          trap 'STATUS=$?; rm -rf "$TMP" || :; exit $STATUS' EXIT
-          trap 'exit 129' HUP
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
-          rm -rf "$TMP"
-          mkdir -p "$TMP"
-          unzip -q "$ARCHIVE" -d "$TMP"
-          rm -rf "$INSTALL_DIR"
-          mv "$TMP/gradle-$GRADLE_VERSION" "$INSTALL_DIR"
-          rm -rf "$TMP"
-          trap - EXIT HUP INT TERM
-        fi
-        exec "$INSTALL_DIR/bin/gradle" "$@"
-    """.trimIndent() + "\n"
-
-    fun windowsGradleLauncher(): String = $$"""
-        @echo off
-        rem $${GENERATED_MARKER}. This thin wrapper downloads Gradle automatically.
-        setlocal
-        set "GRADLE_VERSION=$${Versions.GRADLE}"
-        if "%GRADLE_USER_HOME%"=="" set "GRADLE_USER_HOME=%USERPROFILE%\.gradle"
-        set "INSTALL_DIR=%GRADLE_USER_HOME%\ktc-to-gradle\gradle-%GRADLE_VERSION%"
-        set "ARCHIVE=%GRADLE_USER_HOME%\ktc-to-gradle\gradle-%GRADLE_VERSION%-bin.zip"
-        if not exist "%INSTALL_DIR%\bin\gradle.bat" (
-          if not exist "%GRADLE_USER_HOME%\ktc-to-gradle" mkdir "%GRADLE_USER_HOME%\ktc-to-gradle"
-          powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-%GRADLE_VERSION%-bin.zip' -OutFile '%ARCHIVE%'; if ((Get-FileHash '%ARCHIVE%' -Algorithm SHA256).Hash.ToLower() -ne '$${Versions.GRADLE_SHA256}') { throw 'Gradle SHA-256 checksum mismatch' }; Expand-Archive -Force '%ARCHIVE%' '%GRADLE_USER_HOME%\ktc-to-gradle'"
-          if errorlevel 1 exit /b 1
-        )
-        call "%INSTALL_DIR%\bin\gradle.bat" %*
-    """.trimIndent() + "\r\n"
 
     fun header(): String = "// $GENERATED_MARKER ${Versions.CONVERTER}. Safe to regenerate."
 }

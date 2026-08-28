@@ -1,8 +1,10 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.model.FileContent
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.security.MessageDigest
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.readText
@@ -79,10 +81,61 @@ internal object Snapshots {
  *
  * Content is compared verbatim: `gradlew.bat` legitimately ends its lines with CRLF, so nothing is
  * normalised on the way in or out.
+ *
+ * Text and bytes take different paths only so a failure stays readable. `gradle-wrapper.jar` has no
+ * line structure to diff, so a mismatch reports what changed about the bytes instead of printing
+ * them.
  */
+internal fun assertSnapshot(case: String, fileName: String, actual: FileContent) {
+    when (actual) {
+        is FileContent.Text -> assertSnapshot(case, fileName, actual.value)
+        is FileContent.Binary -> assertBinarySnapshot(
+            Snapshots.goldenRoot(),
+            case,
+            fileName,
+            actual.bytes.toByteArray(),
+            update = Snapshots.updateSnapshots(),
+        )
+    }
+}
+
 internal fun assertSnapshot(case: String, fileName: String, actual: String) {
     assertSnapshot(Snapshots.goldenRoot(), case, fileName, actual, update = Snapshots.updateSnapshots())
 }
+
+internal fun assertBinarySnapshot(
+    goldenRoot: Path,
+    case: String,
+    fileName: String,
+    actual: ByteArray,
+    update: Boolean,
+) {
+    val golden = goldenRoot.resolve(case).resolve("expected").resolve(fileName)
+    if (update) {
+        Files.createDirectories(golden.parent)
+        Files.write(golden, actual)
+        return
+    }
+    if (!golden.exists()) {
+        fail(
+            "Missing golden baseline '$case/expected/$fileName'.\n" +
+                "Regenerate the baselines with ${Snapshots.UPDATE_ENV}=1 ./kotlin test -m core -p jvm",
+        )
+    }
+    val expected = Files.readAllBytes(golden)
+    if (expected.contentEquals(actual)) return
+    fail(
+        "Generated output changed for '$case/$fileName'.\n" +
+            "This is the refactor invariant: fix the code, do not regenerate the baseline.\n" +
+            "expected ${expected.size} bytes, sha256 ${sha256(expected)}\n" +
+            "actual   ${actual.size} bytes, sha256 ${sha256(actual)}",
+    )
+}
+
+private fun sha256(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { byte ->
+        (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+    }
 
 internal fun assertSnapshot(
     goldenRoot: Path,

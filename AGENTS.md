@@ -15,7 +15,8 @@ load, interpret, render, write.
 - **`model/`** holds `GradleModel.kt`, the description of the build to be generated. No Gradle DSL
   text lives here; plugins are the sealed `GradlePlugin` type, not strings.
 - **`render/`** turns a `GradleProject` into file contents: `KtsWriter`, `ModuleRenderer`,
-  `SettingsRenderer`, `StaticAssets`. `KtsWriter` owns indentation, so no renderer builds its own.
+  `SettingsRenderer`, `RepositoryBlock`, `StaticAssets`, `GradleWrapperAssets`. `KtsWriter` owns
+  indentation, so no renderer builds its own.
 - **`write/`** is `FileWriter`: it diffs content, refuses to overwrite files this tool did not
   generate, and implements `--dry-run`.
 
@@ -23,6 +24,26 @@ The file system is touched only at the two ends, in `load/` and `write/`. `inter
 and `model/` are pure: they never open a file and never see a `Value`. Keep it that way — the
 purity is what makes the middle of the pipeline testable without a fake file system. Filesystem
 facts an interpreter needs arrive as a `ModuleLayout` that the load stage filled in.
+
+## The Gradle wrapper is Gradle's, not ours
+
+`render/GradleWrapperAssets.kt` is a **generated file**. It holds base64 of the three files
+`gradle wrapper` produces, and it is rewritten only by `tools/update-gradle-wrapper.sh`. Never edit
+it by hand, and never hand-write a launcher again: the converter used to ship one and it cost four
+backlog tasks of bugs before it was replaced.
+
+Two consequences worth knowing before touching `write/`:
+
+- `gradle-wrapper.jar` is binary, so `GeneratedFile.content` is the sealed `FileContent` type and
+  `FileWriter` compares and writes bytes.
+- The jar can carry no ownership marker. It names the file whose ownership it shares instead —
+  `FileContent.Binary.ownershipFollows`, pointing at the `gradle-wrapper.properties` beside it.
+  That is the one exception to "every generated file carries the marker", and it is a decision, so
+  it is made in `Converter` and not in the write stage.
+
+The update script verifies the distribution against the checksum services.gradle.org publishes, and
+the jar against the `wrapperChecksum` published for the same release. A scheduled workflow runs it
+and opens a pull request; the diff is the review.
 
 ## The one deliberate output difference from the pre-pipeline converter
 
@@ -56,7 +77,7 @@ There are five layers, and a change belongs in exactly one of them.
    `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
    `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
    `FileWriter` against a temp directory.
-5. **Golden snapshots** — 26 cases under `core/testResources@jvm/golden/`, driven by
+5. **Golden snapshots** — 29 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.

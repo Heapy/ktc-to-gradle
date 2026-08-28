@@ -3,8 +3,10 @@ package io.heapy.ktctogradle
 import io.heapy.ktctogradle.interpret.ProjectInterpreter
 import io.heapy.ktctogradle.load.ProjectLoader
 import io.heapy.ktctogradle.load.ToolchainProject
+import io.heapy.ktctogradle.model.FileContent
 import io.heapy.ktctogradle.model.GeneratedFile
 import io.heapy.ktctogradle.model.GradleProject
+import io.heapy.ktctogradle.render.GradleWrapperAssets
 import io.heapy.ktctogradle.render.StaticAssets
 import io.heapy.ktctogradle.render.renderModule
 import io.heapy.ktctogradle.render.renderSettings
@@ -69,17 +71,21 @@ internal fun generateBuild(project: ToolchainProject): GenerationResult {
  * compare it as written.
  */
 private fun renderProject(project: GradleProject): List<GeneratedFile> = buildList {
-    add(GeneratedFile(project.root / "settings.gradle.kts", renderSettings(project)))
+    add(GeneratedFile(project.root / "settings.gradle.kts", FileContent.Text(renderSettings(project))))
     for (module in project.modules) {
-        add(GeneratedFile(module.directory / "build.gradle.kts", renderModule(module)))
+        add(GeneratedFile(module.directory / "build.gradle.kts", FileContent.Text(renderModule(module))))
     }
-    add(GeneratedFile(project.root / "gradlew", StaticAssets.unixGradleLauncher()))
-    add(GeneratedFile(project.root / "gradlew.bat", StaticAssets.windowsGradleLauncher()))
+    add(GeneratedFile(project.root / "gradlew", FileContent.Text(GradleWrapperAssets.unixLauncher())))
+    add(GeneratedFile(project.root / "gradlew.bat", FileContent.Text(GradleWrapperAssets.windowsLauncher())))
+    val wrapperProperties = project.root / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    add(GeneratedFile(wrapperProperties, FileContent.Text(StaticAssets.wrapperProperties())))
+    // The jar is the wrapper: the two scripts do nothing but run it. It carries no ownership
+    // marker of its own, so it points at the properties file beside it instead.
     add(
         GeneratedFile(
-            project.root / "gradle" / "wrapper" / "gradle-wrapper.properties",
-            StaticAssets.wrapperProperties(),
+            project.root / "gradle" / "wrapper" / "gradle-wrapper.jar",
+            FileContent.Binary(GradleWrapperAssets.wrapperJar(), ownershipFollows = wrapperProperties),
         ),
     )
-    add(GeneratedFile(project.root / "gradle.properties", StaticAssets.generatedGradleProperties()))
+    add(GeneratedFile(project.root / "gradle.properties", FileContent.Text(StaticAssets.generatedGradleProperties())))
 }

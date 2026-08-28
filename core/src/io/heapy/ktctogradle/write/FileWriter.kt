@@ -2,8 +2,10 @@ package io.heapy.ktctogradle.write
 
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.makeExecutable
+import io.heapy.ktctogradle.model.FileContent
 import io.heapy.ktctogradle.model.GeneratedFile
 import io.heapy.ktctogradle.render.StaticAssets
+import okio.ByteString
 import okio.FileSystem
 import okio.Path
 
@@ -28,11 +30,15 @@ internal class FileWriter(private val fileSystem: FileSystem) {
         dryRun: Boolean,
     ): List<Path> {
         // Read once per path: the changed check and the collision check both need the old content.
-        val onDisk = files.associate { file ->
-            file.path to if (fileSystem.exists(file.path)) read(file.path) else null
+        // The companion of a binary file is read too, because that is where its ownership is
+        // recorded, and it is not always one of the files being written.
+        val paths = files.map(GeneratedFile::path) +
+            files.mapNotNull { (it.content as? FileContent.Binary)?.ownershipFollows }
+        val onDisk = paths.distinct().associateWith { path ->
+            if (fileSystem.exists(path)) read(path) else null
         }
-        val changed = files.filter { file -> onDisk[file.path] != file.content }
-        val collisions = changed.filter { file -> onDisk[file.path]?.let(::isGenerated) == false }
+        val changed = files.filter { file -> onDisk[file.path] != file.content.bytes }
+        val collisions = changed.filter { file -> isGenerated(file, onDisk) == false }
         if (collisions.isNotEmpty() && !force) {
             throw ConversionException(
                 "Refusing to overwrite existing files: ${collisions.joinToString { it.path.relativeTo(root).toString() }}. " +
@@ -42,7 +48,7 @@ internal class FileWriter(private val fileSystem: FileSystem) {
         if (!dryRun) {
             for (file in changed) {
                 file.path.parent?.let(fileSystem::createDirectories)
-                fileSystem.write(file.path) { writeUtf8(file.content) }
+                fileSystem.write(file.path) { write(file.content.bytes) }
             }
             // Set every run: a wrapper script that was already up to date can still have lost its
             // executable bit on the way into the checkout.
@@ -51,9 +57,22 @@ internal class FileWriter(private val fileSystem: FileSystem) {
         return changed.map { it.path.relativeTo(root) }
     }
 
-    private fun read(path: Path): String = fileSystem.read(path) { readUtf8() }
+    private fun read(path: Path): ByteString = fileSystem.read(path) { readByteString() }
 
-    /** Whether the file on disk is one this converter wrote, and may therefore be replaced. */
-    private fun isGenerated(content: String): Boolean =
-        content.contains(StaticAssets.GENERATED_MARKER, ignoreCase = true)
+    /**
+     * Whether the file on disk is one this converter wrote, and may therefore be replaced.
+     *
+     * `null` means there is nothing on disk to overwrite. A binary file carries no marker of its
+     * own, so it answers with the file it named: `gradle-wrapper.jar` belongs to whoever wrote the
+     * `gradle-wrapper.properties` beside it, and a companion that is not on disk cannot vouch for
+     * anything.
+     */
+    private fun isGenerated(file: GeneratedFile, onDisk: Map<Path, ByteString?>): Boolean? = when (val content = file.content) {
+        is FileContent.Text -> onDisk[file.path]?.let(::carriesMarker)
+        is FileContent.Binary ->
+            if (onDisk[file.path] == null) null else carriesMarker(onDisk[content.ownershipFollows] ?: return false)
+    }
+
+    private fun carriesMarker(content: ByteString): Boolean =
+        content.utf8().contains(StaticAssets.GENERATED_MARKER, ignoreCase = true)
 }

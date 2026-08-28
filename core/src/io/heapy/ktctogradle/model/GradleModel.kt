@@ -1,8 +1,28 @@
 package io.heapy.ktctogradle.model
 
+import okio.ByteString
+import okio.ByteString.Companion.encodeUtf8
 import okio.Path
 
-internal data class GeneratedFile(val path: Path, val content: String)
+internal data class GeneratedFile(val path: Path, val content: FileContent)
+
+/**
+ * What one generated file holds.
+ *
+ * Text and bytes are told apart here rather than guessed at the write stage, because the ownership
+ * marker `write/FileWriter` keys on can only be written into text. `gradle-wrapper.jar` is the one
+ * file the converter lays down that cannot carry it, so it names the file whose ownership it
+ * shares instead — a decision, and therefore not the write stage's to make.
+ */
+internal sealed interface FileContent {
+    val bytes: ByteString
+
+    data class Text(val value: String) : FileContent {
+        override val bytes: ByteString get() = value.encodeUtf8()
+    }
+
+    data class Binary(override val bytes: ByteString, val ownershipFollows: Path) : FileContent
+}
 
 /**
  * A set of plugins Gradle has to load at one single version for the whole build.

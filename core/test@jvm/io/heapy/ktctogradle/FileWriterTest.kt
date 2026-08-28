@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle
 
+import io.heapy.ktctogradle.model.FileContent
 import io.heapy.ktctogradle.model.GeneratedFile
 import io.heapy.ktctogradle.write.FileWriter
 import okio.FileSystem
@@ -144,13 +145,28 @@ class FileWriterTest {
         writer().write(root = source.okio(), files = files, force = false, dryRun = false)
         val rewritten = writer().write(
             root = source.okio(),
-            files = files.map { file -> GeneratedFile(file.path, file.content + "\n") },
+            files = files.map(::withChangedContent),
             force = false,
             dryRun = false,
         )
 
         assertEquals(files.map { notation(it.path.relativeTo(source.okio())) }, rewritten.map(::notation))
     }
+
+    /**
+     * The same file with different content, so a second write has something to do.
+     *
+     * A jar carries no marker and cannot be appended to as text, so its bytes are truncated
+     * instead: what the second run has to prove is that the ownership check passes, not what the
+     * new content is.
+     */
+    private fun withChangedContent(file: GeneratedFile): GeneratedFile = GeneratedFile(
+        path = file.path,
+        content = when (val content = file.content) {
+            is FileContent.Text -> FileContent.Text(content.value + "\n")
+            is FileContent.Binary -> content.copy(bytes = content.bytes.substring(0, content.bytes.size - 1))
+        },
+    )
 
     private fun writer() = FileWriter(FileSystem.SYSTEM)
 
@@ -159,7 +175,7 @@ class FileWriterTest {
 
     private fun generated(root: Path, relative: String, content: String) = GeneratedFile(
         path = relative.split('/').fold(root.okio()) { path, segment -> path / segment },
-        content = content,
+        content = FileContent.Text(content),
     )
 
     private fun temp(name: String): Path =
