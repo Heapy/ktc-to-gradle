@@ -128,6 +128,22 @@ class GeneratedOutputSnapshotTest {
      */
     @Test fun kmpTestSettings() = assertCase("kmp-test-settings")
 
+    /**
+     * A subproject mirroring Maven Central behind credentials, next to one that mirrors nothing.
+     *
+     * `pluginManagement` is written once for the whole build, so this pins what folding per-module
+     * repositories into it has to get right: every module's list reaches it, nothing a module
+     * declared is dropped for sharing an id with another module's, the credentials path is rebased
+     * onto the root because `file(...)` means the module in `build.gradle.kts` and the settings
+     * directory in `settings.gradle.kts`, and the plugin portal is written last.
+     *
+     * `google()` and the public `mavenCentral()` stay even though `libs/core` replaced one and
+     * turned the other off, because `app` still resolves from both. A repository leaves plugin
+     * resolution when no module reaches it, which is what the single-module `repo-credentials`
+     * case pins.
+     */
+    @Test fun pluginRepositories() = assertCase("plugin-repositories")
+
     @Test fun staticAssets() = assertCase("static-assets")
 
     private fun assertCase(case: String) {

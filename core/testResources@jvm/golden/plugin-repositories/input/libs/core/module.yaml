@@ -1,0 +1,12 @@
+product: jvm/lib
+
+repositories:
+  - id: mavenCentral
+    url: https://mirror.example/maven
+    credentials:
+      file: credentials.properties
+      usernameKey: mirror.username
+      passwordKey: mirror.password
+  - id: mavenGoogle
+    url: https://maven.google.com
+    resolve: false

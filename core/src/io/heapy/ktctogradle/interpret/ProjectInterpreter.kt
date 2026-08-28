@@ -64,6 +64,7 @@ internal object ProjectInterpreter {
             name = project.name,
             catalog = project.catalogPath,
             modules = modules,
+            pluginRepositories = Repositories.forPlugins(project.root, modules),
         )
     }
 

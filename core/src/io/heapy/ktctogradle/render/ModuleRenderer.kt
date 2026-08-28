@@ -15,8 +15,6 @@ import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.Layout
 import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
-import io.heapy.ktctogradle.model.Repository
-import io.heapy.ktctogradle.model.RepositoryShorthand
 import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TargetKind
 import io.heapy.ktctogradle.model.TestFramework
@@ -312,39 +310,6 @@ internal fun GradlePlugin.dsl(): String = when (this) {
     is GradlePlugin.Android,
     is GradlePlugin.Other,
     -> "id(${quote(id)})"
-}
-
-/** Credentials are read from a properties file, which is the only import a script ever needs. */
-private fun KtsWriter.appendCredentialsImport(required: Boolean) {
-    if (!required) return
-    blank()
-    line("import java.util.Properties")
-    blank()
-}
-
-private fun KtsWriter.appendRepositories(repositories: List<Repository>) {
-    block("repositories") {
-        for ((index, repository) in repositories.withIndex()) {
-            when (repository.shorthand) {
-                RepositoryShorthand.MAVEN_LOCAL -> line("mavenLocal()")
-                RepositoryShorthand.MAVEN_CENTRAL -> line("mavenCentral()")
-                RepositoryShorthand.GOOGLE -> line("google()")
-                null -> block("maven") {
-                    line("name = ${quote(repository.id)}")
-                    line("url = uri(${quote(repository.url)})")
-                    repository.credentials?.let { credentials ->
-                        val variable = "repositoryCredentials$index"
-                        line("val $variable = Properties()")
-                        line("file(${quote(credentials.file)}).inputStream().use($variable::load)")
-                        block("credentials") {
-                            line("username = $variable.getProperty(${quote(credentials.usernameKey)})")
-                            line("password = $variable.getProperty(${quote(credentials.passwordKey)})")
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /**

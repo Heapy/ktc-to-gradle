@@ -89,6 +89,14 @@ internal data class GradleProject(
     /** `libs.versions.toml`, wherever the project keeps it, or `null` when it has none. */
     val catalog: Path?,
     val modules: List<GradleModule>,
+    /**
+     * Where Gradle resolves the build's *plugins* from, as opposed to its dependencies.
+     *
+     * `pluginManagement` is settled once for the whole build while a repository is declared per
+     * module, so this is a decision of its own and not a view over [modules]. It excludes the plugin
+     * portal, which no module can configure and which the settings file always declares.
+     */
+    val pluginRepositories: List<Repository>,
 )
 
 internal data class GradleModule(

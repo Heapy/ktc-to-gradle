@@ -1,0 +1,1 @@
+fun greeting(): String = "hello"

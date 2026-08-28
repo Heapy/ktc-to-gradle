@@ -4,9 +4,11 @@ import io.heapy.ktctogradle.load.RawRepository
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.raiseDeferred
+import io.heapy.ktctogradle.model.GradleModule
 import io.heapy.ktctogradle.model.Repository
 import io.heapy.ktctogradle.model.RepositoryCredentials
 import io.heapy.ktctogradle.model.RepositoryShorthand
+import okio.Path
 
 /**
  * Which repositories a module resolves its dependencies from.
@@ -40,6 +42,40 @@ internal object Repositories {
             .asReversed()
             .map { (raw, id) -> repository(raw, id) }
         return defaults + enabled
+    }
+
+    /**
+     * Where Gradle resolves the build's plugins from.
+     *
+     * A repository is declared per module, but `pluginManagement` is settled once for the whole
+     * build, so this is the union of what the modules resolve from, in visit order. Without it a
+     * project that mirrors Maven Central still reaches `plugins.gradle.org` and `maven.google.com`
+     * while Gradle evaluates the settings file, which is before any correctly mirrored dependency
+     * matters.
+     *
+     * Repeats are dropped by value rather than by id, so nothing a module declared is lost: two
+     * modules mapping one id to different URLs both reach plugin resolution, and Gradle gives the
+     * second repository a unique name of its own. Dropping one of them instead would make a plugin
+     * only that module can reach unresolvable, and the model says nothing about which should win.
+     * The consequence is that a project where one module mirrors Maven Central and another does not
+     * offers both — which is what those two modules asked for.
+     *
+     * A credentials file is written relative to the module that consumes it and
+     * `settings.gradle.kts` resolves `file(...)` against the root, so the path is rebased here.
+     */
+    fun forPlugins(root: Path, modules: List<GradleModule>): List<Repository> = modules
+        .flatMap { module -> module.repositories.map { rebaseCredentials(root, module, it) } }
+        .distinct()
+
+    private fun rebaseCredentials(root: Path, module: GradleModule, repository: Repository): Repository {
+        val credentials = repository.credentials ?: return repository
+        // okio splits a path into separator-free segments, so the result is `/`-joined on every
+        // host: a settings file generated on Windows stays readable by a build running anywhere.
+        val prefix = module.directory.relativeTo(root).segments.filter { it != "." }
+        if (prefix.isEmpty()) return repository
+        return repository.copy(
+            credentials = credentials.copy(file = (prefix + credentials.file).joinToString("/")),
+        )
     }
 
     /**
