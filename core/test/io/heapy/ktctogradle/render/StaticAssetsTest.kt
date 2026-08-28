@@ -8,12 +8,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * What the wrapper assets have to say that a byte-for-byte baseline cannot explain.
+ * What the static assets have to say that a byte-for-byte baseline cannot explain.
  *
- * A golden file states the bytes; it does not state that the properties file names the Gradle
- * version we pin, that `gradlew.bat` has to end every line with CRLF, or that both scripts have to
- * carry the ownership marker or the converter will refuse its own output. That is what this suite
- * is for, and it is the one place in `render/` where substring assertions are the right shape.
+ * A golden file states the bytes; it does not state that the wrapper properties name the Gradle
+ * version we pin, that `gradlew.bat` has to end every line with CRLF, that both scripts have to
+ * carry the ownership marker or the converter will refuse its own output, or what one line of
+ * `gradle.properties` is buying. That is what this suite is for, and it is the one place in
+ * `render/` where substring assertions are the right shape.
  */
 class StaticAssetsTest {
     @Test
@@ -21,6 +22,22 @@ class StaticAssetsTest {
         val properties = StaticAssets.wrapperProperties()
         assertContains(properties, "gradle-${Versions.GRADLE}-bin.zip")
         assertContains(properties, "distributionSha256Sum=${Versions.GRADLE_SHA256}")
+    }
+
+    /**
+     * The converter gives every non-common fragment an explicit `dependsOn` edge, which makes the
+     * Kotlin Gradle Plugin report a hierarchy-template mismatch once per multiplatform module and
+     * fall back to those edges. This property picks the same fallback without the report.
+     *
+     * The 29 baselines keep the line; none of them can say that removing it costs a warning on
+     * every multiplatform module of every conversion, which is the only reason it is there.
+     */
+    @Test
+    fun theGeneratedPropertiesTurnOffTheDefaultKotlinHierarchyTemplate() {
+        assertContains(
+            StaticAssets.generatedGradleProperties(),
+            "kotlin.mpp.applyDefaultHierarchyTemplate=false",
+        )
     }
 
     @Test

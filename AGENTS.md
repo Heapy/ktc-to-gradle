@@ -58,8 +58,14 @@ field, so `interpret/AndroidInterpreter.libraryTarget` now honours the nested fo
 asymmetry was an accident rather than a rule, so it was not restored.
 
 It is pinned by the `kmp-android-compile-sdk` golden case and by
-`AndroidInterpreterTest.aLibraryTargetReadsTheNestedCompileSdkForm`. Nothing else diverges: a golden
-file that moves for any other reason is a bug in the change that moved it, not a baseline to update.
+`AndroidInterpreterTest.aLibraryTargetReadsTheNestedCompileSdkForm`.
+
+That is the only place the *refactor* changed the output, and it is the rule to read a moved
+baseline by: a change that was meant to be behaviour-preserving and moved one anyway is a bug in
+that change, not a baseline to update. Features added since the refactor do move baselines, on
+purpose — the embedded Gradle wrapper and
+`kotlin.mpp.applyDefaultHierarchyTemplate=false` in `gradle.properties` are two — and for those the
+diff is the review.
 
 ## Tests
 
