@@ -36,8 +36,8 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
         var effective: Value = Value.Mapping(emptyMap())
         for (node in ordered) effective = mergeValues(effective, node.own)
 
-        val declarations = buildMap<String, MutableList<ScalarDeclaration>> {
-            for (node in ordered) collectScalarDeclarations(node.own, node, "", this)
+        val declarations = buildMap<List<String>, MutableList<ScalarDeclaration>> {
+            for (node in ordered) collectScalarDeclarations(node.own, node, emptyList(), this)
         }
         var resolved = effective.asMapping(moduleFile.toString())
         for ((path, candidates) in declarations) {
@@ -47,9 +47,11 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
             val distinct = maximal.map(ScalarDeclaration::value).distinct()
             if (distinct.size > 1) {
                 val sources = maximal.joinToString { it.node.file.relativeTo(root).toString() }
-                throw ConversionException("Conflicting template values for '$path' in $sources")
+                throw ConversionException(
+                    "Conflicting template values for '${path.joinToString(".")}' in $sources",
+                )
             }
-            resolved = setScalar(resolved, path.split('.'), maximal.first().value)
+            resolved = setScalar(resolved, path, maximal.first().value)
         }
         return resolved
     }
@@ -117,15 +119,19 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
         return Value.Mapping(config.entries + ("repositories" to Value.Sequence(normalized)))
     }
 
+    /**
+     * [prefix] is the key path as a list of segments and never as a dotted string: a YAML key may
+     * itself contain a dot, and joining the path would make that key indistinguishable from nesting.
+     */
     private fun collectScalarDeclarations(
         value: Value,
         node: ConfigNode,
-        prefix: String,
-        destination: MutableMap<String, MutableList<ScalarDeclaration>>,
+        prefix: List<String>,
+        destination: MutableMap<List<String>, MutableList<ScalarDeclaration>>,
     ) {
         when (value) {
             is Value.Mapping -> value.entries.forEach { (key, child) ->
-                collectScalarDeclarations(child, node, if (prefix.isEmpty()) key else "$prefix.$key", destination)
+                collectScalarDeclarations(child, node, prefix + key, destination)
             }
             is Value.Scalar, Value.Null -> destination.getOrPut(prefix) { mutableListOf() }
                 .add(ScalarDeclaration(node, value))

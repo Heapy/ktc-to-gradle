@@ -124,6 +124,88 @@ class TemplateGraphTest {
         )
     }
 
+    /**
+     * The scalar pass rewrites every scalar it collected back into the merged mapping, so a key that
+     * contains a dot must survive that round trip as the one key it is.
+     */
+    @Test
+    fun aKeyThatContainsADotIsNotGraftedIntoANestedMapping() {
+        val root = temporaryRoot("ktc-template-dotted-key-")
+        write(
+            root.resolve("module.yaml"),
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                test:
+                  systemProperties:
+                    my.app.mode: fast
+                    plain: ok
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            Value.Mapping(mapOf("my.app.mode" to Value.Scalar("fast"), "plain" to Value.Scalar("ok"))),
+            resolve(root).value("settings.jvm.test.systemProperties"),
+        )
+    }
+
+    /** `a` and `a.b` are two sibling keys, so neither may be read as a path through the other. */
+    @Test
+    fun aScalarKeyIsNotReplacedByASiblingKeyThatExtendsItWithADot() {
+        val root = temporaryRoot("ktc-template-dotted-sibling-")
+        write(
+            root.resolve("module.yaml"),
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                test:
+                  systemProperties:
+                    a: x
+                    a.b: y
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            Value.Mapping(mapOf("a" to Value.Scalar("x"), "a.b" to Value.Scalar("y"))),
+            resolve(root).value("settings.jvm.test.systemProperties"),
+        )
+    }
+
+    /**
+     * The literal key `a.b` and the nested path `a` -> `b` are two different declarations.
+     *
+     * They used to collect under the same dotted path, so two templates declaring one each looked
+     * like a conflict, and whichever survived overwrote the other.
+     */
+    @Test
+    fun aLiteralDottedKeyAndTheNestedPathThatLooksLikeItStaySeparate() {
+        val root = temporaryRoot("ktc-template-dotted-vs-nested-")
+        write(
+            root.resolve("templates/flat.module-template.yaml"),
+            "settings: { jvm: { test: { systemProperties: { \"a.b\": flat } } } }\n",
+        )
+        write(
+            root.resolve("templates/nested.module-template.yaml"),
+            "settings: { jvm: { test: { systemProperties: { a: { b: nested } } } } }\n",
+        )
+        write(
+            root.resolve("module.yaml"),
+            "product: jvm/lib\napply: [//templates/flat.module-template.yaml, //templates/nested.module-template.yaml]\n",
+        )
+
+        assertEquals(
+            Value.Mapping(
+                mapOf(
+                    "a.b" to Value.Scalar("flat"),
+                    "a" to Value.Mapping(mapOf("b" to Value.Scalar("nested"))),
+                ),
+            ),
+            resolve(root).value("settings.jvm.test.systemProperties"),
+        )
+    }
+
     private fun resolve(root: Path, moduleFile: Path = root.resolve("module.yaml")) =
         TemplateGraph(FileSystem.SYSTEM)
             .effectiveConfig(root.toString().toPath(), moduleFile.toString().toPath())
