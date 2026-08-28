@@ -29,7 +29,7 @@ class StaticAssetsTest {
      * Kotlin Gradle Plugin report a hierarchy-template mismatch once per multiplatform module and
      * fall back to those edges. This property picks the same fallback without the report.
      *
-     * The 29 baselines keep the line; none of them can say that removing it costs a warning on
+     * The 31 baselines keep the line; none of them can say that removing it costs a warning on
      * every multiplatform module of every conversion, which is the only reason it is there.
      */
     @Test
@@ -37,6 +37,24 @@ class StaticAssetsTest {
         assertContains(
             StaticAssets.generatedGradleProperties(),
             "kotlin.mpp.applyDefaultHierarchyTemplate=false",
+        )
+    }
+
+    /**
+     * The other property, and the one `settings.junit: none` cannot be converted without.
+     *
+     * With the inference on, a `kotlin("test")` on a compilation whose `Test` task runs the JUnit
+     * platform is resolved to `kotlin-test-junit5` — the adapter `none` exists to refuse, arriving
+     * exactly when the converter asks for the platform launcher `none` needs.
+     *
+     * The baselines keep the line and cannot say that. They also cannot say what makes it safe:
+     * every JVM-backed test source set names its adapter, so nothing is left to infer.
+     */
+    @Test
+    fun theGeneratedPropertiesTurnOffTheKotlinTestVariantInference() {
+        assertContains(
+            StaticAssets.generatedGradleProperties(),
+            "kotlin.test.infer.jvm.variant=false",
         )
     }
 

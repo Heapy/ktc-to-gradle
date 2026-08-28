@@ -41,6 +41,9 @@ kotlin {
         }
         maybeCreate("androidHostTest").apply {
             dependsOn(getByName("commonTest"))
+            dependencies {
+                implementation(kotlin("test-junit5"))
+            }
         }
     }
 }

@@ -77,6 +77,26 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun junit4() = assertCase("junit4")
 
+    /**
+     * A `jvm/lib` and a `kmp/lib` on `settings.junit: none`, each bringing its own JUnit engine.
+     *
+     * `none` means "add no JUnit adapter", not "do not run the JUnit platform", so both modules keep
+     * the plain `kotlin("test")` and still get `useJUnitPlatform()`. The launcher is named directly
+     * because no adapter brings one, and the `kmp/lib` shows the other half of the same rule: its
+     * `jvmTest` set takes the launcher where a `junit-5` module would take the adapter.
+     *
+     * A third module on the default `junit-5` shares the project, because one `gradle.properties`
+     * serves the whole build: it pins that turning the test-variant inference off there leaves the
+     * module that never asked for `none` with its adapter.
+     */
+    @Test fun junitNone() = assertCase("junit-none")
+
+    /**
+     * The same setting on an `android/app`, which reaches its unit-test task through a block of its
+     * own: `android-junit4` pins that the block stays shut, and this pins that `none` opens it.
+     */
+    @Test fun androidJunitNone() = assertCase("android-junit-none")
+
     @Test fun ktorBom() = assertCase("ktor-bom")
 
     @Test fun dependencyScopes() = assertCase("dependency-scopes")

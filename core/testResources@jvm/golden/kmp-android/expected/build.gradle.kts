@@ -49,6 +49,7 @@ kotlin {
             dependsOn(getByName("commonTest"))
             kotlin.srcDir("test@android")
             dependencies {
+                implementation(kotlin("test-junit5"))
                 implementation("org.junit.jupiter:junit-jupiter:5.14.1")
             }
         }
@@ -58,6 +59,9 @@ kotlin {
         }
         maybeCreate("jvmTest").apply {
             dependsOn(getByName("commonTest"))
+            dependencies {
+                implementation(kotlin("test-junit5"))
+            }
         }
     }
 }

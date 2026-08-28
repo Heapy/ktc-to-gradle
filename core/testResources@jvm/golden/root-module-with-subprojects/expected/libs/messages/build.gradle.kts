@@ -39,6 +39,9 @@ kotlin {
         }
         maybeCreate("jvmTest").apply {
             dependsOn(getByName("commonTest"))
+            dependencies {
+                implementation(kotlin("test-junit5"))
+            }
         }
         maybeCreate("webMain").apply {
             dependsOn(getByName("commonMain"))

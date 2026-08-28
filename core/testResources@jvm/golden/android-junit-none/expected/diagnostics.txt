@@ -1,0 +1,2 @@
+WARNING: android-junit-none: settings.kotlin.version '2.4.10' does not select the Kotlin compiler for an Android module; the Android Gradle Plugin 9.0.0 supplies its own Kotlin
+WARNING: android-junit-none: settings.junit: none keeps the JUnit platform but adds no engine, and the Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in the test dependencies of every JVM-backed platform

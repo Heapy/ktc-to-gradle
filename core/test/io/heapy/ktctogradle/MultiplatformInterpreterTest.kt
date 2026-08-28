@@ -13,6 +13,7 @@ import io.heapy.ktctogradle.model.JvmTestSettings
 import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.MultiplatformBuild
+import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TargetKind
 import io.heapy.ktctogradle.model.TestFramework
 import okio.Path
@@ -148,6 +149,56 @@ class MultiplatformInterpreterTest {
                 buildOf(junit).sourceSets.single { it.name == "commonTest" }.dependencies,
                 "for '$junit'",
             )
+        }
+    }
+
+    /**
+     * The JUnit adapter is named on the JVM-backed test source sets, and only on those.
+     *
+     * `commonTest` cannot name one, because it also compiles for native. The generated
+     * `gradle.properties` stops the Kotlin Gradle Plugin from guessing the adapter from the `Test`
+     * task, so a module that does not say which one it wants would otherwise get none.
+     */
+    @Test
+    fun theJvmBackedTestSourceSetsNameTheJunitAdapterAndTheOthersDoNot() {
+        fun buildOf(junit: String) = interpret(
+            module(
+                "lib",
+                "product:\n  type: kmp/lib\n  platforms: [jvm, android, linuxX64]\n" +
+                    "settings:\n  android:\n    namespace: example.lib\n$junit",
+            ),
+        )
+
+        fun dependenciesOf(junit: String, sourceSet: String) =
+            buildOf(junit).sourceSets.single { it.name == sourceSet }.dependencies
+
+        for (sourceSet in listOf("jvmTest", "androidHostTest")) {
+            assertEquals(
+                listOf(Dependency(DependencyTarget.KotlinBuiltin("test-junit5"))),
+                dependenciesOf("", sourceSet),
+                "junit-5 is the default, for $sourceSet",
+            )
+            assertEquals(
+                listOf(Dependency(DependencyTarget.KotlinBuiltin("test-junit"))),
+                dependenciesOf("  junit: junit-4\n", sourceSet),
+                "for $sourceSet",
+            )
+            // `none` adds no adapter and takes the launcher instead: the module brings its own engine
+            // and the JUnit platform still has to be started for it.
+            assertEquals(
+                listOf(
+                    Dependency(
+                        DependencyTarget.Maven("org.junit.platform:junit-platform-launcher"),
+                        scope = Scope.RUNTIME_ONLY,
+                    ),
+                ),
+                dependenciesOf("  junit: none\n", sourceSet),
+                "for $sourceSet",
+            )
+        }
+
+        for (junit in listOf("", "  junit: junit-4\n", "  junit: none\n")) {
+            assertEquals(emptyList(), dependenciesOf(junit, "linuxX64Test"), "for '$junit'")
         }
     }
 
@@ -327,7 +378,7 @@ class MultiplatformInterpreterTest {
                 builtIn = false,
                 sourceDirs = listOf("test@android"),
                 resourceDirs = emptyList(),
-                dependencies = emptyList(),
+                dependencies = listOf(Dependency(DependencyTarget.KotlinBuiltin("test-junit5"))),
             ),
             build.sourceSets.single { it.name == "androidHostTest" },
         )
@@ -376,8 +427,13 @@ class MultiplatformInterpreterTest {
             listOf(Dependency(DependencyTarget.Maven("org.example:native-only:1.0"))),
             build.sourceSets.single { it.name == "nativeMain" }.dependencies,
         )
+        // The JUnit adapter the JVM-backed set gets anyway comes first: the module's own qualified
+        // dependencies follow it, in the order it declared them.
         assertEquals(
-            listOf(Dependency(DependencyTarget.Maven("org.example:jvm-test:1.0"))),
+            listOf(
+                Dependency(DependencyTarget.KotlinBuiltin("test-junit5")),
+                Dependency(DependencyTarget.Maven("org.example:jvm-test:1.0")),
+            ),
             build.sourceSets.single { it.name == "jvmTest" }.dependencies,
         )
     }

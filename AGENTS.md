@@ -63,8 +63,8 @@ It is pinned by the `kmp-android-compile-sdk` golden case and by
 That is the only place the *refactor* changed the output, and it is the rule to read a moved
 baseline by: a change that was meant to be behaviour-preserving and moved one anyway is a bug in
 that change, not a baseline to update. Features added since the refactor do move baselines, on
-purpose — the embedded Gradle wrapper and
-`kotlin.mpp.applyDefaultHierarchyTemplate=false` in `gradle.properties` are two — and for those the
+purpose — the embedded Gradle wrapper, `kotlin.mpp.applyDefaultHierarchyTemplate=false` and
+`kotlin.test.infer.jvm.variant=false` in `gradle.properties` are three — and for those the
 diff is the review.
 
 ## Tests
@@ -83,7 +83,7 @@ There are five layers, and a change belongs in exactly one of them.
    `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
    `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
    `FileWriter` against a temp directory.
-5. **Golden snapshots** — 29 cases under `core/testResources@jvm/golden/`, driven by
+5. **Golden snapshots** — 31 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.

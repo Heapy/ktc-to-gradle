@@ -26,6 +26,17 @@ internal object StaticAssets {
      *
      * Written unconditionally because it is inert without one: the plugin reads it only after
      * finding a multiplatform extension, so a `jvm/lib` never reaches it.
+     *
+     * `kotlin.test.infer.jvm.variant=false` turns off the other piece of Kotlin Gradle Plugin
+     * guesswork the converter has no use for. With it on, a `kotlin("test")` on a compilation whose
+     * `Test` task runs the JUnit platform is silently resolved to `kotlin-test-junit5`. That is the
+     * adapter `settings.junit: none` exists to refuse, and it arrives precisely when the converter
+     * asks for `useJUnitPlatform()`, which `none` also needs. Turning the inference off is what lets
+     * the two coexist.
+     *
+     * It is safe for the other two values because the converter names the adapter itself: every
+     * JVM-backed test source set gets `kotlin("test-junit5")` or `kotlin("test-junit")` written out,
+     * so nothing is left for the plugin to infer.
      */
     fun generatedGradleProperties(): String = """
         # ${GENERATED_MARKER}. Safe to regenerate.
@@ -35,6 +46,7 @@ internal object StaticAssets {
         kotlin.daemon.jvmargs=-Xmx4g
         kotlin.code.style=official
         kotlin.mpp.applyDefaultHierarchyTemplate=false
+        kotlin.test.infer.jvm.variant=false
     """.trimIndent() + "\n"
 
     /**

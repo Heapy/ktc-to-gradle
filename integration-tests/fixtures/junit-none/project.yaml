@@ -1,0 +1,4 @@
+modules:
+  - jvm-lib
+  - junit5-lib
+  - kmp-lib

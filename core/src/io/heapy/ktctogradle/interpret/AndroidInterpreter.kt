@@ -35,7 +35,9 @@ internal object AndroidInterpreter {
         val dependencies = Dependencies.of(index, module, test = false, qualifiers = QUALIFIERS) +
             JvmInterpreter.implied(model, serialization)
         val testFramework = JvmInterpreter.testFramework(model)
-        val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS)
+        JvmInterpreter.warnAboutJunitNone(module, testFramework, diagnostics)
+        val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS) +
+            JvmInterpreter.platformLauncher(testFramework)
         // Read last: the module's own pinned-Kotlin-version warning keeps its place ahead of the
         // dropped-key ones a qualified section reports.
         val qualified = QualifiedSettings.singlePlatform(module, "android", diagnostics)

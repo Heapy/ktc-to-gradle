@@ -161,11 +161,22 @@ internal enum class Layout { AMPER, MAVEN_LIKE }
 
 internal enum class Scope { ALL, COMPILE_ONLY, RUNTIME_ONLY }
 
-/** [library] is the `kotlin("...")` artifact the framework is pulled in by. */
+/**
+ * [library] is the `kotlin("...")` artifact the framework is pulled in by.
+ *
+ * [runsOnTheJUnitPlatform] says whether the module's `Test` tasks need `useJUnitPlatform()`. It is
+ * true for [NONE] as well as for [JUNIT_5]: the Kotlin Toolchain reads `junit: none` as "add no
+ * JUnit adapter", not as "do not run the JUnit platform", and still discovers the tests through its
+ * own platform launcher. Only [JUNIT_4] keeps Gradle's own JUnit 4 runner.
+ */
 internal enum class TestFramework(val library: String) {
     JUNIT_5("test-junit5"),
     JUNIT_4("test-junit"),
     NONE("test"),
+    ;
+
+    val runsOnTheJUnitPlatform: Boolean
+        get() = this != JUNIT_4
 }
 
 /**

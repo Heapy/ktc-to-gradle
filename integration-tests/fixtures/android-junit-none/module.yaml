@@ -1,0 +1,19 @@
+product: android/app
+
+settings:
+  android:
+    namespace: example.androidjunitnone
+    applicationId: example.androidjunitnone
+    compileSdk: 36
+    minSdk: 24
+    targetSdk: 36
+  jvm:
+    release: 17
+  kotlin:
+    version: 2.4.10
+  # The module brings its own JUnit platform engine, so the converted build still has to run the
+  # platform: the Android Gradle Plugin discovers nothing on its default JUnit 4 runner.
+  junit: none
+
+test-dependencies:
+  - org.junit.jupiter:junit-jupiter:5.14.1

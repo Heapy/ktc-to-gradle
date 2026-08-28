@@ -131,6 +131,57 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * `settings.junit: none` takes the JUnit platform launcher, and the other two do not.
+     *
+     * `kotlin-test-junit5` and `kotlin-test-junit` bring their own runner. `none` adds no adapter at
+     * all, so the launcher Gradle needs before it will run `useJUnitPlatform()` is named directly.
+     */
+    @Test
+    fun onlyJunitNoneNamesThePlatformLauncher() {
+        assertEquals(emptyList(), interpret(junit("junit-5")).testDependencies)
+        assertEquals(emptyList(), interpret(junit("junit-4")).testDependencies)
+        assertEquals(
+            listOf(
+                Dependency(
+                    DependencyTarget.Maven("org.junit.platform:junit-platform-launcher"),
+                    scope = Scope.RUNTIME_ONLY,
+                ),
+            ),
+            interpret(junit("none")).testDependencies,
+        )
+    }
+
+    /**
+     * `settings.junit: none` is converted with one named deviation, and the deviation is reported.
+     *
+     * The Kotlin Toolchain runs its tests through `junit-platform-console-standalone`, which carries
+     * the Jupiter and Vintage engines, so `none` upstream still runs a module that only compiles
+     * against `junit-jupiter-api`. Gradle gives a `Test` task nothing the module did not put on its
+     * own runtime classpath, so that module runs no tests after conversion.
+     */
+    @Test
+    fun junitNoneReportsTheEngineTheToolchainSuppliesAndGradleDoesNot() {
+        val expected = "app: settings.junit: none keeps the JUnit platform but adds no engine, and the " +
+            "Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in the test " +
+            "dependencies of every JVM-backed platform"
+
+        for (setting in listOf("junit-5", "junit-4")) {
+            val diagnostics = DiagnosticCollector()
+            val app = junit(setting)
+            JvmInterpreter.interpret(ModuleIndex.of(listOf(app)), app, diagnostics)
+            assertEquals(emptyList(), diagnostics.collected(), "for $setting")
+        }
+
+        val diagnostics = DiagnosticCollector()
+        val app = junit("none")
+        JvmInterpreter.interpret(ModuleIndex.of(listOf(app)), app, diagnostics)
+        assertEquals(
+            listOf(Diagnostic(Diagnostic.Severity.WARNING, expected)),
+            diagnostics.collected(),
+        )
+    }
+
     @Test
     fun aMavenLikeModuleKeepsTheGradleSourceLayout() {
         assertEquals(Layout.MAVEN_LIKE, interpret(module("app", "product: jvm/lib\nlayout: maven-like\n")).layout)

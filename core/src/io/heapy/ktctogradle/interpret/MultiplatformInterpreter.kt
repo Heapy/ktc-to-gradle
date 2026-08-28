@@ -17,6 +17,7 @@ import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.TargetKind
+import io.heapy.ktctogradle.model.TestFramework
 
 /**
  * Turns a multiplatform module — `kmp/lib`, and every single-platform application Gradle builds
@@ -42,6 +43,8 @@ internal object MultiplatformInterpreter {
         // Asked of the targets rather than of the platform names, so the one place that answers
         // "does this run on a JDK" is `TargetKind`, and the renderer cannot disagree with this.
         val runsOnAJdk = targets.any { it.kind.runsOnAJdk }
+        val testFramework = JvmInterpreter.testFramework(model)
+        if (runsOnAJdk) JvmInterpreter.warnAboutJunitNone(module, testFramework, diagnostics)
         return MultiplatformBuild(
             targets = targets,
             // Both JVM-flavoured targets compile against a JDK, and both carry a release the JDK has
@@ -53,8 +56,8 @@ internal object MultiplatformInterpreter {
             },
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin),
             qualifiedCompilerOptions = qualified.common,
-            sourceSets = sourceSets(index, module, fragments, serialization),
-            testFramework = JvmInterpreter.testFramework(model),
+            sourceSets = sourceSets(index, module, fragments, serialization, testFramework),
+            testFramework = testFramework,
             testSettings = testSettings(module, runsOnAJdk, diagnostics),
         )
     }
@@ -122,6 +125,7 @@ internal object MultiplatformInterpreter {
         module: ToolchainModule,
         fragments: List<KmpFragment>,
         serialization: SerializationSettings?,
+        testFramework: TestFramework,
     ): List<KmpSourceSet> = buildList {
         add(
             KmpSourceSet(
@@ -150,9 +154,28 @@ internal object MultiplatformInterpreter {
             ),
         )
         for (fragment in fragments.filterNot { it.name == KmpFragments.COMMON }) {
-            add(qualifiedSourceSet(index, module, fragment, test = false))
-            add(qualifiedSourceSet(index, module, fragment, test = true))
+            add(qualifiedSourceSet(index, module, fragment, test = false, testFramework = testFramework))
+            add(qualifiedSourceSet(index, module, fragment, test = true, testFramework = testFramework))
         }
+    }
+
+    /**
+     * What a JVM-backed test source set needs on top of `commonTest`'s plain `kotlin("test")`.
+     *
+     * `commonTest` cannot name a JUnit adapter, because the same source set also compiles for native
+     * and for the web. The Kotlin Gradle Plugin used to guess the adapter from the `Test` task, and
+     * the generated `gradle.properties` turns that guess off, so the adapter is named here instead.
+     *
+     * `settings.junit: none` names no adapter and takes the platform launcher instead, which is what
+     * makes "run the JUnit platform, add no JUnit adapter" expressible in Gradle at all. On the
+     * `androidHostTest` set that is what the converter asks for and not what the module ends up with:
+     * the Android Gradle Plugin adds `kotlin-test-junit5` to a multiplatform android unit test whose
+     * task runs the platform, through a capability rule of its own that
+     * `kotlin.test.infer.jvm.variant` does not reach. It is additive, so the tests still run.
+     */
+    private fun jvmTestFrameworkDependencies(framework: TestFramework): List<Dependency> = when (framework) {
+        TestFramework.NONE -> JvmInterpreter.platformLauncher(framework)
+        else -> listOf(Dependency(DependencyTarget.KotlinBuiltin(framework.library)))
     }
 
     private fun qualifiedSourceSet(
@@ -160,11 +183,17 @@ internal object MultiplatformInterpreter {
         module: ToolchainModule,
         fragment: KmpFragment,
         test: Boolean,
+        testFramework: TestFramework,
     ): KmpSourceSet {
         val qualifier = fragment.name
         val prefix = if (test) "test" else "src"
         val resources = if (test) "testResources" else "resources"
-        val dependencies = Dependencies.of(index, module, test, listOf(qualifier))
+        val frameworkDependencies = if (test && qualifier in JVM_BACKED_QUALIFIERS) {
+            jvmTestFrameworkDependencies(testFramework)
+        } else {
+            emptyList()
+        }
+        val dependencies = frameworkDependencies + Dependencies.of(index, module, test, listOf(qualifier))
         val sourceDir = "$prefix@$qualifier"
         val resourceDir = "$resources@$qualifier"
         val suffix = if (test) "Test" else "Main"
@@ -183,6 +212,14 @@ internal object MultiplatformInterpreter {
 
     /** Only the unqualified section: a multiplatform module reads its qualified ones per fragment. */
     private val COMMON_QUALIFIERS = listOf("")
+
+    /**
+     * The fragments whose test source set runs on a JDK, and so has a JUnit framework to pick.
+     *
+     * Both are leaf platforms rather than intermediate fragments: an intermediate one that covered
+     * them would also cover a target with no `Test` task, and the adapter belongs where the task is.
+     */
+    private val JVM_BACKED_QUALIFIERS = setOf("jvm", "android")
 }
 
 /**

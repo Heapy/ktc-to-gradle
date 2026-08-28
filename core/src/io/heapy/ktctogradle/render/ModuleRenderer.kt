@@ -17,7 +17,6 @@ import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TargetKind
-import io.heapy.ktctogradle.model.TestFramework
 
 /**
  * Spells a module out as `build.gradle.kts`.
@@ -86,7 +85,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     }
     blank()
     block("tasks.test") {
-        if (build.testFramework == TestFramework.JUNIT_5) line("useJUnitPlatform()")
+        if (build.testFramework.runsOnTheJUnitPlatform) line("useJUnitPlatform()")
         appendJvmTestSettings(build.testSettings)
     }
     build.mainClass?.let { mainClass ->
@@ -134,12 +133,13 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
             line("resources.srcDirs(\"testResources\", \"testResources@android\")")
         }
         // The Android Gradle Plugin runs unit tests on JUnit 4 unless it is told otherwise, so a
-        // JUnit 5 suite compiles and is then never discovered. The same block carries the JVM test
-        // settings, because `unitTests.all` is the only handle AGP offers on the unit-test task.
-        if (build.testFramework == TestFramework.JUNIT_5 || !build.testSettings.isEmpty) {
+        // suite that needs the JUnit platform compiles and is then never discovered. The same block
+        // carries the JVM test settings, because `unitTests.all` is the only handle AGP offers on
+        // the unit-test task.
+        if (build.testFramework.runsOnTheJUnitPlatform || !build.testSettings.isEmpty) {
             block("testOptions") {
                 block("unitTests.all") {
-                    if (build.testFramework == TestFramework.JUNIT_5) line("it.useJUnitPlatform()")
+                    if (build.testFramework.runsOnTheJUnitPlatform) line("it.useJUnitPlatform()")
                     appendJvmTestSettings(build.testSettings, receiver = "it.")
                 }
             }
@@ -193,7 +193,7 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     // Every JVM-backed target of the module runs its tests through a Gradle `Test` task, and each
     // of them keeps Gradle's JUnit 4 runner unless told otherwise. There is no per-target DSL that
     // covers both `jvm()` and `androidLibrary`, so they are configured together.
-    val junitPlatform = build.testFramework == TestFramework.JUNIT_5
+    val junitPlatform = build.testFramework.runsOnTheJUnitPlatform
     if ((junitPlatform || !build.testSettings.isEmpty) && build.targets.any { it.kind.runsOnAJdk }) {
         blank()
         block("tasks.withType<Test>().configureEach") {

@@ -1,0 +1,12 @@
+product: jvm/lib
+
+# Default JUnit, in the same project as the `junit: none` modules. One root gradle.properties
+# serves both, and it turns the Kotlin Gradle Plugin's test-variant guess off for the whole build:
+# this module is what proves the adapter still reaches a module that did not ask to bring its own.
+settings:
+  kotlin:
+    version: 2.4.10
+  jvm:
+    jdk:
+      version: 25
+    release: 17

@@ -14,6 +14,7 @@ import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.JvmBuild
 import io.heapy.ktctogradle.model.JvmTestSettings
+import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TestFramework
 import io.heapy.ktctogradle.load.Layout as RawLayout
 import io.heapy.ktctogradle.model.Layout as GradleLayout
@@ -36,7 +37,9 @@ internal object JvmInterpreter {
         val serialization = Serialization.of(model)
         val declared = Dependencies.of(index, module, test = false, qualifiers = QUALIFIERS)
         val testFramework = testFramework(model)
-        val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS)
+        warnAboutJunitNone(module, testFramework, diagnostics)
+        val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS) +
+            platformLauncher(testFramework)
         return JvmBuild(
             jdk = jdk,
             release = release,
@@ -57,6 +60,43 @@ internal object JvmInterpreter {
         "junit-4" -> TestFramework.JUNIT_4
         "none" -> TestFramework.NONE
         else -> throw ConversionException("settings.junit must be junit-5, junit-4, or none")
+    }
+
+    /**
+     * The one place `settings.junit: none` is not converted faithfully, said out loud.
+     *
+     * The Kotlin Toolchain runs every JVM test through `junit-platform-console-standalone`, and that
+     * artifact carries the Jupiter and Vintage engines. So `none` upstream means "no `kotlin-test`
+     * JUnit adapter" while an engine is there regardless, and a module testing against
+     * `junit-jupiter-api` alone still runs.
+     *
+     * Gradle has no equivalent: a `Test` task discovers nothing an engine on its own runtime
+     * classpath does not find. The converted build therefore takes the engine from the module, and
+     * a JVM-backed platform the module named none for runs no tests where the Toolchain ran them.
+     *
+     * Raised once per module rather than per platform, because the module is where the setting is.
+     */
+    fun warnAboutJunitNone(module: ToolchainModule, framework: TestFramework, diagnostics: DiagnosticCollector) {
+        if (framework != TestFramework.NONE) return
+        diagnostics.warn(
+            "${module.displayName}: settings.junit: none keeps the JUnit platform but adds no engine, " +
+                "and the Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in " +
+                "the test dependencies of every JVM-backed platform",
+        )
+    }
+
+    /**
+     * The JUnit platform launcher, for the one framework whose adapter does not bring it.
+     *
+     * `kotlin-test-junit5` depends on the launcher, so a `junit-5` module already has one.
+     * `settings.junit: none` adds no adapter at all, and Gradle refuses to run `useJUnitPlatform()`
+     * without a launcher on the test runtime classpath, so that module gets it named directly.
+     */
+    fun platformLauncher(framework: TestFramework): List<Dependency> = when (framework) {
+        TestFramework.NONE -> listOf(
+            Dependency(DependencyTarget.Maven(Defaults.JUNIT_PLATFORM_LAUNCHER), scope = Scope.RUNTIME_ONLY),
+        )
+        else -> emptyList()
     }
 
     /**

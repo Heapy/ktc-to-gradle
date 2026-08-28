@@ -1,0 +1,2 @@
+WARNING: jvm-lib: settings.junit: none keeps the JUnit platform but adds no engine, and the Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in the test dependencies of every JVM-backed platform
+WARNING: kmp-lib: settings.junit: none keeps the JUnit platform but adds no engine, and the Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in the test dependencies of every JVM-backed platform

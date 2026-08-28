@@ -15,6 +15,7 @@ import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmTestSettings
+import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TestFramework
 import okio.Path
 import okio.Path.Companion.toPath
@@ -50,6 +51,30 @@ class AndroidInterpreterTest {
                 testSettings = JvmTestSettings(),
             ),
             interpret(module("app", "product: android/app\n")),
+        )
+    }
+
+    /**
+     * The same rule as on a `jvm/lib`: only `settings.junit: none` names the platform launcher.
+     *
+     * The Android Gradle Plugin runs its unit tests on Gradle's JUnit 4 runner unless the converted
+     * build asks for the platform, and asking for it without a launcher fails the task outright.
+     */
+    @Test
+    fun onlyJunitNoneNamesThePlatformLauncher() {
+        fun testDependenciesOf(junit: String) =
+            interpret(module("app", "product: android/app\nsettings:\n  junit: $junit\n")).testDependencies
+
+        assertEquals(emptyList(), testDependenciesOf("junit-5"))
+        assertEquals(emptyList(), testDependenciesOf("junit-4"))
+        assertEquals(
+            listOf(
+                Dependency(
+                    DependencyTarget.Maven("org.junit.platform:junit-platform-launcher"),
+                    scope = Scope.RUNTIME_ONLY,
+                ),
+            ),
+            testDependenciesOf("none"),
         )
     }
 

@@ -40,6 +40,7 @@ kotlin {
             dependsOn(getByName("commonTest"))
             kotlin.srcDir("test@jvm")
             dependencies {
+                implementation(kotlin("test-junit5"))
                 implementation("org.junit.jupiter:junit-jupiter:5.14.1")
             }
         }

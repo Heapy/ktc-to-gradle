@@ -1,0 +1,10 @@
+build.gradle.kts
+gradle.properties
+gradle/wrapper/gradle-wrapper.jar
+gradle/wrapper/gradle-wrapper.properties
+gradlew
+gradlew.bat
+junit5-lib/build.gradle.kts
+jvm-lib/build.gradle.kts
+kmp-lib/build.gradle.kts
+settings.gradle.kts

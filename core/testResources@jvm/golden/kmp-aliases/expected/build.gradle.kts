@@ -76,6 +76,7 @@ kotlin {
         maybeCreate("jvmTest").apply {
             dependsOn(getByName("desktopTest"))
             dependencies {
+                implementation(kotlin("test-junit5"))
                 implementation("org.example:jvm-test:1.0")
             }
         }

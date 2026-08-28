@@ -13,11 +13,20 @@ import kotlin.test.assertTrue
 
 class ConversionIntegrationTest {
     private val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
-    private val androidFixtures = setOf("android-app", "kmp-android")
+    private val androidFixtures = setOf("android-app", "kmp-android", "android-junit-none")
 
     @Test
     fun convertedJvmFixturesBuildWithPinnedGradle() {
-        for (fixture in listOf("jvm-single", "jvm-multi", "kmp-library", "compiler-plugin", "android-app", "kmp-android")) {
+        for (fixture in listOf(
+            "jvm-single",
+            "jvm-multi",
+            "kmp-library",
+            "junit-none",
+            "compiler-plugin",
+            "android-app",
+            "android-junit-none",
+            "kmp-android",
+        )) {
             val source = projectRoot().resolve("integration-tests/fixtures/$fixture")
             val destination = Files.createTempDirectory("ktc-to-gradle-$fixture-")
             copyRecursively(source, destination)
@@ -51,6 +60,22 @@ class ConversionIntegrationTest {
             }
             if (fixture == "android-app") {
                 assertUnitTestsRan(destination, "testDebugUnitTest", "example.android.PayloadTest")
+            }
+            // `settings.junit: none` adds no JUnit adapter and still runs the JUnit platform, so
+            // both modules discover a suite written against the engine they brought themselves.
+            if (fixture == "junit-none") {
+                assertUnitTestsRan(destination.resolve("jvm-lib"), "test", "example.junitnone.JupiterOnlyTest")
+                assertUnitTestsRan(
+                    destination.resolve("kmp-lib"),
+                    "jvmTest",
+                    "example.junitnone.multiplatform.JupiterOnlyTest",
+                )
+                // The junit-5 module of the same project: one root gradle.properties serves both,
+                // and the adapter still reaches the module that did not bring an engine of its own.
+                assertUnitTestsRan(destination.resolve("junit5-lib"), "test", "example.junit5.KotlinTestTest")
+            }
+            if (fixture == "android-junit-none") {
+                assertUnitTestsRan(destination, "testDebugUnitTest", "example.androidjunitnone.JupiterOnlyTest")
             }
             if (fixture == "kmp-android") {
                 assertAndroidUnitTestsRan(destination)
