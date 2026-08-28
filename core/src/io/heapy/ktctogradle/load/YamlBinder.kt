@@ -284,23 +284,26 @@ internal object YamlBinder {
                 addAll(unsupportedJvmKeys(value))
                 continue
             }
-            if (section != "kotlin") {
+            if (section != QualifiedOption.KOTLIN) {
                 for (path in leafPaths(section, value)) add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
                 continue
             }
             val kotlin = value as? Value.Mapping
             if (kotlin == null) {
-                add(UnsupportedKey(section, "must be an object"))
+                add(UnsupportedKey(section, "must be an object", QualifiedOption.ALL))
                 continue
             }
             for ((key, option) in kotlin.entries) {
                 when (key) {
-                    "languageVersion", "apiVersion" ->
-                        if (option.scalarOrNull() == null) add(UnsupportedKey("kotlin.$key", "must be a string"))
-                    "allWarningsAsErrors", "progressiveMode" ->
-                        if (kotlin.boolean(key) == null) add(UnsupportedKey("kotlin.$key", "must be true or false"))
-                    "freeCompilerArgs", "optIns" ->
-                        if (option !is Value.Sequence) add(UnsupportedKey("kotlin.$key", "must be a list"))
+                    "languageVersion", "apiVersion" -> if (option.scalarOrNull() == null) {
+                        add(UnsupportedKey("kotlin.$key", "must be a string", setOf(key)))
+                    }
+                    "allWarningsAsErrors", "progressiveMode" -> if (kotlin.boolean(key) == null) {
+                        add(UnsupportedKey("kotlin.$key", "must be true or false", setOf(key)))
+                    }
+                    "freeCompilerArgs", "optIns" -> if (option !is Value.Sequence) {
+                        add(UnsupportedKey("kotlin.$key", "must be a list", setOf(key)))
+                    }
                     else -> for (path in leafPaths("kotlin.$key", option)) {
                         add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
                     }
@@ -374,21 +377,16 @@ internal object YamlBinder {
      * Which compiler options a section declared and got wrong, read off the same walk that reported
      * them.
      *
+     * The walk names the option each key stands for, so this only collects them. Deriving it from
+     * [UnsupportedKey.path] instead would read a literal `kotlin.languageVersion` key — one key of
+     * the section, dropped like any other — as the module getting `languageVersion` wrong, and a
+     * broader section's real value would be suppressed by a key that never contributed one.
+     *
      * A dropped key that has no compiler option behind it — `settings@jvm.jvm.release`, an unknown
      * `kotlin.foo` — is not listed: it overrides nothing because it contributes nothing either way.
      */
-    private fun malformedOptions(keys: List<UnsupportedKey>): Set<String> = buildSet {
-        val prefix = "${QualifiedOption.KOTLIN}."
-        for (key in keys) {
-            if (key.path == QualifiedOption.KOTLIN) {
-                addAll(QualifiedOption.ALL)
-                continue
-            }
-            if (!key.path.startsWith(prefix)) continue
-            val option = key.path.removePrefix(prefix)
-            if (option in QualifiedOption.ALL) add(option)
-        }
-    }
+    private fun malformedOptions(keys: List<UnsupportedKey>): Set<String> =
+        keys.flatMapTo(mutableSetOf(), UnsupportedKey::options)
 
     /**
      * Every scalar, list or empty node under [prefix], as the dotted path that reaches it.

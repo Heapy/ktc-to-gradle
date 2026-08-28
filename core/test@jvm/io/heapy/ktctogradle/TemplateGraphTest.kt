@@ -69,6 +69,36 @@ class TemplateGraphTest {
         )
     }
 
+    /**
+     * A YAML key may itself contain a dot, so joining the path with one would print a literal
+     * `my.app.mode` and a three-level nesting as the same text. The segment that carries the dot is
+     * quoted, which is how the module would have had to write it.
+     */
+    @Test
+    fun aScalarConflictOnALiteralDottedKeyQuotesTheKeyThatCarriesTheDot() {
+        assertEquals(
+            "Conflicting template values for 'settings.\"my.app.mode\"' in $SIBLING_TEMPLATES",
+            conflictMessage("ktc-template-conflict-dotted-key-") { "settings: { \"my.app.mode\": $it }\n" },
+        )
+    }
+
+    /**
+     * Quoting is only unambiguous while the quote itself is escaped: a key spelled `"a` over one
+     * spelled `b"` would otherwise print as the quoted single key `a.b`. A bare segment carries no
+     * dot, no quote and no backslash and is never empty, so two paths can never print the same.
+     */
+    @Test
+    fun aQuoteOrABackslashInAKeyIsEscapedRatherThanClosingTheQuotedSegment() {
+        assertEquals(
+            "Conflicting template values for 'settings.\"\\\"a\".\"b\\\"\"' in $SIBLING_TEMPLATES",
+            conflictMessage("ktc-template-conflict-quoted-key-") { "settings: { '\"a': { 'b\"': $it } }\n" },
+        )
+        assertEquals(
+            "Conflicting template values for 'settings.\"back\\\\slash\"' in $SIBLING_TEMPLATES",
+            conflictMessage("ktc-template-conflict-backslash-key-") { "settings: { 'back\\slash': $it }\n" },
+        )
+    }
+
     /** A module overrides the templates it applies, so its own scalar is not a conflict. */
     @Test
     fun aModuleScalarOverridesTheTemplateItApplies() {
@@ -206,6 +236,22 @@ class TemplateGraphTest {
         )
     }
 
+    /**
+     * The message two sibling templates produce by disagreeing: [body] is the whole template,
+     * written once per value it has to disagree about.
+     */
+    private fun conflictMessage(prefix: String, body: (String) -> String): String {
+        val root = temporaryRoot(prefix)
+        write(root.resolve("templates/a.module-template.yaml"), body("fast"))
+        write(root.resolve("templates/b.module-template.yaml"), body("slow"))
+        write(
+            root.resolve("module.yaml"),
+            "product: jvm/lib\napply: [//templates/a.module-template.yaml, //templates/b.module-template.yaml]\n",
+        )
+
+        return assertFailsWith<ConversionException> { resolve(root) }.message.orEmpty()
+    }
+
     private fun resolve(root: Path, moduleFile: Path = root.resolve("module.yaml")) =
         TemplateGraph(FileSystem.SYSTEM)
             .effectiveConfig(root.toString().toPath(), moduleFile.toString().toPath())
@@ -216,5 +262,10 @@ class TemplateGraphTest {
     private fun write(path: Path, content: String) {
         path.parent.createDirectories()
         path.writeText(content)
+    }
+
+    private companion object {
+        /** The two files [conflictMessage] makes disagree, as the message names them. */
+        const val SIBLING_TEMPLATES = "templates/a.module-template.yaml, templates/b.module-template.yaml"
     }
 }

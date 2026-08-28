@@ -151,9 +151,23 @@ internal object QualifiedOption {
 
 /** A key of a qualified section that was dropped, and the wording the diagnostic uses to say so. */
 internal data class UnsupportedKey(
-    /** Leaf path inside the section, such as `jvm.release` or `kotlin.unknown`. */
+    /**
+     * Leaf path inside the section, such as `jvm.release` or `kotlin.unknown`.
+     *
+     * Display text only. A YAML key may itself contain a dot, so the path of a literal
+     * `kotlin.languageVersion` key and that of `languageVersion` under `kotlin` read the same, and
+     * reading structure back out of it would confuse the two: [options] carries that structure.
+     */
     val path: String,
     val reason: String,
+    /**
+     * The [QualifiedOption] keys this key stands for, named by the walk that found it.
+     *
+     * Empty when the dropped key is about no compiler option at all, which is what lets
+     * [QualifiedSection.malformedOptions] tell a section that got an option wrong from one that
+     * merely spelled a dropped key like one.
+     */
+    val options: Set<String> = emptySet(),
 ) {
     companion object {
         const val UNSUPPORTED = "is not supported by the converter"

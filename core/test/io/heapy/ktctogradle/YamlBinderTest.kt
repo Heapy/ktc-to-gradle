@@ -919,9 +919,9 @@ class YamlBinderTest {
 
         assertEquals(
             listOf(
-                UnsupportedKey("kotlin.languageVersion", "must be a string"),
-                UnsupportedKey("kotlin.allWarningsAsErrors", "must be true or false"),
-                UnsupportedKey("kotlin.freeCompilerArgs", "must be a list"),
+                UnsupportedKey("kotlin.languageVersion", "must be a string", setOf("languageVersion")),
+                UnsupportedKey("kotlin.allWarningsAsErrors", "must be true or false", setOf("allWarningsAsErrors")),
+                UnsupportedKey("kotlin.freeCompilerArgs", "must be a list", setOf("freeCompilerArgs")),
                 UnsupportedKey("kotlin.unknown", UnsupportedKey.UNSUPPORTED),
                 UnsupportedKey("kotlin.ksp", UnsupportedKey.UNSUPPORTED),
                 UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED),
@@ -929,7 +929,7 @@ class YamlBinderTest {
             model.qualifiedSections.section("settings@jvm").unsupportedKeys,
         )
         assertEquals(
-            listOf(UnsupportedKey("kotlin", "must be an object")),
+            listOf(UnsupportedKey("kotlin", "must be an object", QualifiedOption.ALL)),
             model.qualifiedSections.section("settings@linuxX64").unsupportedKeys,
         )
         // `test-settings.jvm.release` reaches a compilation rather than a `Test` task, and a
@@ -950,6 +950,42 @@ class YamlBinderTest {
             model.qualifiedSections.section("settings@linuxX64").malformedOptions,
         )
         assertEquals(emptySet(), model.qualifiedSections.section("test-settings@jvm").malformedOptions)
+    }
+
+    /**
+     * A YAML key may itself contain a dot, so a literal `kotlin.languageVersion` is one key of the
+     * section and not the `languageVersion` under `kotlin`. It is dropped like any other key the
+     * converter has no field for, and dropping it must not pass for declaring the option: the
+     * broader section's value is the one the module wrote and the only one left.
+     */
+    @Test
+    fun aLiteralDottedKeyIsDroppedWithoutSuppressingTheOptionItSpellsOut() {
+        val model = bind(
+            """
+                product: jvm/lib
+                settings@common:
+                  kotlin:
+                    languageVersion: "2.1"
+                settings@jvm:
+                  "kotlin.languageVersion": ignored
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            KotlinSettings(languageVersion = "2.1"),
+            model.qualifiedSections.section("settings@common").settings?.kotlin,
+        )
+        assertEquals(
+            QualifiedSection(
+                key = "settings@jvm",
+                qualifier = "jvm",
+                test = false,
+                settings = Settings.EMPTY,
+                unsupportedKeys = listOf(UnsupportedKey("kotlin.languageVersion", UnsupportedKey.UNSUPPORTED)),
+                malformedOptions = emptySet(),
+            ),
+            model.qualifiedSections.section("settings@jvm"),
+        )
     }
 
     @Test

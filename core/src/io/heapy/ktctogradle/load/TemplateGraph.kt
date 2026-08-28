@@ -48,7 +48,7 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
             if (distinct.size > 1) {
                 val sources = maximal.joinToString { it.node.file.relativeTo(root).toString() }
                 throw ConversionException(
-                    "Conflicting template values for '${path.joinToString(".")}' in $sources",
+                    "Conflicting template values for '${displayPath(path)}' in $sources",
                 )
             }
             resolved = setScalar(resolved, path, maximal.first().value)
@@ -138,6 +138,24 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
             is Value.Sequence -> Unit
         }
     }
+
+    /**
+     * The key path as the module would have had to write it, for a message to quote.
+     *
+     * The segments are joined with a dot, so a segment that contains one is quoted: without that a
+     * literal `my.app.mode` key and a three-level nesting print the same text, and the message would
+     * point at a key the module never wrote. The quote and the backslash are escaped, and an empty
+     * key is quoted too, for the same reason the dot is: a bare segment then contains none of the
+     * three and is never empty, so no two paths can reach the same text.
+     */
+    private fun displayPath(path: List<String>): String =
+        path.joinToString(".") { segment ->
+            if (segment.isEmpty() || segment.any { it == '.' || it == '"' || it == '\\' }) {
+                "\"${segment.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+            } else {
+                segment
+            }
+        }
 
     private fun reaches(higher: ConfigNode, lower: ConfigNode): Boolean {
         if (higher === lower) return true
