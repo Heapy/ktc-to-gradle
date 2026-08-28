@@ -40,6 +40,10 @@ internal object StaticAssets {
         INSTALL_DIR="$GRADLE_USER_HOME/ktc-to-gradle/gradle-$GRADLE_VERSION"
         ARCHIVE="$GRADLE_USER_HOME/ktc-to-gradle/gradle-$GRADLE_VERSION-bin.zip"
         if [ ! -x "$INSTALL_DIR/bin/gradle" ]; then
+          if ! command -v unzip >/dev/null 2>&1; then
+            echo "ktc-to-gradle: unzip is required to unpack Gradle" >&2
+            exit 1
+          fi
           mkdir -p "$(dirname "$ARCHIVE")"
           URL="https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
           if command -v curl >/dev/null 2>&1; then curl -fL --retry 3 -o "$ARCHIVE" "$URL"
@@ -51,12 +55,17 @@ internal object StaticAssets {
             printf '%s  %s\n' '$${Versions.GRADLE_SHA256}' "$ARCHIVE" | shasum -a 256 -c -
           fi
           TMP="$INSTALL_DIR.tmp.$$"
+          trap 'STATUS=$?; rm -rf "$TMP" || :; exit $STATUS' EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           rm -rf "$TMP"
           mkdir -p "$TMP"
           unzip -q "$ARCHIVE" -d "$TMP"
           rm -rf "$INSTALL_DIR"
           mv "$TMP/gradle-$GRADLE_VERSION" "$INSTALL_DIR"
           rm -rf "$TMP"
+          trap - EXIT HUP INT TERM
         fi
         exec "$INSTALL_DIR/bin/gradle" "$@"
     """.trimIndent() + "\n"
