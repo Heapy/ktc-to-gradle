@@ -13,6 +13,7 @@ import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.TargetKind
+import io.heapy.ktctogradle.model.TestFramework
 import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.test.Test
@@ -67,6 +68,7 @@ class MultiplatformInterpreterTest {
                     sourceSet("jsMain", "webMain"),
                     sourceSet("jsTest", "webTest", test = true),
                 ),
+                testFramework = TestFramework.JUNIT_5,
             ),
             interpret(module("app", "product: js/app\n")),
         )
@@ -120,6 +122,31 @@ class MultiplatformInterpreterTest {
 
         val nativeOnly = interpret(module("lib", "product:\n  type: kmp/lib\n  platforms: [linuxX64]\n$declaration"))
         assertNull(nativeOnly.jvmToolchain, "Nothing on a native-only module compiles against a JDK")
+    }
+
+    /**
+     * `settings.junit` reaches the build, and `commonTest` keeps the plain Kotlin test library.
+     *
+     * That artifact resolves per platform, so it is the JVM-backed test tasks — and only them —
+     * that have a framework to choose. The renderer decides how to say so.
+     */
+    @Test
+    fun theTestFrameworkReachesTheBuildAndCommonTestKeepsTheKotlinTestLibrary() {
+        fun buildOf(junit: String) = interpret(
+            module("lib", "product:\n  type: kmp/lib\n  platforms: [jvm, linuxX64]\n$junit"),
+        )
+
+        assertEquals(TestFramework.JUNIT_5, buildOf("").testFramework, "junit-5 is the default")
+        assertEquals(TestFramework.JUNIT_4, buildOf("settings:\n  junit: junit-4\n").testFramework)
+        assertEquals(TestFramework.NONE, buildOf("settings:\n  junit: none\n").testFramework)
+
+        for (junit in listOf("", "settings:\n  junit: junit-4\n", "settings:\n  junit: none\n")) {
+            assertEquals(
+                listOf(Dependency(DependencyTarget.KotlinBuiltin("test"))),
+                buildOf(junit).sourceSets.single { it.name == "commonTest" }.dependencies,
+                "for '$junit'",
+            )
+        }
     }
 
     /** A target inherits the module-wide options, so only the section that names it may add to them. */

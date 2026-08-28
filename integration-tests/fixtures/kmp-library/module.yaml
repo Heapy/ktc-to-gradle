@@ -10,3 +10,7 @@ settings:
       version: 25
     release: 17
 
+# Jupiter directly, not through kotlin-test: only a real JUnit 5 annotation can tell a JUnit 5
+# runner from the JUnit 4 one Gradle uses by default.
+test-dependencies@jvm:
+  - org.junit.jupiter:junit-jupiter:5.14.1

@@ -68,3 +68,7 @@ dependencies {
     kotlinCompilerPluginClasspath("org.example:second-compiler:2.0")
     kotlinNativeCompilerPluginClasspath("org.example:second-compiler:2.0")
 }
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}

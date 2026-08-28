@@ -286,6 +286,13 @@ internal data class MultiplatformBuild(
     val qualifiedCompilerOptions: CompilerOptions,
     /** Parents precede children, which is what lets the renderer emit them in one pass. */
     val sourceSets: List<KmpSourceSet>,
+    /**
+     * What the JVM-backed test tasks run on.
+     *
+     * `commonTest` keeps the plain `kotlin("test")` whatever this says — that artifact resolves per
+     * platform, and only the JVM-flavoured targets have a framework to choose.
+     */
+    val testFramework: TestFramework,
 ) : ModuleBuild
 
 internal data class KmpTarget(
@@ -307,18 +314,38 @@ internal data class KmpTarget(
  * rather than on the platform name, and a new family cannot be forgotten.
  */
 internal sealed interface TargetKind {
+    /**
+     * True when the target's tests run on a JDK, and therefore through a Gradle `Test` task.
+     *
+     * Abstract rather than a `when` over the subtypes, so a target family added later has to answer
+     * the question instead of silently inheriting `false`.
+     */
+    val runsOnAJdk: Boolean
+
     /** [release] is both the bytecode target and the `-Xjdk-release` the compiler is given. */
-    data class Jvm(val release: String) : TargetKind
+    data class Jvm(val release: String) : TargetKind {
+        override val runsOnAJdk = true
+    }
 
-    data class Android(val library: AndroidLibraryTarget) : TargetKind
+    data class Android(val library: AndroidLibraryTarget) : TargetKind {
+        override val runsOnAJdk = true
+    }
 
-    data object Js : TargetKind
+    data object Js : TargetKind {
+        override val runsOnAJdk = false
+    }
 
-    data object WasmJs : TargetKind
+    data object WasmJs : TargetKind {
+        override val runsOnAJdk = false
+    }
 
-    data object WasmWasi : TargetKind
+    data object WasmWasi : TargetKind {
+        override val runsOnAJdk = false
+    }
 
-    data object Native : TargetKind
+    data object Native : TargetKind {
+        override val runsOnAJdk = false
+    }
 }
 
 internal data class KmpSourceSet(

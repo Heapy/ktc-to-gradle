@@ -10,3 +10,8 @@ settings:
       version: 25
     # Deliberately below the toolchain JDK: the jvm() and androidLibrary targets must agree on it.
     release: 21
+
+# Jupiter directly, not through kotlin-test: only a real JUnit 5 annotation can tell a JUnit 5
+# runner from the JUnit 4 one Gradle uses by default.
+test-dependencies@android:
+  - org.junit.jupiter:junit-jupiter:5.14.1

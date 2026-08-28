@@ -39,6 +39,9 @@ kotlin {
         maybeCreate("jvmTest").apply {
             dependsOn(getByName("commonTest"))
             kotlin.srcDir("test@jvm")
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter:5.14.1")
+            }
         }
         maybeCreate("nativeMain").apply {
             dependsOn(getByName("commonMain"))
@@ -60,4 +63,8 @@ kotlin {
             dependsOn(getByName("linuxTest"))
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

@@ -48,6 +48,9 @@ kotlin {
         maybeCreate("androidHostTest").apply {
             dependsOn(getByName("commonTest"))
             kotlin.srcDir("test@android")
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter:5.14.1")
+            }
         }
         maybeCreate("jvmMain").apply {
             dependsOn(getByName("commonMain"))
@@ -57,4 +60,8 @@ kotlin {
             dependsOn(getByName("commonTest"))
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

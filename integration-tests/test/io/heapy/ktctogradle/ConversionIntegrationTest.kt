@@ -45,7 +45,10 @@ class ConversionIntegrationTest {
             val output = process.inputStream.bufferedReader().readText()
             val exitCode = process.waitFor()
             assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
-            if (fixture == "kmp-library") assertJvmRelease(destination, expectedMajorVersion = 61)
+            if (fixture == "kmp-library") {
+                assertJvmRelease(destination, expectedMajorVersion = 61)
+                assertUnitTestsRan(destination, "jvmTest", "example.multiplatform.JupiterOnlyTest")
+            }
             if (fixture == "android-app") {
                 assertUnitTestsRan(destination, "testDebugUnitTest", "example.android.PayloadTest")
             }
@@ -157,8 +160,12 @@ class ConversionIntegrationTest {
      * Android unit tests run from androidHostTest. A test left in androidTest compiles and
      * the build still passes, so assert the report exists instead of trusting the exit code.
      */
-    private fun assertAndroidUnitTestsRan(directory: Path) =
+    private fun assertAndroidUnitTestsRan(directory: Path) {
         assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.AndroidOnlyTest")
+        // Annotated with Jupiter rather than kotlin.test, so it is discovered only when the task
+        // actually runs the JUnit platform. A kotlin.test class runs under JUnit 4 just as happily.
+        assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.JupiterOnlyTest")
+    }
 
     /**
      * The JUnit report of one test class, read where the named task writes it.

@@ -190,6 +190,15 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
             )
         }
     }
+    // Every JVM-backed target of the module runs its tests through a Gradle `Test` task, and each
+    // of them keeps Gradle's JUnit 4 runner unless told otherwise. There is no per-target DSL that
+    // covers both `jvm()` and `androidLibrary`, so they are configured together.
+    if (build.testFramework == TestFramework.JUNIT_5 && build.targets.any { it.kind.runsOnAJdk }) {
+        blank()
+        block("tasks.withType<Test>().configureEach") {
+            line("useJUnitPlatform()")
+        }
+    }
 }.build()
 
 private fun KtsWriter.appendTarget(target: KmpTarget) {

@@ -50,6 +50,7 @@ internal object MultiplatformInterpreter {
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin),
             qualifiedCompilerOptions = qualified.common,
             sourceSets = sourceSets(index, module, fragments, serialization),
+            testFramework = JvmInterpreter.testFramework(model),
         )
     }
 
