@@ -189,7 +189,14 @@ internal data class JvmTestSettings(
     val freeJvmArgs: List<String> = emptyList(),
     val systemProperties: Map<String, String> = emptyMap(),
     val environment: Map<String, String> = emptyMap(),
-)
+) {
+    val isEmpty: Boolean
+        get() = freeJvmArgs.isEmpty() && systemProperties.isEmpty() && environment.isEmpty()
+
+    companion object {
+        val EMPTY = JvmTestSettings()
+    }
+}
 
 /** A repository Gradle spells with a shorthand instead of a `maven { }` block. */
 internal enum class RepositoryShorthand { MAVEN_LOCAL, MAVEN_CENTRAL, GOOGLE }
@@ -250,6 +257,7 @@ internal data class AndroidBuild(
     val dependencies: List<Dependency>,
     val testDependencies: List<Dependency>,
     val testFramework: TestFramework,
+    val testSettings: JvmTestSettings,
 ) : ModuleBuild
 
 /**
@@ -293,6 +301,13 @@ internal data class MultiplatformBuild(
      * platform, and only the JVM-flavoured targets have a framework to choose.
      */
     val testFramework: TestFramework,
+    /**
+     * What the JVM-backed test tasks are given: arguments, system properties and environment.
+     *
+     * Empty when the module declares no JVM-backed target, because there is then no `Test` task to
+     * carry them and the interpret stage reports the drop instead.
+     */
+    val testSettings: JvmTestSettings,
 ) : ModuleBuild
 
 internal data class KmpTarget(

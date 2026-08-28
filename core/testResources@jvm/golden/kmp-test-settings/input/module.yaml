@@ -1,0 +1,19 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+settings:
+  jvm:
+    test:
+      freeJvmArgs: [-Xmx512m]
+      systemProperties:
+        reportMode: base
+        reportKept: base
+      extraEnvironment:
+        REPORT_HOME: /tmp/base
+
+test-settings:
+  jvm:
+    freeJvmArgs: [-XX:+UseZGC]
+    systemProperties:
+      reportMode: test

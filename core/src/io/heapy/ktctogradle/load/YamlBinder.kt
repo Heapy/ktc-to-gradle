@@ -342,8 +342,8 @@ internal object YamlBinder {
                     jdkVersion = present.string("jvm.jdk.version"),
                     release = present.string("jvm.release"),
                     mainClass = present.string("jvm.mainClass"),
-                    // Only a JVM module ever renders the test task, so a malformed argument list
-                    // defers under its own region and never fails an Android or KMP conversion.
+                    // A malformed argument list defers under its own region, so it is raised by the
+                    // interpreter that reads the test settings and not by an unrelated section.
                     testFreeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
                         present.stringList("jvm.test.freeJvmArgs", "settings.", lenient)
                     },

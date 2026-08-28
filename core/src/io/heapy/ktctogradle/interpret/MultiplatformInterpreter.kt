@@ -12,6 +12,7 @@ import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
+import io.heapy.ktctogradle.model.JvmTestSettings
 import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.MultiplatformBuild
@@ -38,11 +39,14 @@ internal object MultiplatformInterpreter {
         // The module-wide options are the first thing read out of `settings:` itself, so a section
         // the binder could not read raises its message here rather than earlier.
         model.raiseDeferred(Region.SETTINGS)
+        // Asked of the targets rather than of the platform names, so the one place that answers
+        // "does this run on a JDK" is `TargetKind`, and the renderer cannot disagree with this.
+        val runsOnAJdk = targets.any { it.kind.runsOnAJdk }
         return MultiplatformBuild(
             targets = targets,
             // Both JVM-flavoured targets compile against a JDK, and both carry a release the JDK has
             // to be able to supply, so an android-only module needs the toolchain pin just as much.
-            jvmToolchain = if (platforms.any(JVM_PLATFORMS::contains)) {
+            jvmToolchain = if (runsOnAJdk) {
                 model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK
             } else {
                 null
@@ -51,11 +55,37 @@ internal object MultiplatformInterpreter {
             qualifiedCompilerOptions = qualified.common,
             sourceSets = sourceSets(index, module, fragments, serialization),
             testFramework = JvmInterpreter.testFramework(model),
+            testSettings = testSettings(module, runsOnAJdk, diagnostics),
         )
     }
 
-    /** The platforms whose compilations run on a JDK, and therefore need `jvmToolchain`. */
-    private val JVM_PLATFORMS = setOf("jvm", "android")
+    /**
+     * The JVM test settings of the module, or nothing when it has no target to apply them to.
+     *
+     * A module whose platforms are all native or web still parses `settings.jvm.test`, and Gradle
+     * has no `Test` task to carry it: the keys are reported and dropped rather than lost in silence.
+     * Such a module reads the sections without raising, because a value it never applies must not
+     * fail its conversion.
+     */
+    private fun testSettings(
+        module: ToolchainModule,
+        runsOnAJdk: Boolean,
+        diagnostics: DiagnosticCollector,
+    ): JvmTestSettings {
+        if (runsOnAJdk) return JvmInterpreter.testSettings(module.model)
+        val settings = JvmInterpreter.declaredTestSettings(module.model)
+        if (settings.isEmpty) return settings
+        val dropped = buildList {
+            if (settings.freeJvmArgs.isNotEmpty()) add("freeJvmArgs")
+            if (settings.systemProperties.isNotEmpty()) add("systemProperties")
+            if (settings.environment.isNotEmpty()) add("extraEnvironment")
+        }
+        diagnostics.warn(
+            "${module.displayName}: the JVM test settings ${dropped.joinToString()} name no JVM-backed " +
+                "platform of this module and were dropped",
+        )
+        return JvmTestSettings.EMPTY
+    }
 
     private fun target(
         module: ToolchainModule,

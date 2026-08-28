@@ -109,6 +109,25 @@ class GeneratedOutputSnapshotTest {
      */
     @Test fun pluginModule() = assertCase("plugin-module")
 
+    /**
+     * An `android/app` carrying `settings.jvm.test` and `test-settings.jvm`, on JUnit 4.
+     *
+     * `unitTests.all { }` is the only handle the Android Gradle Plugin offers on the unit-test task,
+     * so the settings reach it through the same block `useJUnitPlatform()` uses. JUnit 4 on purpose:
+     * the block has to open for the settings alone, and `android-junit4` pins that it stays shut
+     * when there are none.
+     */
+    @Test fun androidTestSettings() = assertCase("android-test-settings")
+
+    /**
+     * The same two sections on a `kmp/lib`, which has one `Test` task per JVM-backed target.
+     *
+     * They are configured together through `tasks.withType<Test>()`, so this pins that the settings
+     * join `useJUnitPlatform()` in that block rather than in a target-specific one. The other half
+     * of the guard the Android case leaves open.
+     */
+    @Test fun kmpTestSettings() = assertCase("kmp-test-settings")
+
     @Test fun staticAssets() = assertCase("static-assets")
 
     private fun assertCase(case: String) {

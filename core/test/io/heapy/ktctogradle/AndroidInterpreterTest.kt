@@ -14,6 +14,7 @@ import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.GradlePlugin
+import io.heapy.ktctogradle.model.JvmTestSettings
 import io.heapy.ktctogradle.model.TestFramework
 import okio.Path
 import okio.Path.Companion.toPath
@@ -46,6 +47,7 @@ class AndroidInterpreterTest {
                 dependencies = emptyList(),
                 testDependencies = emptyList(),
                 testFramework = TestFramework.JUNIT_5,
+                testSettings = JvmTestSettings(),
             ),
             interpret(module("app", "product: android/app\n")),
         )
@@ -86,6 +88,7 @@ class AndroidInterpreterTest {
                 dependencies = emptyList(),
                 testDependencies = emptyList(),
                 testFramework = TestFramework.JUNIT_5,
+                testSettings = JvmTestSettings(),
             ),
             interpret(app),
         )
@@ -340,15 +343,49 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * Only a JVM module renders a test task, so `settings.jvm.test` is never read here and a value
-     * the module got wrong has never stopped an Android conversion.
-     */
+    /** `settings.jvm.test` now reaches the unit-test task, so a malformed value is raised here. */
     @Test
-    fun aMalformedJvmTestArgumentListDoesNotFailAnAndroidModule() {
+    fun aMalformedJvmTestArgumentListFailsAnAndroidModule() {
         val app = module("app", "product: android/app\nsettings:\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
 
-        assertEquals(emptyList(), interpret(app).dependencies)
+        assertEquals(
+            "Expected a list at settings.jvm.test.freeJvmArgs",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    /** `test-settings:` overrides `settings.jvm.test` key by key, and the rest of the base survives. */
+    @Test
+    fun jvmTestSettingsMergeTheTestSpecificSectionOverTheBaseOne() {
+        val app = module(
+            "app",
+            """
+            product: android/app
+            settings:
+              jvm:
+                test:
+                  freeJvmArgs: [-Xmx512m]
+                  systemProperties:
+                    mode: base
+                    kept: base
+                  extraEnvironment:
+                    MODE: base
+            test-settings:
+              jvm:
+                freeJvmArgs: [-XX:+UseZGC]
+                systemProperties:
+                  mode: test
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            JvmTestSettings(
+                freeJvmArgs = listOf("-Xmx512m", "-XX:+UseZGC"),
+                systemProperties = mapOf("mode" to "test", "kept" to "base"),
+                environment = mapOf("MODE" to "base"),
+            ),
+            interpret(app).testSettings,
+        )
     }
 
     private fun interpret(module: ToolchainModule, vararg others: ToolchainModule): AndroidBuild =

@@ -57,6 +57,7 @@ internal object AndroidInterpreter {
             dependencies = dependencies,
             testDependencies = testDependencies,
             testFramework = testFramework,
+            testSettings = JvmInterpreter.testSettings(model),
         )
     }
 

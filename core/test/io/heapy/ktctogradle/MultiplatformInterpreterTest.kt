@@ -9,6 +9,7 @@ import io.heapy.ktctogradle.load.parseYaml
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
+import io.heapy.ktctogradle.model.JvmTestSettings
 import io.heapy.ktctogradle.model.KmpSourceSet
 import io.heapy.ktctogradle.model.KmpTarget
 import io.heapy.ktctogradle.model.MultiplatformBuild
@@ -69,6 +70,7 @@ class MultiplatformInterpreterTest {
                     sourceSet("jsTest", "webTest", test = true),
                 ),
                 testFramework = TestFramework.JUNIT_5,
+                testSettings = JvmTestSettings(),
             ),
             interpret(module("app", "product: js/app\n")),
         )
@@ -442,9 +444,86 @@ class MultiplatformInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, build.targets.single { it.name == "linuxX64" }.compilerOptions)
     }
 
-    /** `settings.jvm.test` reaches no multiplatform target, so a malformed value is not read here. */
+    /** `settings.jvm.test` now reaches the module's `Test` tasks, so a malformed value is raised here. */
     @Test
-    fun aMalformedJvmTestArgumentListDoesNotFailAMultiplatformModule() {
+    fun aMalformedJvmTestArgumentListFailsAMultiplatformModule() {
+        assertEquals(
+            "Expected a list at settings.jvm.test.freeJvmArgs",
+            assertFailsWith<ConversionException> {
+                interpret(
+                    module(
+                        "shared",
+                        """
+                        product:
+                          type: kmp/lib
+                          platforms: [jvm, linuxX64]
+                        settings:
+                          jvm:
+                            test:
+                              freeJvmArgs: nope
+                        """.trimIndent(),
+                    ),
+                )
+            }.message,
+        )
+    }
+
+    /** A module with no JVM-backed target applies nothing, so a value it got wrong must not fail it. */
+    @Test
+    fun aMalformedJvmTestArgumentListDoesNotFailAModuleWithoutAJvmBackedTarget() {
+        val shared = module(
+            "shared",
+            """
+            product:
+              type: kmp/lib
+              platforms: [linuxX64]
+            settings:
+              jvm:
+                test:
+                  freeJvmArgs: nope
+            """.trimIndent(),
+        )
+
+        assertEquals(JvmTestSettings.EMPTY, interpret(shared).testSettings)
+    }
+
+    /** The JVM test settings of a module with no JVM-backed target reach no task, so they are reported. */
+    @Test
+    fun jvmTestSettingsWithoutAJvmBackedTargetAreReported() {
+        val diagnostics = DiagnosticCollector()
+        val shared = module(
+            "shared",
+            """
+            product:
+              type: kmp/lib
+              platforms: [linuxX64, js]
+            settings:
+              jvm:
+                test:
+                  freeJvmArgs: [-Xmx512m]
+                  systemProperties:
+                    mode: fast
+            """.trimIndent(),
+        )
+
+        val build = MultiplatformInterpreter.interpret(ModuleIndex.of(listOf(shared)), shared, diagnostics)
+
+        assertEquals(JvmTestSettings.EMPTY, build.testSettings)
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "shared: the JVM test settings freeJvmArgs, systemProperties name no JVM-backed " +
+                        "platform of this module and were dropped",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /** `test-settings:` overrides `settings.jvm.test` key by key, and the rest of the base survives. */
+    @Test
+    fun jvmTestSettingsMergeTheTestSpecificSectionOverTheBaseOne() {
         val shared = module(
             "shared",
             """
@@ -454,11 +533,28 @@ class MultiplatformInterpreterTest {
             settings:
               jvm:
                 test:
-                  freeJvmArgs: nope
+                  freeJvmArgs: [-Xmx512m]
+                  systemProperties:
+                    mode: base
+                    kept: base
+                  extraEnvironment:
+                    MODE: base
+            test-settings:
+              jvm:
+                freeJvmArgs: [-XX:+UseZGC]
+                systemProperties:
+                  mode: test
             """.trimIndent(),
         )
 
-        assertEquals(listOf("jvm", "linuxX64"), interpret(shared).targets.map(KmpTarget::name))
+        assertEquals(
+            JvmTestSettings(
+                freeJvmArgs = listOf("-Xmx512m", "-XX:+UseZGC"),
+                systemProperties = mapOf("mode" to "test", "kept" to "base"),
+                environment = mapOf("MODE" to "base"),
+            ),
+            interpret(shared).testSettings,
+        )
     }
 
     private fun sourceSet(name: String, parent: String, test: Boolean = false): KmpSourceSet = KmpSourceSet(

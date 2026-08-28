@@ -56,10 +56,10 @@ internal object Region {
     const val SERIALIZATION = "settings.kotlin.serialization"
 
     /**
-     * The JVM test task's argument list, which only a `jvm/app` or `jvm/lib` ever renders.
+     * The JVM test task's argument list, which every product family with a `Test` task renders.
      *
-     * Separate from [SETTINGS] because an Android or multiplatform module never reads it, and a
-     * malformed value there has never failed such a conversion.
+     * Separate from [SETTINGS] because a module that declares no JVM-backed target never reads it,
+     * and a malformed value there must not fail such a conversion.
      */
     const val JVM_TEST_SETTINGS = "settings.jvm.test"
 

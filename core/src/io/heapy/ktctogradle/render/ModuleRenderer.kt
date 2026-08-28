@@ -136,11 +136,13 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
             line("resources.srcDirs(\"testResources\", \"testResources@android\")")
         }
         // The Android Gradle Plugin runs unit tests on JUnit 4 unless it is told otherwise, so a
-        // JUnit 5 suite compiles and is then never discovered.
-        if (build.testFramework == TestFramework.JUNIT_5) {
+        // JUnit 5 suite compiles and is then never discovered. The same block carries the JVM test
+        // settings, because `unitTests.all` is the only handle AGP offers on the unit-test task.
+        if (build.testFramework == TestFramework.JUNIT_5 || !build.testSettings.isEmpty) {
             block("testOptions") {
                 block("unitTests.all") {
-                    line("it.useJUnitPlatform()")
+                    if (build.testFramework == TestFramework.JUNIT_5) line("it.useJUnitPlatform()")
+                    appendJvmTestSettings(build.testSettings, receiver = "it.")
                 }
             }
         }
@@ -193,10 +195,12 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     // Every JVM-backed target of the module runs its tests through a Gradle `Test` task, and each
     // of them keeps Gradle's JUnit 4 runner unless told otherwise. There is no per-target DSL that
     // covers both `jvm()` and `androidLibrary`, so they are configured together.
-    if (build.testFramework == TestFramework.JUNIT_5 && build.targets.any { it.kind.runsOnAJdk }) {
+    val junitPlatform = build.testFramework == TestFramework.JUNIT_5
+    if ((junitPlatform || !build.testSettings.isEmpty) && build.targets.any { it.kind.runsOnAJdk }) {
         blank()
         block("tasks.withType<Test>().configureEach") {
-            line("useJUnitPlatform()")
+            if (junitPlatform) line("useJUnitPlatform()")
+            appendJvmTestSettings(build.testSettings)
         }
     }
 }.build()
@@ -406,10 +410,16 @@ private fun KtsWriter.appendCompilerOptionLines(options: CompilerOptions) {
     }
 }
 
-private fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings) {
-    if (settings.freeJvmArgs.isNotEmpty()) line("jvmArgs(${settings.freeJvmArgs.joinToString(transform = ::quote)})")
-    for ((key, value) in settings.systemProperties) line("systemProperty(${quote(key)}, ${quote(value)})")
-    for ((key, value) in settings.environment) line("environment(${quote(key)}, ${quote(value)})")
+/**
+ * [receiver] prefixes every call, for the blocks whose lambda takes the `Test` task as an argument
+ * instead of as `this`: the Android Gradle Plugin's `unitTests.all { }` is one of those.
+ */
+private fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings, receiver: String = "") {
+    if (settings.freeJvmArgs.isNotEmpty()) {
+        line("${receiver}jvmArgs(${settings.freeJvmArgs.joinToString(transform = ::quote)})")
+    }
+    for ((key, value) in settings.systemProperties) line("${receiver}systemProperty(${quote(key)}, ${quote(value)})")
+    for ((key, value) in settings.environment) line("${receiver}environment(${quote(key)}, ${quote(value)})")
 }
 
 /**
