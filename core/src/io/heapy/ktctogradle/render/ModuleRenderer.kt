@@ -220,11 +220,45 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
             appendJvmTestSettings(build.testSettings)
         }
     }
+    // After the module-wide block, because Gradle runs the two configuration actions in the order
+    // the script registers them and the narrower one has to be able to override the broader one.
+    for (target in build.targets) appendTargetTestSettings(target)
     module.publication?.let {
         appendPublishing(it)
         appendSigning(it)
     }
 }.build()
+
+/**
+ * What one target alone was told to give its `Test` task.
+ *
+ * Reached by task name rather than through a target DSL, because neither JVM-backed target offers
+ * one: `jvm()` exposes its test run and `androidLibrary` does not, and the Android Gradle Plugin
+ * registers `testAndroidHostTest` too late for `tasks.named` to find it while the script runs.
+ * Matching a lazy collection asks the question when the task exists instead.
+ */
+private fun KtsWriter.appendTargetTestSettings(target: KmpTarget) {
+    val (task, settings) = target.testTask() ?: return
+    if (settings.isEmpty) return
+    blank()
+    block("tasks.withType<Test>().matching { it.name == ${quote(task)} }.configureEach") {
+        appendJvmTestSettings(settings)
+    }
+}
+
+/** The `Test` task a JVM-backed target runs on, and what the module asked to give it. */
+private fun KmpTarget.testTask(): Pair<String, JvmTestSettings>? = when (val kind = kind) {
+    is TargetKind.Jvm -> "${name}Test" to kind.testSettings
+    // The Android Gradle Plugin names the task after the `hostTest` compilation of the target, which
+    // is the `androidHostTest` source set the fragments already spell out.
+    is TargetKind.Android ->
+        "test${name.replaceFirstChar(Char::uppercaseChar)}HostTest" to kind.library.testSettings
+    TargetKind.Js,
+    TargetKind.WasmJs,
+    TargetKind.WasmWasi,
+    TargetKind.Native,
+    -> null
+}
 
 /**
  * What a `jvm/lib` or `jvm/app` does with `test-settings.jvm.release`.

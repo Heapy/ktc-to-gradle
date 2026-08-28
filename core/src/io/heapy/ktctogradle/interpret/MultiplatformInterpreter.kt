@@ -7,7 +7,6 @@ import io.heapy.ktctogradle.load.QualifiedOption
 import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.ToolchainModule
-import io.heapy.ktctogradle.load.UnsupportedKey
 import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.CompilerOptions
 import io.heapy.ktctogradle.model.Dependency
@@ -31,11 +30,23 @@ internal object MultiplatformInterpreter {
         val model = module.model
         val serialization = Serialization.of(model)
         val fragments = KmpFragments.of(model, module.displayName)
-        val qualified = QualifiedSettings.of(module, fragments.map { it.name to it.platforms }, diagnostics)
+        val qualified = QualifiedSettings.of(
+            module,
+            fragments.map { it.name to it.platforms },
+            JVM_BACKED_QUALIFIERS,
+            diagnostics,
+        )
         val platforms = model.product.platforms
         val executable = model.product.type.endsWith("/app")
         val targets = platforms.map { platform ->
-            target(module, platform, executable, qualified.byPlatform[platform] ?: CompilerOptions.EMPTY, diagnostics)
+            target(
+                module = module,
+                platform = platform,
+                executable = executable,
+                compilerOptions = qualified.byPlatform[platform] ?: CompilerOptions.EMPTY,
+                testSettings = qualified.testByPlatform[platform] ?: JvmTestSettings.EMPTY,
+                diagnostics = diagnostics,
+            )
         }
         // The module-wide options are the first thing read out of `settings:` itself, so a section
         // the binder could not read raises its message here rather than earlier.
@@ -58,7 +69,9 @@ internal object MultiplatformInterpreter {
             qualifiedCompilerOptions = qualified.common,
             sourceSets = sourceSets(index, module, fragments, serialization, testFramework),
             testFramework = testFramework,
-            testSettings = testSettings(module, runsOnAJdk, diagnostics),
+            // `settings@common` covers every platform, so it joins the module-wide block rather
+            // than repeating itself on each target, and overrides what the module said once.
+            testSettings = testSettings(module, runsOnAJdk, diagnostics) + qualified.commonTest,
         )
     }
 
@@ -95,12 +108,17 @@ internal object MultiplatformInterpreter {
         platform: String,
         executable: Boolean,
         compilerOptions: CompilerOptions,
+        testSettings: JvmTestSettings,
         diagnostics: DiagnosticCollector,
     ): KmpTarget {
         val model = module.model
         val kind = when (platform) {
-            "jvm" -> TargetKind.Jvm(release = jvmRelease(model), testRelease = model.settings.test?.release)
-            "android" -> TargetKind.Android(AndroidInterpreter.libraryTarget(module, diagnostics))
+            "jvm" -> TargetKind.Jvm(
+                release = jvmRelease(model),
+                testRelease = model.settings.test?.release,
+                testSettings = testSettings,
+            )
+            "android" -> TargetKind.Android(AndroidInterpreter.libraryTarget(module, testSettings, diagnostics))
             "js" -> TargetKind.Js
             "wasmJs" -> TargetKind.WasmJs
             "wasmWasi" -> TargetKind.WasmWasi
@@ -232,10 +250,21 @@ internal object QualifiedSettings {
     /**
      * [common] applies to the whole module and [byPlatform] to single targets, which is the split
      * Gradle's DSL forces: `kotlin { compilerOptions { } }` versus the per-target block.
+     *
+     * [commonTest] and [testByPlatform] carry the same split for the JVM test settings, which Gradle
+     * splits the same way: one `tasks.withType<Test>()` block against one named task.
      */
     data class Resolved(
         val common: CompilerOptions,
         val byPlatform: Map<String, CompilerOptions>,
+        val commonTest: JvmTestSettings,
+        val testByPlatform: Map<String, JvmTestSettings>,
+    )
+
+    /** What a product with exactly one platform gets back: one target, so one of each. */
+    data class SinglePlatform(
+        val options: CompilerOptions,
+        val testSettings: JvmTestSettings,
     )
 
     /**
@@ -243,32 +272,36 @@ internal object QualifiedSettings {
      * part that applies to single ones. [fragmentOrder] lists the qualifiers the module accepts,
      * broadest first, so a narrower section overrides a broader one even when both happen to cover
      * the same leaves.
+     *
+     * [jvmBackedPlatforms] names the platforms that have a `Test` task at all. A section that asks
+     * for test settings and reaches none of them is reported rather than lost, exactly as an
+     * unqualified `settings.jvm.test` on a module with no JVM-backed target is.
      */
     fun of(
         module: ToolchainModule,
         fragmentOrder: List<Pair<String, Set<String>>>,
+        jvmBackedPlatforms: Set<String>,
         diagnostics: DiagnosticCollector,
     ): Resolved {
-        val resolved = resolve(module, fragmentOrder, diagnostics)
+        val resolved = resolve(module, fragmentOrder, jvmBackedPlatforms, diagnostics)
         return Resolved(
             common = resolved.common.options,
             byPlatform = resolved.byPlatform.mapValues { (_, contribution) -> contribution.options },
+            commonTest = resolved.common.testSettings,
+            testByPlatform = resolved.byPlatform.mapValues { (_, contribution) -> contribution.testSettings },
         )
     }
 
     private fun resolve(
         module: ToolchainModule,
         fragmentOrder: List<Pair<String, Set<String>>>,
+        jvmBackedPlatforms: Set<String>,
         diagnostics: DiagnosticCollector,
     ): ResolvedContributions {
         val rank = fragmentOrder.withIndex().associate { (index, entry) -> entry.first to index }
         val platformsOf = fragmentOrder.toMap()
-        val sections = mutableListOf<Triple<Int, Set<String>, Contribution>>()
+        val sections = mutableListOf<RankedSection>()
         for (section in module.model.qualifiedSections) {
-            if (section.test) {
-                drop(diagnostics, module, section.key, UnsupportedKey.UNSUPPORTED)
-                continue
-            }
             val platforms = platformsOf[section.qualifier]
             if (platforms == null) {
                 drop(diagnostics, module, section.key, "names no platform of this module")
@@ -282,17 +315,32 @@ internal object QualifiedSettings {
             for (unsupported in section.unsupportedKeys) {
                 drop(diagnostics, module, "${section.key}.${unsupported.path}", unsupported.reason)
             }
-            sections += Triple(
-                rank.getValue(section.qualifier),
-                platforms,
-                Contribution(options(settings), section.malformedOptions),
+            sections += RankedSection(
+                rank = rank.getValue(section.qualifier),
+                test = section.test,
+                platforms = platforms,
+                contribution = Contribution(
+                    options = options(settings),
+                    malformedOptions = section.malformedOptions,
+                    testSettings = testSettings(
+                        module = module,
+                        key = section.key,
+                        settings = settings,
+                        platforms = platforms,
+                        jvmBackedPlatforms = jvmBackedPlatforms,
+                        diagnostics = diagnostics,
+                    ),
+                ),
             )
         }
-        sections.sortBy { (index, _, _) -> index }
+        // A `test-settings@q` applies on top of `settings@q` whichever order the module wrote them
+        // in, which is the rule the unqualified pair already follows. The sort is stable, so two
+        // sections of the same qualifier and kind keep their declaration order.
+        sections.sortWith(compareBy({ it.rank }, { it.test }))
 
         var common = Contribution.EMPTY
         val byPlatform = mutableMapOf<String, Contribution>()
-        for ((index, platforms, contribution) in sections) {
+        for ((index, _, platforms, contribution) in sections) {
             if (fragmentOrder[index].first == KmpFragments.COMMON) {
                 common = merge(common, contribution)
                 continue
@@ -305,18 +353,45 @@ internal object QualifiedSettings {
     }
 
     /**
-     * The qualified options of a product that has exactly one platform.
+     * What one qualified section gives a `Test` task, or nothing when it reaches no such task.
+     *
+     * The wording follows the module-wide drop rather than the dropped-key one: the keys are
+     * supported and were read, and it is the platforms the section names that have nowhere to put
+     * them.
+     */
+    private fun testSettings(
+        module: ToolchainModule,
+        key: String,
+        settings: Settings,
+        platforms: Set<String>,
+        jvmBackedPlatforms: Set<String>,
+        diagnostics: DiagnosticCollector,
+    ): JvmTestSettings {
+        val declared = JvmInterpreter.declaredTestSettings(settings)
+        if (declared.isEmpty || platforms.any { it in jvmBackedPlatforms }) return declared
+        diagnostics.warn(
+            "${module.displayName}: the JVM test settings of '$key' name no JVM-backed platform of " +
+                "this module and were dropped",
+        )
+        return JvmTestSettings.EMPTY
+    }
+
+    /**
+     * The qualified settings of a product that has exactly one platform.
      *
      * Such a module has no per-target block to put them in, so `settings@common` and the platform's
-     * own section are merged and join the module-wide options instead.
+     * own section are merged and join the module-wide ones instead.
      */
     fun singlePlatform(
         module: ToolchainModule,
         platform: String,
         diagnostics: DiagnosticCollector,
-    ): CompilerOptions {
-        val resolved = resolve(module, KmpFragments.singlePlatform(platform), diagnostics)
-        return merge(resolved.common, resolved.byPlatform[platform] ?: Contribution.EMPTY).options
+    ): SinglePlatform {
+        // Both callers are JVM-backed products — `jvm/lib`, `jvm/app` and `android/app` — so the one
+        // platform this resolves for always has a `Test` task to carry the settings.
+        val resolved = resolve(module, KmpFragments.singlePlatform(platform), setOf(platform), diagnostics)
+        val merged = merge(resolved.common, resolved.byPlatform[platform] ?: Contribution.EMPTY)
+        return SinglePlatform(options = merged.options, testSettings = merged.testSettings)
     }
 
     private fun drop(diagnostics: DiagnosticCollector, module: ToolchainModule, path: String, reason: String) {
@@ -352,6 +427,7 @@ internal object QualifiedSettings {
      */
     private fun merge(lower: Contribution, higher: Contribution): Contribution =
         Contribution(
+            testSettings = lower.testSettings + higher.testSettings,
             options = CompilerOptions(
                 languageVersion = higher.take(lower, QualifiedOption.LANGUAGE_VERSION) { it.languageVersion },
                 apiVersion = higher.take(lower, QualifiedOption.API_VERSION) { it.apiVersion },
@@ -390,11 +466,20 @@ internal object QualifiedSettings {
     private data class Contribution(
         val options: CompilerOptions,
         val malformedOptions: Set<String>,
+        val testSettings: JvmTestSettings = JvmTestSettings.EMPTY,
     ) {
         companion object {
             val EMPTY = Contribution(CompilerOptions.EMPTY, emptySet())
         }
     }
+
+    /** A section paired with the two things its position in the merge is decided by. */
+    private data class RankedSection(
+        val rank: Int,
+        val test: Boolean,
+        val platforms: Set<String>,
+        val contribution: Contribution,
+    )
 
     /** [Resolved] before the merge markers are dropped, which only [singlePlatform] still needs. */
     private data class ResolvedContributions(

@@ -6,6 +6,7 @@ import io.heapy.ktctogradle.load.KotlinSettings
 import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ProductType
 import io.heapy.ktctogradle.load.Region
+import io.heapy.ktctogradle.load.Settings
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.raiseDeferred
@@ -45,12 +46,14 @@ internal object JvmInterpreter {
             release = release,
             testRelease = model.settings.test?.release,
             compilerOptions = compilerOptions(model.settings.kotlin, jvmTarget = release),
-            qualifiedCompilerOptions = qualified,
+            qualifiedCompilerOptions = qualified.options,
             layout = if (model.layout == RawLayout.MAVEN_LIKE) GradleLayout.MAVEN_LIKE else GradleLayout.AMPER,
             dependencies = declared + implied(model, serialization),
             testDependencies = testDependencies,
             testFramework = testFramework,
-            testSettings = testSettings(model),
+            // One `Test` task, so a section that names the module's only platform reaches the same
+            // task the module-wide keys do, and overrides them by being read last.
+            testSettings = testSettings(model) + qualified.testSettings,
             mainClass = mainClass(module, diagnostics),
         )
     }
@@ -146,12 +149,22 @@ internal object JvmInterpreter {
      * `test-settings:` is applied on top of `settings.jvm.test`, so a key declared in both keeps the
      * test-specific value while the rest of the base section survives.
      */
-    fun declaredTestSettings(model: ToolchainModel): JvmTestSettings = JvmTestSettings(
-        freeJvmArgs = model.settings.jvm?.testFreeJvmArgs.orEmpty() + model.settings.test?.freeJvmArgs.orEmpty(),
-        systemProperties = model.settings.jvm?.testSystemProperties.orEmpty() +
-            model.settings.test?.systemProperties.orEmpty(),
-        environment = model.settings.jvm?.testExtraEnvironment.orEmpty() +
-            model.settings.test?.extraEnvironment.orEmpty(),
+    fun declaredTestSettings(model: ToolchainModel): JvmTestSettings = declaredTestSettings(model.settings)
+
+    /**
+     * The same two sections of any one `settings:` body, which a qualified section is too.
+     *
+     * `settings@jvm.jvm.test` and `test-settings@jvm.jvm` are the platform-qualified spellings of
+     * the same pair, and they bind to the same two fields, so they are read by the same rule.
+     */
+    fun declaredTestSettings(settings: Settings): JvmTestSettings = JvmTestSettings(
+        freeJvmArgs = settings.jvm?.testFreeJvmArgs.orEmpty(),
+        systemProperties = settings.jvm?.testSystemProperties.orEmpty(),
+        environment = settings.jvm?.testExtraEnvironment.orEmpty(),
+    ) + JvmTestSettings(
+        freeJvmArgs = settings.test?.freeJvmArgs.orEmpty(),
+        systemProperties = settings.test?.systemProperties.orEmpty(),
+        environment = settings.test?.extraEnvironment.orEmpty(),
     )
 
     /**

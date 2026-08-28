@@ -8,6 +8,7 @@ import io.heapy.ktctogradle.load.ToolchainModule
 import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
+import io.heapy.ktctogradle.model.JvmTestSettings
 
 /**
  * Turns an `android/app` module, and the `android` target of a multiplatform module, into the
@@ -55,16 +56,22 @@ internal object AndroidInterpreter {
             versionName = android?.versionName ?: Defaults.ANDROID_VERSION_NAME,
             release = release,
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin, jvmTarget = release),
-            qualifiedCompilerOptions = qualified,
+            qualifiedCompilerOptions = qualified.options,
             dependencies = dependencies,
             testDependencies = testDependencies,
             testFramework = testFramework,
-            testSettings = JvmInterpreter.testSettings(model),
+            // One `Test` task, so a section that names the module's only platform reaches the same
+            // task the module-wide keys do, and overrides them by being read last.
+            testSettings = JvmInterpreter.testSettings(model) + qualified.testSettings,
         )
     }
 
     /** The `androidLibrary { }` target of a multiplatform module that declares the `android` platform. */
-    fun libraryTarget(module: ToolchainModule, diagnostics: DiagnosticCollector): AndroidLibraryTarget {
+    fun libraryTarget(
+        module: ToolchainModule,
+        testSettings: JvmTestSettings,
+        diagnostics: DiagnosticCollector,
+    ): AndroidLibraryTarget {
         val model = module.model
         model.raiseDeferred(Region.SETTINGS)
         val android = model.settings.android
@@ -77,6 +84,7 @@ internal object AndroidInterpreter {
             minSdk = android?.minSdk ?: Defaults.ANDROID_MIN_SDK,
             release = jvmRelease(model),
             testRelease = model.settings.test?.release,
+            testSettings = testSettings,
         )
     }
 

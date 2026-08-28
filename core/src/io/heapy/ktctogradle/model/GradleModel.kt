@@ -308,6 +308,19 @@ internal data class JvmTestSettings(
     val isEmpty: Boolean
         get() = freeJvmArgs.isEmpty() && systemProperties.isEmpty() && environment.isEmpty()
 
+    /**
+     * [other] is the narrower declaration: its arguments are appended and its named values win.
+     *
+     * A `Test` task takes its arguments as a list and its properties as a map, so the two halves
+     * cannot merge the same way. This is the one rule, and `test-settings:` over `settings.jvm.test`,
+     * `settings@jvm` over `settings@common`, and a qualified section over the module both use it.
+     */
+    operator fun plus(other: JvmTestSettings): JvmTestSettings = JvmTestSettings(
+        freeJvmArgs = freeJvmArgs + other.freeJvmArgs,
+        systemProperties = systemProperties + other.systemProperties,
+        environment = environment + other.environment,
+    )
+
     companion object {
         val EMPTY = JvmTestSettings()
     }
@@ -402,6 +415,8 @@ internal data class AndroidLibraryTarget(
     val release: String,
     /** What the target's `hostTest` compilation targets, or `null` when the module named nothing. */
     val testRelease: String? = null,
+    /** What the platform-qualified sections give this target's `Test` task, and nothing else. */
+    val testSettings: JvmTestSettings = JvmTestSettings.EMPTY,
 )
 
 /**
@@ -427,10 +442,11 @@ internal data class MultiplatformBuild(
      */
     val testFramework: TestFramework,
     /**
-     * What the JVM-backed test tasks are given: arguments, system properties and environment.
+     * What every JVM-backed test task is given: arguments, system properties and environment.
      *
      * Empty when the module declares no JVM-backed target, because there is then no `Test` task to
-     * carry them and the interpret stage reports the drop instead.
+     * carry them and the interpret stage reports the drop instead. What one platform alone asks for
+     * rides on that target's [TargetKind] instead, because it reaches one `Test` task and not all.
      */
     val testSettings: JvmTestSettings,
 ) : ModuleBuild
@@ -469,7 +485,12 @@ internal sealed interface TargetKind {
      * named none. The two are separate because a module may compile its tests against a newer JDK
      * API than the bytecode it publishes — which is the whole point of `test-settings.jvm.release`.
      */
-    data class Jvm(val release: String, val testRelease: String? = null) : TargetKind {
+    data class Jvm(
+        val release: String,
+        val testRelease: String? = null,
+        /** What the platform-qualified sections give this target's `Test` task, and nothing else. */
+        val testSettings: JvmTestSettings = JvmTestSettings.EMPTY,
+    ) : TargetKind {
         override val runsOnAJdk = true
     }
 

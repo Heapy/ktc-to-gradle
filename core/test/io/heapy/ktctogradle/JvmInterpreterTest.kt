@@ -730,6 +730,78 @@ class JvmInterpreterTest {
     private fun junit(value: String): ToolchainModule =
         module("app", "product: jvm/lib\nsettings:\n  junit: $value\n")
 
+    /**
+     * A `jvm/lib` has exactly one `Test` task, so a qualified section reaches the same one.
+     *
+     * It is still read last, because declaring a key under a qualifier is how a module overrides
+     * what it said for every platform at once.
+     */
+    @Test
+    fun aQualifiedJvmTestSettingJoinsTheOneTestTaskOfAJvmModule() {
+        val build = interpret(
+            module(
+                "app",
+                """
+                product: jvm/lib
+                settings:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: module
+                        kept: module
+                settings@jvm:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: qualified
+                test-settings@jvm:
+                  jvm:
+                    freeJvmArgs: [-Xmx512m]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            JvmTestSettings(
+                freeJvmArgs = listOf("-Xmx512m"),
+                systemProperties = mapOf("mode" to "qualified", "kept" to "module"),
+            ),
+            build.testSettings,
+        )
+    }
+
+    /**
+     * `test-settings@q` is applied on top of `settings@q` even when the module wrote it first.
+     *
+     * The unqualified pair has that order fixed by the two fields it binds to; the qualified pair is
+     * two sections of one map, so the order is a decision the merge has to make on its own.
+     */
+    @Test
+    fun aQualifiedTestSettingsSectionIsAppliedLastWhicheverOrderItWasWrittenIn() {
+        val build = interpret(
+            module(
+                "app",
+                """
+                product: jvm/lib
+                test-settings@jvm:
+                  jvm:
+                    systemProperties:
+                      mode: test-settings
+                settings@jvm:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: settings
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            JvmTestSettings(systemProperties = mapOf("mode" to "test-settings")),
+            build.testSettings,
+        )
+    }
+
     private fun interpret(module: ToolchainModule, vararg others: ToolchainModule): JvmBuild =
         JvmInterpreter.interpret(ModuleIndex.of(listOf(module) + others), module, DiagnosticCollector())
 

@@ -91,7 +91,13 @@ internal data class QualifiedSection(
     /** The key as written; a diagnostic quotes it verbatim. */
     val key: String,
     val qualifier: String,
-    /** `true` for a `test-settings@` section, which the converter cannot carry at all. */
+    /**
+     * `true` for a `test-settings@` section, whose keys sit one level higher than a `settings@` one's.
+     *
+     * It still binds: the section reaches [Settings.test], the same field the unqualified
+     * `test-settings:` binds to. The flag survives because the two forms of one qualifier are
+     * applied in a fixed order, `test-settings@` last, whichever order the module wrote them in.
+     */
     val test: Boolean,
     /** `null` = the section is not an object, so it carries no settings. */
     val settings: Settings?,
@@ -99,8 +105,7 @@ internal data class QualifiedSection(
      * The keys of the section the converter cannot carry into the Gradle build.
      *
      * Recorded here because a key such as `settings@jvm.foo.bar` has no field to bind to, and the
-     * stage that reports it may not walk the YAML itself. Empty for a `test-settings@` section,
-     * which is dropped whole and never inspected key by key.
+     * stage that reports it may not walk the YAML itself.
      */
     val unsupportedKeys: List<UnsupportedKey>,
     /**

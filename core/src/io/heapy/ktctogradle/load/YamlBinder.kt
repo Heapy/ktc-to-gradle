@@ -233,6 +233,9 @@ internal object YamlBinder {
      * The binder therefore binds such a section as empty and records no error, but it does record
      * which keys the section got wrong, in declaration order, because that stage may not walk the
      * YAML itself and a key such as `settings@jvm.foo.bar` has no field of its own to bind to.
+     *
+     * A `test-settings@` section binds under [Settings.test], exactly as the unqualified
+     * `test-settings:` does, so the two forms of the same three keys read the same afterwards.
      */
     private fun bindQualifiedSections(config: Value.Mapping): List<QualifiedSection> = buildList {
         for ((key, value) in config.entries) {
@@ -243,16 +246,27 @@ internal object YamlBinder {
                 else -> continue
             }
             val section = value as? Value.Mapping
-            // A test-settings@ section is dropped whole, so its keys are never inspected.
-            val unsupportedKeys = if (test || section == null) emptyList() else unsupportedKeys(section)
+            val unsupportedKeys = when {
+                section == null -> emptyList()
+                test -> unsupportedTestSectionKeys(section)
+                else -> unsupportedKeys(section)
+            }
             add(
                 QualifiedSection(
                     key = key,
                     qualifier = qualifier,
                     test = test,
-                    settings = section?.let { bindSettings(it, testSettings = null, lenient = true, errors = null) },
+                    settings = section?.let {
+                        if (test) {
+                            bindSettings(settings = null, testSettings = it, lenient = true, errors = null)
+                        } else {
+                            bindSettings(it, testSettings = null, lenient = true, errors = null)
+                        }
+                    },
                     unsupportedKeys = unsupportedKeys,
-                    malformedOptions = malformedOptions(unsupportedKeys),
+                    // A test-settings@ section contributes no compiler option, so a key it got wrong
+                    // suppresses none either: it must not clear what a broader settings@ declared.
+                    malformedOptions = if (test) emptySet() else malformedOptions(unsupportedKeys),
                 ),
             )
         }
@@ -266,6 +280,10 @@ internal object YamlBinder {
      */
     private fun unsupportedKeys(settings: Value.Mapping): List<UnsupportedKey> = buildList {
         for ((section, value) in settings.entries) {
+            if (section == "jvm") {
+                addAll(unsupportedJvmKeys(value))
+                continue
+            }
             if (section != "kotlin") {
                 for (path in leafPaths(section, value)) add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
                 continue
@@ -284,6 +302,67 @@ internal object YamlBinder {
                     "freeCompilerArgs", "optIns" ->
                         if (option !is Value.Sequence) add(UnsupportedKey("kotlin.$key", "must be a list"))
                     else -> for (path in leafPaths("kotlin.$key", option)) {
+                        add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * `settings@<qualifier>.jvm`, of which only the `test` node reaches a Gradle task.
+     *
+     * A `jvm` that is not an object keeps the whole-node wording the walk gives every other section,
+     * because there is then no key underneath to point at.
+     */
+    private fun unsupportedJvmKeys(node: Value): List<UnsupportedKey> {
+        val jvm = node as? Value.Mapping
+            ?: return leafPaths("jvm", node).map { UnsupportedKey(it, UnsupportedKey.UNSUPPORTED) }
+        return buildList {
+            for ((key, value) in jvm.entries) {
+                if (key == "test") {
+                    addAll(testSettingKeys("jvm.test", value))
+                    continue
+                }
+                for (path in leafPaths("jvm.$key", value)) add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
+            }
+        }
+    }
+
+    /**
+     * A `test-settings@<qualifier>` section, which carries the same three keys one level higher.
+     *
+     * `test-settings.jvm.release` is not among them: it reaches a *compilation* rather than a `Test`
+     * task, and a qualified one has no per-target spelling yet, so it is reported and dropped.
+     */
+    private fun unsupportedTestSectionKeys(settings: Value.Mapping): List<UnsupportedKey> = buildList {
+        for ((section, value) in settings.entries) {
+            if (section == "jvm") {
+                addAll(testSettingKeys("jvm", value))
+                continue
+            }
+            for (path in leafPaths(section, value)) add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
+        }
+    }
+
+    /**
+     * The three keys a Gradle `Test` task takes, reported by shape rather than by name.
+     *
+     * A malformed one binds to nothing just as an absent one does, so it has to be named here or it
+     * vanishes without a word.
+     */
+    private fun testSettingKeys(prefix: String, node: Value): List<UnsupportedKey> {
+        val test = node as? Value.Mapping ?: return listOf(UnsupportedKey(prefix, "must be an object"))
+        return buildList {
+            for ((key, value) in test.entries) {
+                when (key) {
+                    "freeJvmArgs" -> if (value !is Value.Sequence) {
+                        add(UnsupportedKey("$prefix.$key", "must be a list"))
+                    }
+                    "systemProperties", "extraEnvironment" -> if (value !is Value.Mapping) {
+                        add(UnsupportedKey("$prefix.$key", "must be an object"))
+                    }
+                    else -> for (path in leafPaths("$prefix.$key", value)) {
                         add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
                     }
                 }
@@ -311,11 +390,19 @@ internal object YamlBinder {
         }
     }
 
-    /** Every scalar, list or empty node under [prefix], as the dotted path that reaches it. */
-    private fun leafPaths(prefix: String, value: Value): List<String> = when (value) {
-        is Value.Mapping -> value.entries.flatMap { (key, child) -> leafPaths("$prefix.$key", child) }
-        else -> listOf(prefix)
-    }
+    /**
+     * Every scalar, list or empty node under [prefix], as the dotted path that reaches it.
+     *
+     * An empty object has no leaf under it, so it stands for itself. Recursing into it instead
+     * would return no path at all, and a key the module wrote would be dropped without a word —
+     * which is the one outcome this walk exists to prevent.
+     */
+    private fun leafPaths(prefix: String, value: Value): List<String> =
+        if (value is Value.Mapping && value.entries.isNotEmpty()) {
+            value.entries.flatMap { (key, child) -> leafPaths("$prefix.$key", child) }
+        } else {
+            listOf(prefix)
+        }
 
     private fun bindSettings(
         settings: Value.Mapping?,

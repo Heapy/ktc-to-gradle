@@ -1,0 +1,30 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, android]
+
+aliases:
+  - jvmAndAndroid: [jvm, android]
+
+settings:
+  android:
+    namespace: example.shared
+  jvm:
+    test:
+      systemProperties:
+        mode: module
+        kept: module
+
+settings@jvm:
+  jvm:
+    test:
+      systemProperties:
+        mode: jvm
+
+test-settings@android:
+  jvm:
+    extraEnvironment:
+      MODE: android
+
+test-settings@jvmAndAndroid:
+  jvm:
+    freeJvmArgs: [-Xmx512m]

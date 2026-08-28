@@ -419,7 +419,8 @@ class MultiplatformInterpreterTest {
                 "shared: 'settings@jvm.jvm.release' is not supported by the converter and was dropped",
                 "shared: 'settings@macosArm64' names no platform of this module and was dropped",
                 "shared: 'settings@linuxX64' must be an object and was dropped",
-                "shared: 'test-settings@jvm' is not supported by the converter and was dropped",
+                "shared: 'test-settings@jvm.kotlin.allWarningsAsErrors' is not supported by the converter " +
+                    "and was dropped",
             ),
             diagnostics.collected().map(Diagnostic::message),
         )
@@ -695,6 +696,129 @@ class MultiplatformInterpreterTest {
         resourceDirs = emptyList(),
         dependencies = emptyList(),
     )
+
+    /**
+     * A platform-qualified JVM test setting reaches one target's `Test` task and not the others.
+     *
+     * The module-wide keys stay on the build, because they reach every JVM-backed target; only what
+     * a qualifier narrowed rides on the target, where the renderer has a task name to address.
+     */
+    @Test
+    fun aQualifiedJvmTestSettingReachesOneTargetOnly() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                settings:
+                  android:
+                    namespace: example.shared
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: module
+                settings@jvm:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: jvm
+                test-settings@android:
+                  jvm:
+                    extraEnvironment:
+                      MODE: android
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(JvmTestSettings(systemProperties = mapOf("mode" to "module")), build.testSettings)
+        assertEquals(
+            JvmTestSettings(systemProperties = mapOf("mode" to "jvm")),
+            (build.targets.single { it.name == "jvm" }.kind as TargetKind.Jvm).testSettings,
+        )
+        assertEquals(
+            JvmTestSettings(environment = mapOf("MODE" to "android")),
+            (build.targets.single { it.name == "android" }.kind as TargetKind.Android).library.testSettings,
+        )
+    }
+
+    /**
+     * An alias is a qualifier like any other, so it reaches every platform it covers.
+     *
+     * `settings@common` is the one qualifier that does not: it covers every platform, so it joins
+     * the module-wide block instead of being repeated on each target.
+     */
+    @Test
+    fun anAliasQualifierReachesEveryPlatformItCovers() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                aliases:
+                  - jvmAndAndroid: [jvm, android]
+                settings@common:
+                  jvm:
+                    test:
+                      systemProperties:
+                        scope: common
+                test-settings@jvmAndAndroid:
+                  jvm:
+                    freeJvmArgs: [-Xmx512m]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(JvmTestSettings(systemProperties = mapOf("scope" to "common")), build.testSettings)
+        assertEquals(
+            JvmTestSettings(freeJvmArgs = listOf("-Xmx512m")),
+            (build.targets.single { it.name == "jvm" }.kind as TargetKind.Jvm).testSettings,
+        )
+        assertEquals(
+            JvmTestSettings(freeJvmArgs = listOf("-Xmx512m")),
+            (build.targets.single { it.name == "android" }.kind as TargetKind.Android).library.testSettings,
+        )
+    }
+
+    /**
+     * A qualifier that names only platforms with no `Test` task has nowhere to put the settings.
+     *
+     * Reported rather than lost, which is the rule the module-wide keys already follow on a module
+     * with no JVM-backed target at all.
+     */
+    @Test
+    fun aQualifiedJvmTestSettingThatReachesNoTestTaskIsReportedAndDropped() {
+        val diagnostics = DiagnosticCollector()
+        val library = module(
+            "shared",
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, linuxX64]
+            test-settings@linuxX64:
+              jvm:
+                systemProperties:
+                  mode: native
+            """.trimIndent(),
+        )
+        val build = MultiplatformInterpreter.interpret(ModuleIndex.of(listOf(library)), library, diagnostics)
+
+        assertEquals(
+            listOf(
+                "shared: the JVM test settings of 'test-settings@linuxX64' name no JVM-backed platform " +
+                    "of this module and were dropped",
+            ),
+            diagnostics.collected().map(Diagnostic::message),
+        )
+        assertEquals(JvmTestSettings.EMPTY, build.testSettings)
+        assertEquals(
+            JvmTestSettings.EMPTY,
+            (build.targets.single { it.name == "jvm" }.kind as TargetKind.Jvm).testSettings,
+        )
+    }
 
     private fun interpret(module: ToolchainModule): MultiplatformBuild =
         MultiplatformInterpreter.interpret(ModuleIndex.of(listOf(module)), module, DiagnosticCollector())

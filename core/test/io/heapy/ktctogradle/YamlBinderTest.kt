@@ -718,16 +718,141 @@ class YamlBinderTest {
             KotlinSettings(allWarningsAsErrors = false, progressiveMode = true),
             model.qualifiedSections.section("settings@linuxX64").settings?.kotlin,
         )
+        // A `test-settings@` section carries no compiler option, so `kotlin` there is a dropped key
+        // and not a value that overrides the broader `settings@` one by being restated.
         assertEquals(
             QualifiedSection(
                 key = "test-settings@jvm",
                 qualifier = "jvm",
                 test = true,
-                settings = Settings(kotlin = KotlinSettings(allWarningsAsErrors = true)),
-                unsupportedKeys = emptyList(),
+                settings = Settings(test = TestSettings()),
+                unsupportedKeys = listOf(UnsupportedKey("kotlin.allWarningsAsErrors", UnsupportedKey.UNSUPPORTED)),
                 malformedOptions = emptySet(),
             ),
             model.qualifiedSections.section("test-settings@jvm"),
+        )
+    }
+
+    /**
+     * The three keys a Gradle `Test` task takes, in both of the spellings a qualifier has.
+     *
+     * They bind to the same two fields the unqualified `settings.jvm.test` and `test-settings:`
+     * bind to, which is what lets the interpret stage read a section by the rule it already has.
+     */
+    @Test
+    fun bindsTheJvmTestKeysOfBothQualifiedSpellings() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                settings@jvm:
+                  jvm:
+                    test:
+                      freeJvmArgs: [-Xmx512m]
+                      systemProperties:
+                        mode: jvm
+                      extraEnvironment:
+                        HOME_DIR: /tmp/jvm
+                test-settings@android:
+                  jvm:
+                    freeJvmArgs: [-XX:+UseZGC]
+                    systemProperties:
+                      mode: android
+                    extraEnvironment:
+                      HOME_DIR: /tmp/android
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            JvmSettings(
+                testFreeJvmArgs = listOf("-Xmx512m"),
+                testSystemProperties = mapOf("mode" to "jvm"),
+                testExtraEnvironment = mapOf("HOME_DIR" to "/tmp/jvm"),
+            ),
+            model.qualifiedSections.section("settings@jvm").settings?.jvm,
+        )
+        assertEquals(
+            TestSettings(
+                freeJvmArgs = listOf("-XX:+UseZGC"),
+                systemProperties = mapOf("mode" to "android"),
+                extraEnvironment = mapOf("HOME_DIR" to "/tmp/android"),
+            ),
+            model.qualifiedSections.section("test-settings@android").settings?.test,
+        )
+        assertEquals(emptyList(), model.qualifiedSections.section("settings@jvm").unsupportedKeys)
+        assertEquals(emptyList(), model.qualifiedSections.section("test-settings@android").unsupportedKeys)
+    }
+
+    /**
+     * A dropped key written as an empty object is still a key the module wrote.
+     *
+     * The walk names the leaf it reaches, and an empty mapping has no leaf under it, so it has to
+     * stand for itself: without that the key binds to nothing and is reported as nothing, which is
+     * the one outcome the walk exists to prevent.
+     */
+    @Test
+    fun reportsADroppedKeyThatWasWrittenAsAnEmptyObject() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                settings@jvm:
+                  kotlin:
+                    unknown: {}
+                test-settings@android:
+                  jvm:
+                    release: {}
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(UnsupportedKey("kotlin.unknown", UnsupportedKey.UNSUPPORTED)),
+            model.qualifiedSections.section("settings@jvm").unsupportedKeys,
+        )
+        assertEquals(
+            listOf(UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED)),
+            model.qualifiedSections.section("test-settings@android").unsupportedKeys,
+        )
+    }
+
+    /**
+     * A malformed one of those three binds to nothing, exactly as an absent one does, so the shape
+     * it got wrong is named rather than left to disappear.
+     */
+    @Test
+    fun namesTheShapeAMalformedJvmTestKeyGotWrong() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                settings@jvm:
+                  jvm:
+                    test:
+                      freeJvmArgs: nonsense
+                      systemProperties: nonsense
+                test-settings@android:
+                  jvm:
+                    extraEnvironment: [nonsense]
+                    unknown: true
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                UnsupportedKey("jvm.test.freeJvmArgs", "must be a list"),
+                UnsupportedKey("jvm.test.systemProperties", "must be an object"),
+            ),
+            model.qualifiedSections.section("settings@jvm").unsupportedKeys,
+        )
+        assertEquals(
+            listOf(
+                UnsupportedKey("jvm.extraEnvironment", "must be an object"),
+                UnsupportedKey("jvm.unknown", UnsupportedKey.UNSUPPORTED),
+            ),
+            model.qualifiedSections.section("test-settings@android").unsupportedKeys,
         )
     }
 
@@ -800,7 +925,6 @@ class YamlBinderTest {
                 UnsupportedKey("kotlin.unknown", UnsupportedKey.UNSUPPORTED),
                 UnsupportedKey("kotlin.ksp", UnsupportedKey.UNSUPPORTED),
                 UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED),
-                UnsupportedKey("jvm.test.freeJvmArgs", UnsupportedKey.UNSUPPORTED),
             ),
             model.qualifiedSections.section("settings@jvm").unsupportedKeys,
         )
@@ -808,7 +932,12 @@ class YamlBinderTest {
             listOf(UnsupportedKey("kotlin", "must be an object")),
             model.qualifiedSections.section("settings@linuxX64").unsupportedKeys,
         )
-        assertEquals(emptyList(), model.qualifiedSections.section("test-settings@jvm").unsupportedKeys)
+        // `test-settings.jvm.release` reaches a compilation rather than a `Test` task, and a
+        // qualified one has no per-target spelling, so it stays a dropped key.
+        assertEquals(
+            listOf(UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED)),
+            model.qualifiedSections.section("test-settings@jvm").unsupportedKeys,
+        )
 
         // Only the dropped keys that stand for a compiler option override a broader section; a
         // `kotlin` node that is not an object stands for all six of them at once.

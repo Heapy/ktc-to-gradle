@@ -56,7 +56,8 @@ class QualifiedSettingsDiagnosticsTest {
                 "shared: 'settings@jvm.kotlin.freeCompilerArgs' must be a list and was dropped",
                 "shared: 'settings@jvm.kotlin.unknown' is not supported by the converter and was dropped",
                 "shared: 'settings@jvm.jvm.release' is not supported by the converter and was dropped",
-                "shared: 'test-settings@jvm' is not supported by the converter and was dropped",
+                "shared: 'test-settings@jvm.kotlin.allWarningsAsErrors' is not supported by the converter " +
+                    "and was dropped",
             ),
             diagnostics.map { it.message },
         )

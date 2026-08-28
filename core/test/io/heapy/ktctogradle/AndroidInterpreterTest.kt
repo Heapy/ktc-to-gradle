@@ -262,7 +262,7 @@ class AndroidInterpreterTest {
 
         assertEquals(
             AndroidLibraryTarget(namespace = "example.messages", compileSdk = "37", minSdk = "24", release = "25"),
-            AndroidInterpreter.libraryTarget(library, diagnostics),
+            AndroidInterpreter.libraryTarget(library, JvmTestSettings.EMPTY, diagnostics),
         )
         assertEquals(emptyList<Diagnostic>(), diagnostics.collected())
     }
@@ -274,7 +274,7 @@ class AndroidInterpreterTest {
 
         assertEquals(
             AndroidLibraryTarget(namespace = "ktc.generated.libs.messages", compileSdk = "37", minSdk = "24", release = "25"),
-            AndroidInterpreter.libraryTarget(library, diagnostics),
+            AndroidInterpreter.libraryTarget(library, JvmTestSettings.EMPTY, diagnostics),
         )
         assertEquals(
             listOf(
@@ -301,6 +301,7 @@ class AndroidInterpreterTest {
                 "product:\n  type: kmp/lib\n  platforms: [jvm, android]\n" +
                     "settings:\n  android:\n    namespace: example.messages\n$jvmSettings",
             ),
+            JvmTestSettings.EMPTY,
             DiagnosticCollector(),
         ).release
 
@@ -336,7 +337,7 @@ class AndroidInterpreterTest {
 
         assertEquals(
             AndroidLibraryTarget(namespace = "example.messages", compileSdk = "35", minSdk = "26", release = "25"),
-            AndroidInterpreter.libraryTarget(library, DiagnosticCollector()),
+            AndroidInterpreter.libraryTarget(library, JvmTestSettings.EMPTY, DiagnosticCollector()),
         )
     }
 
@@ -364,7 +365,7 @@ class AndroidInterpreterTest {
 
         assertEquals(
             AndroidLibraryTarget(namespace = "example.messages", compileSdk = "34", minSdk = "24", release = "25"),
-            AndroidInterpreter.libraryTarget(library, DiagnosticCollector()),
+            AndroidInterpreter.libraryTarget(library, JvmTestSettings.EMPTY, DiagnosticCollector()),
         )
     }
 
@@ -433,6 +434,49 @@ class AndroidInterpreterTest {
                 environment = mapOf("MODE" to "base"),
             ),
             interpret(app).testSettings,
+        )
+    }
+
+    /**
+     * An `android/app` has one unit-test task, so a qualified section reaches the same one.
+     *
+     * It is read last, because declaring a key under a qualifier is how a module overrides what it
+     * said for every platform at once.
+     */
+    @Test
+    fun aQualifiedJvmTestSettingJoinsTheOneUnitTestTaskOfAnApplication() {
+        val build = interpret(
+            module(
+                "app",
+                """
+                product: android/app
+                settings:
+                  android:
+                    namespace: example.app
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: module
+                        kept: module
+                settings@android:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode: qualified
+                test-settings@android:
+                  jvm:
+                    extraEnvironment:
+                      MODE: android
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            JvmTestSettings(
+                systemProperties = mapOf("mode" to "qualified", "kept" to "module"),
+                environment = mapOf("MODE" to "android"),
+            ),
+            build.testSettings,
         )
     }
 

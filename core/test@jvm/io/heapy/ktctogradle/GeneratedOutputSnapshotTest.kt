@@ -180,6 +180,18 @@ class GeneratedOutputSnapshotTest {
     @Test fun kmpTestSettings() = assertCase("kmp-test-settings")
 
     /**
+     * The same two sections behind a platform qualifier, where one `Test` task is not all of them.
+     *
+     * A `kmp/lib` over `[jvm, android]` has two, so `settings@jvm` has to reach `jvmTest` and
+     * `test-settings@android` has to reach the Android Gradle Plugin's `testAndroidHostTest`, while
+     * the module-wide block keeps carrying what neither of them qualified. The alias section pins
+     * that a qualifier covering both leaves reaches both, and the overridden `mode` property pins
+     * that a per-target block is emitted after the module-wide one: Gradle applies the two
+     * configuration actions in the order the script registers them.
+     */
+    @Test fun kmpQualifiedTestSettings() = assertCase("kmp-qualified-test-settings")
+
+    /**
      * A subproject mirroring Maven Central behind credentials, next to one that mirrors nothing.
      *
      * `pluginManagement` is written once for the whole build, so this pins what folding per-module

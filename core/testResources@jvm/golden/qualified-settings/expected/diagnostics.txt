@@ -1,3 +1,3 @@
 WARNING: qualified-settings: 'settings@jvm.jvm.release' is not supported by the converter and was dropped
 WARNING: qualified-settings: 'settings@macosArm64' names no platform of this module and was dropped
-WARNING: qualified-settings: 'test-settings@jvm' is not supported by the converter and was dropped
+WARNING: qualified-settings: 'test-settings@jvm.kotlin.allWarningsAsErrors' is not supported by the converter and was dropped
