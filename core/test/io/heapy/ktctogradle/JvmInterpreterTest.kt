@@ -254,6 +254,12 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * The `${'$'}kotlin.` aliases that become a `kotlin("...")` dependency, and the artifact each names.
+     *
+     * `test.junit` is the JUnit 4 adapter and `test.junit5` the JUnit 5 one; the catalog of Toolchain
+     * 0.12 defines those two and `test` and nothing else under `kotlin.test`.
+     */
     @Test
     fun catalogAccessorsAndKotlinBuiltInsBecomeTheirOwnTargets() {
         val app = module(
@@ -266,6 +272,7 @@ class JvmInterpreterTest {
             test-dependencies:
               - ${'$'}kotlin.test
               - ${'$'}kotlin.test.junit
+              - ${'$'}kotlin.test.junit5
             """.trimIndent(),
         )
         val build = interpret(app)
@@ -280,9 +287,27 @@ class JvmInterpreterTest {
         assertEquals(
             listOf(
                 Dependency(DependencyTarget.KotlinBuiltin("test")),
+                Dependency(DependencyTarget.KotlinBuiltin("test-junit")),
                 Dependency(DependencyTarget.KotlinBuiltin("test-junit5")),
             ),
             build.testDependencies,
+        )
+    }
+
+    /**
+     * `${'$'}kotlin.test.common` is not in the catalog, and the Toolchain answers it with
+     * "No catalog value for the key `kotlin.test.common`".
+     *
+     * The converter used to accept it as `kotlin("test")`, which made a build the Toolchain refuses
+     * to read convert without a word.
+     */
+    @Test
+    fun aKotlinCatalogAliasTheToolchainDoesNotDefineIsRejected() {
+        val app = module("app", "product: jvm/lib\ntest-dependencies:\n  - ${'$'}kotlin.test.common\n")
+
+        assertEquals(
+            "app: unsupported Kotlin catalog alias '\$kotlin.test.common'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
         )
     }
 

@@ -73,10 +73,19 @@ internal object Dependencies {
         else -> DependencyTarget.Maven(notation)
     }
 
+    /**
+     * One entry of the Toolchain's built-in `$kotlin.` catalog.
+     *
+     * The three test aliases are the ones the catalog defines, and each names a different artifact:
+     * `test.junit` is the JUnit 4 adapter and `test.junit5` the JUnit 5 one. Nothing else is
+     * accepted, because an alias the Toolchain rejects must not convert to a working build that
+     * pulls the wrong test framework in.
+     */
     private fun kotlinCatalogTarget(module: ToolchainModule, key: String): DependencyTarget = when (key) {
         "reflect" -> DependencyTarget.KotlinBuiltin("reflect")
-        "test", "test.common" -> DependencyTarget.KotlinBuiltin("test")
-        "test.junit", "test.junit5" -> DependencyTarget.KotlinBuiltin("test-junit5")
+        "test" -> DependencyTarget.KotlinBuiltin("test")
+        "test.junit" -> DependencyTarget.KotlinBuiltin("test-junit")
+        "test.junit5" -> DependencyTarget.KotlinBuiltin("test-junit5")
         else -> {
             val serializationKey = key.removePrefix("serialization.")
             if (serializationKey == key) {

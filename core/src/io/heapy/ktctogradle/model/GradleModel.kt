@@ -181,7 +181,7 @@ internal sealed interface DependencyTarget {
     /** A version-catalog accessor such as `libs.serialization.json`, written without the `$`. */
     data class Catalog(val accessor: String) : DependencyTarget
 
-    /** Applied as `kotlin("<name>")`: `reflect`, `test`, `test-junit5`. */
+    /** Applied as `kotlin("<name>")`: `reflect`, `test`, `test-junit`, `test-junit5`. */
     data class KotlinBuiltin(val name: String) : DependencyTarget
 }
 
