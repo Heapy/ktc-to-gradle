@@ -2,6 +2,7 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.load.ProjectLoader
 import okio.FileSystem
+import okio.ForwardingFileSystem
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
@@ -10,6 +11,7 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import okio.Path as OkioPath
 
 class ProjectRootTest {
     @Test
@@ -93,6 +95,63 @@ class ProjectRootTest {
         val error = assertFailsWith<ConversionException> { load(outer) }
 
         assertEquals("No module.yaml files selected by project.yaml", error.message)
+    }
+
+    /**
+     * With no project.yaml the Toolchain builds the single module it was pointed at, which
+     * `./kotlin show modules` confirms lists only the root one.
+     *
+     * A nested module.yaml under it is a sample or a fixture, so pulling it in would make
+     * `./gradlew build` compile code the Toolchain build never saw.
+     */
+    @Test
+    fun withoutAProjectYamlOnlyTheRootModuleIsLoaded() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-no-project-")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+        write(outer.resolve("samples/demo/module.yaml"), "product: jvm/app\n")
+        write(outer.resolve("samples/demo/src/main.kt"), "fun main() = Unit\n")
+
+        val project = load(outer)
+
+        assertEquals(listOf(""), project.modules.map { it.path.notation })
+    }
+
+    /** Started inside the nested module, that module is the project, not the one above it. */
+    @Test
+    fun withoutAProjectYamlANestedModuleConvertsAsItsOwnProject() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-nested-start-")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+        val nested = outer.resolve("samples/demo")
+        write(nested.resolve("module.yaml"), "product: jvm/app\n")
+        write(nested.resolve("src/main.kt"), "fun main() = Unit\n")
+
+        val project = load(nested)
+
+        assertEquals(canonical(nested), project.root)
+        assertEquals(listOf(""), project.modules.map { it.path.notation })
+    }
+
+    /**
+     * The project-less load reads the one module.yaml it already knows about instead of walking
+     * for others, so an unrelated subdirectory cannot fail a conversion it is not part of.
+     */
+    @Test
+    fun withoutAProjectYamlNoDirectoryBelowTheModuleIsListed() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-no-walk-")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+        write(outer.resolve("samples/demo/module.yaml"), "product: jvm/app\n")
+        val root = canonical(outer)
+        val listed = mutableListOf<OkioPath>()
+        val recording = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun list(dir: OkioPath): List<OkioPath> {
+                listed += dir
+                return super.list(dir)
+            }
+        }
+
+        ProjectLoader(recording).load(root)
+
+        assertEquals(emptyList(), listed.filter { it != root })
     }
 
     private fun load(start: Path) = ProjectLoader(FileSystem.SYSTEM).load(start.toString().toPath())

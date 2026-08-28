@@ -27,10 +27,17 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         patterns.firstOrNull { "**" in it }?.let {
             throw ConversionException("project.yaml module glob '$it' uses unsupported recursive ** syntax")
         }
-        val moduleFiles = findModuleFiles(fileSystem, root)
-        val selected = moduleFiles.filter { file ->
-            val relative = ModulePath.relativize(root, file.parent!!) ?: return@filter false
-            relative.isRoot || projectConfig == null || patterns.any { globMatches(it, relative.notation) }
+        // Without a project.yaml the Toolchain builds the one module it was pointed at, and findRoot
+        // only reaches such a root through its own module.yaml. So there is nothing to discover: a
+        // nested module.yaml is not part of this Toolchain project, and walking the tree to find one
+        // would only let an unrelated subdirectory fail the conversion.
+        val selected = if (projectConfig == null) {
+            listOf(root / "module.yaml")
+        } else {
+            findModuleFiles(fileSystem, root).filter { file ->
+                val relative = ModulePath.relativize(root, file.parent!!) ?: return@filter false
+                relative.isRoot || patterns.any { globMatches(it, relative.notation) }
+            }
         }
         if (selected.isEmpty()) {
             throw ConversionException("No module.yaml files selected by ${projectFile.name}")
