@@ -779,6 +779,52 @@ class ProjectInterpreterTest {
         }
     }
 
+    /**
+     * `test-settings.jvm.release` is reported only by a module with nowhere to put it.
+     *
+     * A Kotlin JVM compilation takes the value; the Android Gradle Plugin offers no handle on the
+     * unit-test compilation alone, and a module with no JVM-backed target has no compilation at all.
+     * Reporting it for a module that carried it would be the worse half of a warning: noise that
+     * teaches the reader to skip the ones that matter.
+     */
+    @Test
+    fun theTestReleaseIsReportedOnlyWhereNoCompilationCanCarryIt() {
+        val testSettings = "\n\ntest-settings:\n  jvm:\n    release: 25\n"
+        val carried = listOf(
+            "product: jvm/lib",
+            "product: jvm/app",
+            "product:\n  type: kmp/lib\n  platforms: [jvm, linuxX64]",
+            "product:\n  type: kmp/lib\n  platforms: [android]\nsettings:\n  android:\n    namespace: example.lib",
+        )
+        for (yaml in carried) {
+            val diagnostics = DiagnosticCollector()
+            ProjectInterpreter.interpret(project(module("library", yaml + testSettings)), diagnostics)
+            assertEquals(
+                emptyList(),
+                diagnostics.collected().map(Diagnostic::message).filter { "test-settings" in it },
+                "for '$yaml'",
+            )
+        }
+
+        val dropped = listOf(
+            "product: android/app",
+            "product:\n  type: kmp/lib\n  platforms: [linuxX64]",
+            "product: js/app",
+        )
+        for (yaml in dropped) {
+            val diagnostics = DiagnosticCollector()
+            ProjectInterpreter.interpret(project(module("library", yaml + testSettings)), diagnostics)
+            assertEquals(
+                listOf(
+                    "library: test-settings.jvm.release '25' was dropped; this module has no Kotlin JVM " +
+                        "test compilation to carry it",
+                ),
+                diagnostics.collected().map(Diagnostic::message).filter { "test-settings" in it },
+                "for '$yaml'",
+            )
+        }
+    }
+
     private fun interpret(project: ToolchainProject) =
         ProjectInterpreter.interpret(project, DiagnosticCollector())
 

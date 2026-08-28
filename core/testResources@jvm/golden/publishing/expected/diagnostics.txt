@@ -1,3 +1,2 @@
-WARNING: kmp-lib: test-settings.jvm.release '25' was dropped; the test compilation targets the same bytecode level as the main one
 WARNING: kmp-lib: settings.publishing.mavenCentral has no Gradle equivalent (publishingMode 'manual' included); the generated build publishes to the repositories it declares and uploads no Central Portal bundle
 WARNING: kmp-lib: settings.publishing.checksums md5, sha1, sha256 was dropped; Gradle writes its own set next to every artifact and offers no way to choose one

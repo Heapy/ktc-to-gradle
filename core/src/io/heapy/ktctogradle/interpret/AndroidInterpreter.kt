@@ -76,6 +76,7 @@ internal object AndroidInterpreter {
             compileSdk = android?.compileSdk ?: Defaults.ANDROID_COMPILE_SDK,
             minSdk = android?.minSdk ?: Defaults.ANDROID_MIN_SDK,
             release = jvmRelease(model),
+            testRelease = model.settings.test?.release,
         )
     }
 

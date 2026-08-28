@@ -43,6 +43,7 @@ internal object JvmInterpreter {
         return JvmBuild(
             jdk = jdk,
             release = release,
+            testRelease = model.settings.test?.release,
             compilerOptions = compilerOptions(model.settings.kotlin, jvmTarget = release),
             qualifiedCompilerOptions = qualified,
             layout = if (model.layout == RawLayout.MAVEN_LIKE) GradleLayout.MAVEN_LIKE else GradleLayout.AMPER,

@@ -9,6 +9,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConversionIntegrationTest {
@@ -22,6 +23,7 @@ class ConversionIntegrationTest {
             "jvm-multi",
             "kmp-library",
             "junit-none",
+            "test-release",
             "compiler-plugin",
             "android-app",
             "android-junit-none",
@@ -54,6 +56,12 @@ class ConversionIntegrationTest {
             val output = process.inputStream.bufferedReader().readText()
             val exitCode = process.waitFor()
             assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
+            // A generated build that compiles is not enough: the same flag written twice still
+            // compiles, and warns once per compilation of every build the user ever runs.
+            assertFalse(
+                "is passed multiple times" in output,
+                "Converted fixture '$fixture' passed a compiler argument twice:\n$output",
+            )
             if (fixture == "kmp-library") {
                 assertJvmRelease(destination, expectedMajorVersion = 61)
                 assertUnitTestsRan(destination, "jvmTest", "example.multiplatform.JupiterOnlyTest")
@@ -73,6 +81,28 @@ class ConversionIntegrationTest {
                 // The junit-5 module of the same project: one root gradle.properties serves both,
                 // and the adapter still reaches the module that did not bring an engine of its own.
                 assertUnitTestsRan(destination.resolve("junit5-lib"), "test", "example.junit5.KotlinTestTest")
+            }
+            // The test sources read a JDK 24 API the module's own release of 21 hides, so the build
+            // only compiles when test-settings.jvm.release reached both test compilations.
+            if (fixture == "test-release") {
+                assertUnitTestsRan(
+                    destination.resolve("jvm-lib"),
+                    "test",
+                    "example.testrelease.NewApiTest",
+                )
+                assertUnitTestsRan(
+                    destination.resolve("kmp-lib"),
+                    "jvmTest",
+                    "example.testrelease.multiplatform.NewApiTest",
+                )
+                assertClassFileVersion(
+                    destination.resolve("jvm-lib/build/classes/kotlin/main/example/testrelease/GreetingKt.class"),
+                    65,
+                )
+                assertClassFileVersion(
+                    destination.resolve("jvm-lib/build/classes/kotlin/test/example/testrelease/NewApiTest.class"),
+                    69,
+                )
             }
             if (fixture == "android-junit-none") {
                 assertUnitTestsRan(destination, "testDebugUnitTest", "example.androidjunitnone.JupiterOnlyTest")
@@ -163,8 +193,6 @@ class ConversionIntegrationTest {
 
         assertEquals(
             listOf(
-                "kmp-lib: test-settings.jvm.release '25' was dropped; the test compilation targets " +
-                    "the same bytecode level as the main one",
                 "kmp-lib: settings.publishing.mavenCentral has no Gradle equivalent (publishingMode " +
                     "'manual' included); the generated build publishes to the repositories it declares " +
                     "and uploads no Central Portal bundle",

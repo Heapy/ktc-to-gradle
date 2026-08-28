@@ -383,12 +383,7 @@ class YamlBinderTest {
         assertNull(bind("product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10\n").settings.publishing)
     }
 
-    /**
-     * `test-settings.jvm.release` binds even though nothing carries it yet.
-     *
-     * A key the converter reads and drops is reported by the interpret stage, and it cannot report
-     * a value the load stage threw away.
-     */
+    /** `test-settings.jvm.release`, which is bound apart from `settings.jvm.release`. */
     @Test
     fun bindsTheTestSettingsRelease() {
         assertEquals(

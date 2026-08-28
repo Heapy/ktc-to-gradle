@@ -29,7 +29,7 @@ class StaticAssetsTest {
      * Kotlin Gradle Plugin report a hierarchy-template mismatch once per multiplatform module and
      * fall back to those edges. This property picks the same fallback without the report.
      *
-     * The 32 baselines keep the line; none of them can say that removing it costs a warning on
+     * The 34 baselines keep the line; none of them can say that removing it costs a warning on
      * every multiplatform module of every conversion, which is the only reason it is there.
      */
     @Test

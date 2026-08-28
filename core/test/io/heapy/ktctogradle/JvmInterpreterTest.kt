@@ -182,6 +182,39 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * `test-settings.jvm.release` reaches the build on its own, separately from the main release.
+     *
+     * The test classes are never published, so nothing ties them to the level the module ships. A
+     * module that compiles its tests against a newer JDK API than it publishes is the case this
+     * exists for, and the two values have to stay apart all the way to the renderer.
+     */
+    @Test
+    fun theTestReleaseIsCarriedSeparatelyFromTheMainOne() {
+        val build = interpret(
+            module(
+                "library",
+                """
+                product: jvm/lib
+
+                settings:
+                  jvm:
+                    jdk:
+                      version: 25
+                    release: 21
+
+                test-settings:
+                  jvm:
+                    release: 25
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("21", build.release)
+        assertEquals("25", build.testRelease)
+        assertEquals(null, interpret(module("library", "product: jvm/lib\n")).testRelease)
+    }
+
     @Test
     fun aMavenLikeModuleKeepsTheGradleSourceLayout() {
         assertEquals(Layout.MAVEN_LIKE, interpret(module("app", "product: jvm/lib\nlayout: maven-like\n")).layout)

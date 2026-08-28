@@ -99,7 +99,7 @@ internal object MultiplatformInterpreter {
     ): KmpTarget {
         val model = module.model
         val kind = when (platform) {
-            "jvm" -> TargetKind.Jvm(release = jvmRelease(model))
+            "jvm" -> TargetKind.Jvm(release = jvmRelease(model), testRelease = model.settings.test?.release)
             "android" -> TargetKind.Android(AndroidInterpreter.libraryTarget(module, diagnostics))
             "js" -> TargetKind.Js
             "wasmJs" -> TargetKind.WasmJs

@@ -1,0 +1,18 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+settings:
+  kotlin:
+    version: 2.4.10
+  jvm:
+    jdk:
+      version: 25
+    release: 21
+
+test-dependencies@jvm:
+  - org.junit.jupiter:junit-jupiter:5.14.1
+
+test-settings:
+  jvm:
+    release: 25

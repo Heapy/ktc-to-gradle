@@ -159,9 +159,11 @@ The conversion succeeds. The generated `build.gradle.kts` is where the case is:
   `allWarningsAsErrors` is declared five times in `module.yaml` and appears five times in the
   output: once inside `jvm { compilerOptions { } }`, once inside `androidLibrary { }`, and once in
   each of the three iOS target blocks.
-- **`test-settings.jvm.release: 25` still produces nothing, and now says so.** Expect
-  `warning: krogu-time: test-settings.jvm.release '25' was dropped`. The whole point of that key is
-  that the JVM differential tests compile against JDK 25 while the published bytecode targets 21.
+- **`test-settings.jvm.release: 25` is carried.** The `jvm()` target gets a
+  `compilations.named("test")` block restating `-Xjdk-release=25`, next to the `-Xjdk-release=21`
+  the main compilation keeps. That is the whole point of the key: the JVM differential tests compile
+  against JDK 25 while the published bytecode stays at 21. `./gradlew compileTestKotlinJvm` is the
+  check — it fails without the block, because the tests read `java.time` APIs newer than 21.
 - The alias hierarchy *is* honored: look for `jvmAndAndroidMain`, `nativeMain` and their
   `dependsOn` wiring.
 

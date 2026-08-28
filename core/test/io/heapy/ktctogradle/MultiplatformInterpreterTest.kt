@@ -202,6 +202,79 @@ class MultiplatformInterpreterTest {
         }
     }
 
+    /**
+     * The `jvm()` target carries the test release; no other target has a JVM compilation to put on.
+     *
+     * A target's `compilerOptions` reach every compilation it has, so the test one inherits the main
+     * release and the renderer has to restate its own. Keeping both on [TargetKind.Jvm] is what lets
+     * it do that without looking the module up again.
+     */
+    @Test
+    fun theJvmTargetCarriesTheTestReleaseNextToTheMainOne() {
+        val build = interpret(
+            module(
+                "lib",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+
+                settings:
+                  jvm:
+                    jdk:
+                      version: 25
+                    release: 21
+
+                test-settings:
+                  jvm:
+                    release: 25
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            TargetKind.Jvm(release = "21", testRelease = "25"),
+            build.targets.single { it.name == "jvm" }.kind,
+        )
+        assertEquals(TargetKind.Native, build.targets.single { it.name == "linuxX64" }.kind)
+    }
+
+    /**
+     * The `androidLibrary` target carries it too, and it has a JVM compilation of its own.
+     *
+     * A module on `[jvm, android]` compiles its tests twice. Carrying the release on one target and
+     * not the other would compile half of them against the wrong JDK API and say nothing about it.
+     */
+    @Test
+    fun theAndroidTargetCarriesTheTestReleaseAsWell() {
+        val build = interpret(
+            module(
+                "lib",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [android]
+
+                settings:
+                  android:
+                    namespace: example.lib
+                  jvm:
+                    jdk:
+                      version: 25
+                    release: 21
+
+                test-settings:
+                  jvm:
+                    release: 25
+                """.trimIndent(),
+            ),
+        )
+
+        val android = build.targets.single { it.name == "android" }.kind as TargetKind.Android
+        assertEquals("21", android.library.release)
+        assertEquals("25", android.library.testRelease)
+    }
+
     /** A target inherits the module-wide options, so only the section that names it may add to them. */
     @Test
     fun aQualifiedSectionReachesItsOwnTargetAndNoOther() {

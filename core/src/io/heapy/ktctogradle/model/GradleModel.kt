@@ -338,6 +338,14 @@ internal data class JvmBuild(
     /** The toolchain JDK, as written: `jvmToolchain(25)` takes a number and not a string. */
     val jdk: String,
     val release: String,
+    /**
+     * What the test compilation targets, or `null` when the module named nothing.
+     *
+     * Separate from [release] because a module may compile its tests against a newer JDK API than
+     * the bytecode it publishes; the test classes are never published, so nothing constrains them
+     * to the same level.
+     */
+    val testRelease: String? = null,
     val compilerOptions: CompilerOptions,
     /** What the platform-qualified sections add, emitted after [compilerOptions] rather than merged. */
     val qualifiedCompilerOptions: CompilerOptions = CompilerOptions.EMPTY,
@@ -392,6 +400,8 @@ internal data class AndroidLibraryTarget(
      * disagree on the class-file version the module publishes.
      */
     val release: String,
+    /** What the target's `hostTest` compilation targets, or `null` when the module named nothing. */
+    val testRelease: String? = null,
 )
 
 /**
@@ -452,8 +462,14 @@ internal sealed interface TargetKind {
      */
     val runsOnAJdk: Boolean
 
-    /** [release] is both the bytecode target and the `-Xjdk-release` the compiler is given. */
-    data class Jvm(val release: String) : TargetKind {
+    /**
+     * [release] is both the bytecode target and the `-Xjdk-release` the compiler is given.
+     *
+     * [testRelease] is the same pair for the target's test compilation, or `null` when the module
+     * named none. The two are separate because a module may compile its tests against a newer JDK
+     * API than the bytecode it publishes — which is the whole point of `test-settings.jvm.release`.
+     */
+    data class Jvm(val release: String, val testRelease: String? = null) : TargetKind {
         override val runsOnAJdk = true
     }
 

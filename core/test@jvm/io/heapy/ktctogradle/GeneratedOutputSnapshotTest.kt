@@ -111,6 +111,25 @@ class GeneratedOutputSnapshotTest {
      */
     @Test fun publishing() = assertCase("publishing")
 
+    /**
+     * `test-settings.jvm.release` on a `jvm/lib` and on a `kmp/lib`, both publishing lower bytecode.
+     *
+     * The two products need different DSL for the same thing. A `jvm/lib` configures the two test
+     * compile tasks; a `kmp/lib` reaches the test compilation of its `jvm()` target, where the
+     * target-wide `compilerOptions` already gave it the main release and it has to restate its own.
+     */
+    @Test fun testRelease() = assertCase("test-release")
+
+    /**
+     * The same key on a `kmp/lib` that also builds for Android, which has a second JVM compilation.
+     *
+     * The `androidLibrary` target names its unit-test compilation `hostTest` rather than `test`, and
+     * it inherits the target's release just as `jvm()` does. A module that carried the value on one
+     * of the two and not on the other would compile half its tests against the wrong JDK API and say
+     * nothing, so this pins that both targets split their release the same way.
+     */
+    @Test fun testReleaseAndroid() = assertCase("test-release-android")
+
     @Test fun dependencyScopes() = assertCase("dependency-scopes")
 
     @Test fun rootModuleWithSubprojects() = assertCase("root-module-with-subprojects")

@@ -283,11 +283,11 @@ internal data class TestSettings(
     val systemProperties: Map<String, String> = emptyMap(),
     val extraEnvironment: Map<String, String> = emptyMap(),
     /**
-     * The bytecode level the test compilation targets, which the converter reads and does not yet
-     * carry into the generated build.
+     * The bytecode level the test compilation targets.
      *
-     * Bound so the interpret stage can say it was dropped instead of losing it in silence. Carrying
-     * it onto the test compilation is a separate change.
+     * Separate from `settings.jvm.release`, because a module may compile its tests against a newer
+     * JDK API than the bytecode it publishes: the test classes are never published, so nothing ties
+     * them to the same level.
      */
     val release: String? = null,
 )

@@ -155,12 +155,30 @@ internal object ProjectInterpreter {
      * carried and only the rest has to be named.
      */
     private fun reportDroppedSections(module: ToolchainModule, diagnostics: DiagnosticCollector) {
-        module.model.settings.test?.release?.let { release ->
+        val release = module.model.settings.test?.release
+        if (release != null && !carriesTestRelease(module)) {
             diagnostics.warn(
-                "${module.displayName}: test-settings.jvm.release '$release' was dropped; the test " +
-                    "compilation targets the same bytecode level as the main one",
+                "${module.displayName}: test-settings.jvm.release '$release' was dropped; this module " +
+                    "has no Kotlin JVM test compilation to carry it",
             )
         }
+    }
+
+    /**
+     * Whether the module has a Kotlin compilation the test release can be set on.
+     *
+     * A `jvm/lib` and a `jvm/app` always have one. A multiplatform module has one per JVM-backed
+     * target: `jvm()` names its test compilation `test`, and `androidLibrary` names its host-test
+     * one `hostTest`. Everything else compiles to something that is not JVM bytecode.
+     *
+     * An `android/app` is the one JVM-backed product left out. The Android Gradle Plugin builds its
+     * unit tests as variants of the application rather than as a Kotlin compilation of their own,
+     * and it offers no handle on the compiler of one variant.
+     */
+    private fun carriesTestRelease(module: ToolchainModule): Boolean = when (module.model.product.type) {
+        ProductType.JVM_LIB, ProductType.JVM_APP -> true
+        in ProductType.MULTIPLATFORM -> module.model.product.platforms.any { it in JVM_BACKED_PLATFORMS }
+        else -> false
     }
 
     /**
@@ -271,4 +289,7 @@ internal object ProjectInterpreter {
 
     /** The rejected keys that name build plugins; the rest are `settings.` paths the run stops on. */
     private val TOP_LEVEL_KEYS = YamlBinder.UNSUPPORTED_KEYS.toSet()
+
+    /** The multiplatform platforms whose target compiles Kotlin to JVM bytecode. */
+    private val JVM_BACKED_PLATFORMS = setOf("jvm", "android")
 }

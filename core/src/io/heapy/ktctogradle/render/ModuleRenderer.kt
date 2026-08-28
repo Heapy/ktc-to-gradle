@@ -97,6 +97,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
         if (build.testFramework.runsOnTheJUnitPlatform) line("useJUnitPlatform()")
         appendJvmTestSettings(build.testSettings)
     }
+    build.testRelease?.let { appendTestRelease(it) }
     build.mainClass?.let { mainClass ->
         blank()
         block("application") {
@@ -225,14 +226,36 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     }
 }.build()
 
+/**
+ * What a `jvm/lib` or `jvm/app` does with `test-settings.jvm.release`.
+ *
+ * The test compilation is not published, so nothing ties it to the level the main one targets: a
+ * module may compile its tests against a newer JDK API on purpose. Both compilers are told, because
+ * the Kotlin Toolchain compiles the Java sources of a module too.
+ */
+private fun KtsWriter.appendTestRelease(release: String) {
+    blank()
+    block("tasks.compileTestKotlin") {
+        block("compilerOptions") {
+            line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(release)}))")
+            line("freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
+        }
+    }
+    blank()
+    block("tasks.compileTestJava") {
+        line("options.release.set($release)")
+    }
+}
+
 private fun KtsWriter.appendTarget(target: KmpTarget) {
     when (val kind = target.kind) {
         is TargetKind.Jvm -> block("jvm") {
             block("compilerOptions") {
                 line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(kind.release)}))")
-                line("freeCompilerArgs.add(${quote("-Xjdk-release=${kind.release}")})")
+                if (kind.testRelease == null) line("freeCompilerArgs.add(${quote("-Xjdk-release=${kind.release}")})")
                 appendCompilerOptionLines(target.compilerOptions)
             }
+            appendCompilationReleases(kind.release, kind.testRelease, testCompilation = "test")
         }
         is TargetKind.Android -> appendAndroidLibraryTarget(kind.library, target.compilerOptions)
         TargetKind.Js -> appendBrowserTarget("js(IR)", target)
@@ -307,8 +330,41 @@ private fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, q
         line("withHostTestBuilder {}.configure {}")
         block("compilerOptions") {
             line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(target.release)}))")
-            line("freeCompilerArgs.add(${quote("-Xjdk-release=${target.release}")})")
+            if (target.testRelease == null) {
+                line("freeCompilerArgs.add(${quote("-Xjdk-release=${target.release}")})")
+            }
             appendCompilerOptionLines(qualifiedOptions)
+        }
+        appendCompilationReleases(target.release, target.testRelease, testCompilation = "hostTest")
+    }
+}
+
+/**
+ * The `-Xjdk-release` of a multiplatform target, per compilation rather than target-wide.
+ *
+ * A target's own `compilerOptions` reach every compilation it has, so a test compilation that needs
+ * a different release cannot simply add its own: the inherited flag stays on the list beside it, and
+ * the Kotlin compiler warns that the argument was passed twice on every build. Splitting the flag
+ * across the two compilations says the same thing once each.
+ *
+ * Only when the module named a test release. Without one the target-wide flag is the shorter
+ * spelling of the same thing, and every baseline that has no test release keeps it.
+ */
+private fun KtsWriter.appendCompilationReleases(release: String, testRelease: String?, testCompilation: String) {
+    if (testRelease == null) return
+    appendCompilationRelease("main", release, jvmTarget = null)
+    appendCompilationRelease(testCompilation, testRelease, jvmTarget = testRelease)
+}
+
+private fun KtsWriter.appendCompilationRelease(compilation: String, release: String, jvmTarget: String?) {
+    block("compilations.named(${quote(compilation)}).configure") {
+        block("compileTaskProvider.configure") {
+            block("compilerOptions") {
+                if (jvmTarget != null) {
+                    line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(jvmTarget)}))")
+                }
+                line("freeCompilerArgs.add(${quote("-Xjdk-release=$release")})")
+            }
         }
     }
 }
