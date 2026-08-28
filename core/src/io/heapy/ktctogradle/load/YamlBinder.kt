@@ -22,6 +22,7 @@ internal object YamlBinder {
         return ToolchainModel(
             product = deferred(errors, Region.PRODUCT, ProductSpec("", emptyList())) { product(config) },
             layout = if (config.string("layout") == "maven-like") Layout.MAVEN_LIKE else Layout.AMPER,
+            description = config.string("description"),
             aliases = deferred(errors, Region.ALIASES, emptyMap()) { bindAliases(config) },
             dependencies = bindDependencies(config, "dependencies", displayName, errors),
             testDependencies = bindDependencies(config, "test-dependencies", displayName, errors),
@@ -210,6 +211,7 @@ internal object YamlBinder {
                     id = value.string("id"),
                     url = value.string("url") ?: throw ConversionException("repositories[$index].url is required"),
                     resolve = value.boolean("resolve") ?: true,
+                    publish = value.boolean("publish") ?: false,
                     credentials = (value.value("credentials") as? Value.Mapping)?.let { credentials ->
                         RawCredentials(
                             file = credentials.string("file")
@@ -377,6 +379,7 @@ internal object YamlBinder {
                     version = present.string("ktor.version"),
                 )
             },
+            publishing = bindPublishing(present.value("publishing"), lenient),
             test = testSettings?.let {
                 TestSettings(
                     freeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
@@ -384,9 +387,99 @@ internal object YamlBinder {
                     },
                     systemProperties = stringMap(it.value("jvm.systemProperties")),
                     extraEnvironment = stringMap(it.value("jvm.extraEnvironment")),
+                    release = it.integer("jvm.release", "test-settings.", lenient),
                 )
             },
         )
+    }
+
+    /**
+     * `settings.publishing`, read whole.
+     *
+     * Nothing here defers: the section carries no value the converter has to reject, so a key it
+     * cannot use is reported by the interpret stage rather than failing the load.
+     */
+    private fun bindPublishing(node: Value?, lenient: Boolean): PublishingSettings? {
+        val mapping = node as? Value.Mapping ?: return null
+        return PublishingSettings(
+            enabled = mapping.boolean("enabled"),
+            group = mapping.string("group"),
+            artifactId = mapping.string("artifactId"),
+            version = mapping.string("version"),
+            publishSources = mapping.boolean("publishSources"),
+            signArtifacts = mapping.boolean("signArtifacts"),
+            checksums = mapping.stringList("checksums", "settings.publishing.", lenient),
+            mavenCentral = bindMavenCentral(mapping.value("mavenCentral")),
+            pom = bindPom(mapping.value("pom"), lenient),
+        )
+    }
+
+    private fun bindMavenCentral(node: Value?): MavenCentralSpec? = when (node) {
+        null -> null
+        is Value.Mapping -> MavenCentralSpec(
+            enabled = node.boolean("enabled"),
+            publishingMode = node.string("publishingMode"),
+        )
+        // The scalar form is the switch alone: `mavenCentral: enabled`.
+        else -> MavenCentralSpec(enabled = node.scalarOrNull().let { it == "enabled" || it == "true" })
+    }
+
+    private fun bindPom(node: Value?, lenient: Boolean): PomSpec? {
+        val mapping = node as? Value.Mapping ?: return null
+        return PomSpec(
+            name = mapping.string("name"),
+            description = mapping.string("description"),
+            url = mapping.string("url"),
+            licenses = pomEntries(mapping.value("licenses"), "settings.publishing.pom.licenses", lenient) {
+                PomLicense(name = it.string("name"), url = it.string("url"))
+            },
+            developers = pomEntries(mapping.value("developers"), "settings.publishing.pom.developers", lenient) {
+                PomDeveloper(
+                    id = it.string("id"),
+                    name = it.string("name"),
+                    url = it.string("url"),
+                    email = it.string("email"),
+                    organization = it.string("organization"),
+                    organizationUrl = it.string("organizationUrl"),
+                )
+            },
+            scm = bindScm(mapping.value("scm")),
+        )
+    }
+
+    private fun <T> pomEntries(
+        node: Value?,
+        path: String,
+        lenient: Boolean,
+        entry: (Value.Mapping) -> T,
+    ): List<T> {
+        if (node == null) return emptyList()
+        val items = (node as? Value.Sequence)?.items
+            ?: if (lenient) return emptyList() else throw ConversionException("$path must be a list")
+        return items.mapIndexedNotNull { index, item ->
+            val mapping = item as? Value.Mapping
+                ?: if (lenient) return@mapIndexedNotNull null else throw ConversionException("$path[$index] must be an object")
+            entry(mapping)
+        }
+    }
+
+    /**
+     * `scm` is either the object or the URL alone.
+     *
+     * The Toolchain derives both connection strings from that URL as `scm:git:<url>`, so the
+     * shorthand is expanded here rather than in the interpret stage: it is a spelling of the same
+     * section and not a decision the converter makes.
+     */
+    private fun bindScm(node: Value?): PomScm? = when (node) {
+        null -> null
+        is Value.Mapping -> PomScm(
+            url = node.string("url"),
+            connection = node.string("connection") ?: node.string("url")?.let { "scm:git:$it" },
+            developerConnection = node.string("developerConnection") ?: node.string("url")?.let { "scm:git:$it" },
+        )
+        else -> node.scalarOrNull()?.let { url ->
+            PomScm(url = url, connection = "scm:git:$url", developerConnection = "scm:git:$url")
+        }
     }
 
     /**

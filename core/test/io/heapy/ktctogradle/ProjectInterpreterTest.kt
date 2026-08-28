@@ -13,6 +13,12 @@ import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.JvmBuild
 import io.heapy.ktctogradle.model.MultiplatformBuild
 import io.heapy.ktctogradle.model.PluginDecl
+import io.heapy.ktctogradle.model.Pom
+import io.heapy.ktctogradle.model.PomDeveloper
+import io.heapy.ktctogradle.model.PomLicense
+import io.heapy.ktctogradle.model.PomScm
+import io.heapy.ktctogradle.model.Publication
+import io.heapy.ktctogradle.model.Repository
 import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.test.Test
@@ -547,6 +553,230 @@ class ProjectInterpreterTest {
         )
 
         assertTrue(project.modules[1].build is MultiplatformBuild)
+    }
+
+    /**
+     * `settings.publishing` becomes a [Publication], and every key without a Gradle equivalent is
+     * named rather than dropped.
+     *
+     * The `jvm/lib` half is the whole section carried; the `kmp/lib` half is the two keys that
+     * cannot be: the Kotlin Gradle Plugin names a multiplatform module's artifacts itself, and
+     * Gradle has no Central Portal upload.
+     */
+    @Test
+    fun theWholePublishingSectionReachesTheModuleAndTheRestIsReported() {
+        val diagnostics = DiagnosticCollector()
+        val project = project(
+            module(
+                "library",
+                """
+                product: jvm/lib
+
+                repositories:
+                  - id: releases
+                    url: https://repo.example/releases
+                    resolve: false
+                    publish: true
+
+                settings:
+                  publishing:
+                    enabled: true
+                    group: example.library
+                    artifactId: renamed-library
+                    version: 1.2.3
+                    publishSources: true
+                    signArtifacts: true
+                    pom:
+                      name: renamed-library
+                      description: A library
+                      url: https://example.invalid/library
+                      licenses:
+                        - name: Apache-2.0
+                          url: https://www.apache.org/licenses/LICENSE-2.0.txt
+                      developers:
+                        - id: example
+                          name: Example Developer
+                      scm: https://example.invalid/library.git
+                """.trimIndent(),
+            ),
+        )
+
+        val module = ProjectInterpreter.interpret(project, diagnostics).modules.single { it.gradlePath == ":library" }
+
+        assertEquals(
+            Publication(
+                group = "example.library",
+                version = "1.2.3",
+                artifactId = "renamed-library",
+                publishSources = true,
+                signArtifacts = true,
+                pom = Pom(
+                    name = "renamed-library",
+                    description = "A library",
+                    url = "https://example.invalid/library",
+                    licenses = listOf(
+                        PomLicense(name = "Apache-2.0", url = "https://www.apache.org/licenses/LICENSE-2.0.txt"),
+                    ),
+                    developers = listOf(PomDeveloper(id = "example", name = "Example Developer")),
+                    // The `scm: <url>` shorthand carries both connection strings.
+                    scm = PomScm(
+                        url = "https://example.invalid/library.git",
+                        connection = "scm:git:https://example.invalid/library.git",
+                        developerConnection = "scm:git:https://example.invalid/library.git",
+                    ),
+                ),
+                perTarget = false,
+                projectName = "library",
+                repositories = listOf(Repository(id = "releases", url = "https://repo.example/releases")),
+            ),
+            module.publication,
+        )
+        assertEquals(
+            listOf(GradlePlugin.Builtin.MAVEN_PUBLISH, GradlePlugin.Builtin.SIGNING),
+            module.plugins.map(PluginDecl::plugin).filterIsInstance<GradlePlugin.Builtin>(),
+        )
+        assertEquals(emptyList(), diagnostics.collected())
+    }
+
+    /**
+     * A multiplatform module keeps its base artifact id and reports only what Gradle cannot do.
+     *
+     * `artifactId` is the *base* name upstream: the Toolchain appends the platform to it for every
+     * target but the root one, which is the same shape the Kotlin Gradle Plugin already produces
+     * from the Gradle project name. The Central Portal upload is the key with no Gradle equivalent.
+     */
+    @Test
+    fun aMultiplatformModuleKeepsThePomAndReportsWhatItCannotPublish() {
+        val diagnostics = DiagnosticCollector()
+        val project = project(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm]
+
+                settings:
+                  publishing:
+                    enabled: true
+                    group: example.shared
+                    artifactId: renamed-shared
+                    version: 1.2.3
+                    mavenCentral: enabled
+                    pom:
+                      name: renamed-shared
+                """.trimIndent(),
+            ),
+        )
+
+        val module = ProjectInterpreter.interpret(project, diagnostics).modules.single { it.gradlePath == ":shared" }
+
+        assertEquals(
+            Publication(
+                group = "example.shared",
+                version = "1.2.3",
+                artifactId = "renamed-shared",
+                publishSources = false,
+                signArtifacts = false,
+                pom = Pom(name = "renamed-shared"),
+                perTarget = true,
+                projectName = "shared",
+            ),
+            module.publication,
+        )
+        assertEquals(
+            listOf(
+                "shared: settings.publishing.mavenCentral has no Gradle equivalent; the generated build " +
+                    "publishes to the repositories it declares and uploads no Central Portal bundle",
+            ),
+            diagnostics.collected().map(Diagnostic::message),
+        )
+    }
+
+    /**
+     * `enabled` defaults to `false`, so declaring the section is not asking to publish.
+     *
+     * This is the one default in `settings.publishing` that a converter can get wrong in the
+     * expensive direction: a build that publishes a module the project never published ships an
+     * artifact nobody asked for. Neither form produces a publication, plugins, or a diagnostic.
+     */
+    @Test
+    fun publishingIsOffUnlessTheModuleTurnsItOn() {
+        for (declaration in listOf("    enabled: false\n", "")) {
+            val diagnostics = DiagnosticCollector()
+            val project = project(
+                module(
+                    "library",
+                    "product: jvm/lib\n\nsettings:\n  publishing:\n$declaration    group: example\n" +
+                        "    version: 1.0.0\n",
+                ),
+            )
+
+            val module = ProjectInterpreter.interpret(project, diagnostics)
+                .modules.single { it.gradlePath == ":library" }
+
+            assertNull(module.publication, "for '$declaration'")
+            assertEquals(emptyList(), diagnostics.collected(), "for '$declaration'")
+            assertEquals(
+                emptyList(),
+                module.plugins.map(PluginDecl::plugin).filterIsInstance<GradlePlugin.Builtin>(),
+                "for '$declaration'",
+            )
+        }
+    }
+
+    /**
+     * A publication with no coordinate is one nobody can consume, so it is an error and not a
+     * degraded conversion. The Toolchain refuses the same two keys.
+     */
+    @Test
+    fun publishingWithoutAGroupOrAVersionIsAnError() {
+        val diagnostics = DiagnosticCollector()
+        val project = project(
+            module("library", "product: jvm/lib\n\nsettings:\n  publishing:\n    enabled: true\n"),
+        )
+
+        val module = ProjectInterpreter.interpret(project, diagnostics).modules.single { it.gradlePath == ":library" }
+
+        assertNull(module.publication)
+        assertEquals(
+            listOf(
+                "library: settings.publishing is enabled without settings.publishing.group and " +
+                    "settings.publishing.version; the module was left unpublished",
+            ),
+            diagnostics.collected().map(Diagnostic::message),
+        )
+        assertEquals(
+            emptyList(),
+            module.plugins.map(PluginDecl::plugin).filterIsInstance<GradlePlugin.Builtin>(),
+        )
+    }
+
+    /** The Toolchain publishes libraries; an application has no consumer to publish it for. */
+    @Test
+    fun publishingAnApplicationIsRefusedAndNamed() {
+        for (product in listOf("jvm/app", "android/app")) {
+            val diagnostics = DiagnosticCollector()
+            val project = project(
+                module(
+                    "app",
+                    "product: $product\n\nsettings:\n  publishing:\n    enabled: true\n" +
+                        "    group: example\n    version: 1.0.0\n",
+                ),
+            )
+
+            val module = ProjectInterpreter.interpret(project, diagnostics).modules.single { it.gradlePath == ":app" }
+
+            assertNull(module.publication, "for $product")
+            assertEquals(
+                listOf(
+                    "app: settings.publishing is not converted for a '$product'; " +
+                        "the Kotlin Toolchain publishes jvm/lib and kmp/lib modules only",
+                ),
+                diagnostics.collected().map(Diagnostic::message).filter { "publishing" in it },
+                "for $product",
+            )
+        }
     }
 
     private fun interpret(project: ToolchainProject) =

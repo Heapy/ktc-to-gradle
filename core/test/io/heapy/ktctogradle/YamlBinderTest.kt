@@ -6,8 +6,14 @@ import io.heapy.ktctogradle.load.JvmSettings
 import io.heapy.ktctogradle.load.KotlinSettings
 import io.heapy.ktctogradle.load.KtorSettings
 import io.heapy.ktctogradle.load.Layout
+import io.heapy.ktctogradle.load.MavenCentralSpec
 import io.heapy.ktctogradle.load.NativeSettings
+import io.heapy.ktctogradle.load.PomDeveloper
+import io.heapy.ktctogradle.load.PomLicense
+import io.heapy.ktctogradle.load.PomScm
+import io.heapy.ktctogradle.load.PomSpec
 import io.heapy.ktctogradle.load.ProductSpec
+import io.heapy.ktctogradle.load.PublishingSettings
 import io.heapy.ktctogradle.load.QualifiedOption
 import io.heapy.ktctogradle.load.QualifiedSection
 import io.heapy.ktctogradle.load.RawCredentials
@@ -267,8 +273,132 @@ class YamlBinderTest {
         )
     }
 
+    /**
+     * `settings.publishing`, in the shape a real published module writes it.
+     *
+     * The two shorthands are the point of the case: `mavenCentral` is a switch or an object, and
+     * `scm` is the URL alone or the object. The Toolchain expands the URL form into both connection
+     * strings, so that expansion belongs to the spelling of the section and is done here.
+     */
     @Test
-    fun bindsRepositoriesIncludingResolveAndCredentials() {
+    fun bindsThePublishingSectionIncludingBothShorthands() {
+        val nested = bind(
+            """
+                product: jvm/lib
+                settings:
+                  publishing:
+                    enabled: true
+                    group: io.heapy
+                    artifactId: krogu-time
+                    version: 0.1.0
+                    publishSources: true
+                    signArtifacts: true
+                    checksums: [md5, sha1, sha256]
+                    mavenCentral:
+                      enabled: true
+                      publishingMode: manual
+                    pom:
+                      name: krogu-time
+                      description: A port
+                      url: https://example.invalid/krogu-time
+                      licenses:
+                        - name: Apache-2.0
+                          url: https://www.apache.org/licenses/LICENSE-2.0.txt
+                      developers:
+                        - id: heapy
+                          name: Example Developer
+                          url: https://example.invalid/heapy
+                          email: developer@example.invalid
+                          organization: Example Org
+                          organizationUrl: https://example.invalid
+                      scm:
+                        url: https://example.invalid/krogu-time
+                        connection: scm:git:https://example.invalid/krogu-time.git
+                        developerConnection: scm:git:ssh://git@example.invalid/krogu-time.git
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            PublishingSettings(
+                enabled = true,
+                group = "io.heapy",
+                artifactId = "krogu-time",
+                version = "0.1.0",
+                publishSources = true,
+                signArtifacts = true,
+                checksums = listOf("md5", "sha1", "sha256"),
+                mavenCentral = MavenCentralSpec(enabled = true, publishingMode = "manual"),
+                pom = PomSpec(
+                    name = "krogu-time",
+                    description = "A port",
+                    url = "https://example.invalid/krogu-time",
+                    licenses = listOf(
+                        PomLicense(name = "Apache-2.0", url = "https://www.apache.org/licenses/LICENSE-2.0.txt"),
+                    ),
+                    developers = listOf(
+                        PomDeveloper(
+                            id = "heapy",
+                            name = "Example Developer",
+                            url = "https://example.invalid/heapy",
+                            email = "developer@example.invalid",
+                            organization = "Example Org",
+                            organizationUrl = "https://example.invalid",
+                        ),
+                    ),
+                    scm = PomScm(
+                        url = "https://example.invalid/krogu-time",
+                        connection = "scm:git:https://example.invalid/krogu-time.git",
+                        developerConnection = "scm:git:ssh://git@example.invalid/krogu-time.git",
+                    ),
+                ),
+            ),
+            nested.settings.publishing,
+        )
+
+        val shorthand = bind(
+            """
+                product: jvm/lib
+                settings:
+                  publishing:
+                    mavenCentral: enabled
+                    pom:
+                      scm: https://example.invalid/krogu-time.git
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            PublishingSettings(
+                mavenCentral = MavenCentralSpec(enabled = true),
+                pom = PomSpec(
+                    scm = PomScm(
+                        url = "https://example.invalid/krogu-time.git",
+                        connection = "scm:git:https://example.invalid/krogu-time.git",
+                        developerConnection = "scm:git:https://example.invalid/krogu-time.git",
+                    ),
+                ),
+            ),
+            shorthand.settings.publishing,
+        )
+
+        assertNull(bind("product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10\n").settings.publishing)
+    }
+
+    /**
+     * `test-settings.jvm.release` binds even though nothing carries it yet.
+     *
+     * A key the converter reads and drops is reported by the interpret stage, and it cannot report
+     * a value the load stage threw away.
+     */
+    @Test
+    fun bindsTheTestSettingsRelease() {
+        assertEquals(
+            "25",
+            bind("product: jvm/lib\ntest-settings:\n  jvm:\n    release: 25\n").settings.test?.release,
+        )
+    }
+
+    @Test
+    fun bindsRepositoriesIncludingResolvePublishAndCredentials() {
         val model = bind(
             """
                 product: jvm/lib
@@ -292,6 +422,7 @@ class YamlBinderTest {
                 RawRepository(
                     id = "internal",
                     url = "https://repo.example/internal",
+                    publish = true,
                     credentials = RawCredentials("credentials.properties", "mirror.username", "mirror.password"),
                 ),
                 RawRepository(id = null, url = "https://maven.google.com", resolve = false),

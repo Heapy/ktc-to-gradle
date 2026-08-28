@@ -72,6 +72,8 @@ internal sealed interface GradlePlugin {
     enum class Builtin(override val id: String) : GradlePlugin {
         APPLICATION("application"),
         BASE("base"),
+        MAVEN_PUBLISH("maven-publish"),
+        SIGNING("signing"),
         ;
 
         override val family: PluginFamily? get() = null
@@ -138,9 +140,83 @@ internal data class GradleModule(
      * Gradle spells them the same way whatever the product is.
      */
     val compilerPlugins: List<CompilerPlugin> = emptyList(),
+    /**
+     * What the module publishes, or `null` when it publishes nothing.
+     *
+     * Module-level for the same reason as [compilerPlugins]: `settings.publishing` is declared once
+     * for the module, and `maven-publish` spells the coordinate and the POM the same way whatever
+     * the product underneath is.
+     */
+    val publication: Publication? = null,
     /** `null` = the root of a project that has no module of its own; it renders `plugins { base }`. */
     val build: ModuleBuild?,
 )
+
+/**
+ * What `maven-publish` is told to publish.
+ *
+ * [artifactId] is `null` on a multiplatform module: the Kotlin Gradle Plugin creates one publication
+ * per target and names each after the target, so a single name has nowhere to go. The interpret
+ * stage reports that rather than inventing a renaming scheme.
+ */
+internal data class Publication(
+    val group: String?,
+    val version: String?,
+    /**
+     * The base artifact id.
+     *
+     * A JVM module publishes it as written. A multiplatform module publishes one artifact per
+     * target, and the Kotlin Gradle Plugin names each of them after the Gradle project, so the base
+     * replaces that prefix and the plugin's platform suffix survives — which is the same shape the
+     * Toolchain publishes.
+     */
+    val artifactId: String?,
+    /**
+     * Whether a sources jar is published. The Toolchain's default is `false` for both products.
+     *
+     * A JVM module builds none unless one is asked for, so `false` there is silence. The Kotlin
+     * Gradle Plugin builds one per target unless it is told not to, so `false` on a multiplatform
+     * module is a line the build has to carry.
+     */
+    val publishSources: Boolean,
+    val signArtifacts: Boolean,
+    val pom: Pom?,
+    /**
+     * The Kotlin Gradle Plugin already created the publications, so the build configures them all.
+     *
+     * [projectName] is the prefix it named them with, which is what makes [artifactId] applicable.
+     */
+    val perTarget: Boolean,
+    val projectName: String,
+    /** The repositories the module publishes to, which are not the ones it resolves from. */
+    val repositories: List<Repository> = emptyList(),
+)
+
+internal data class Pom(
+    val name: String? = null,
+    val description: String? = null,
+    val url: String? = null,
+    val licenses: List<PomLicense> = emptyList(),
+    val developers: List<PomDeveloper> = emptyList(),
+    val scm: PomScm? = null,
+) {
+    val isEmpty: Boolean
+        get() = name == null && description == null && url == null &&
+            licenses.isEmpty() && developers.isEmpty() && scm == null
+}
+
+internal data class PomLicense(val name: String?, val url: String?)
+
+internal data class PomDeveloper(
+    val id: String?,
+    val name: String?,
+    val url: String? = null,
+    val email: String? = null,
+    val organization: String? = null,
+    val organizationUrl: String? = null,
+)
+
+internal data class PomScm(val url: String?, val connection: String?, val developerConnection: String?)
 
 /**
  * A third-party Kotlin compiler plugin, loaded from [coordinates] and configured through [id].

@@ -99,6 +99,18 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun ktorBom() = assertCase("ktor-bom")
 
+    /**
+     * `settings.publishing` on a `jvm/lib` and on a `kmp/lib`, which need different Gradle DSL.
+     *
+     * A JVM module has no publication until the build creates one. A multiplatform module gets a
+     * root publication plus one per target from the Kotlin Gradle Plugin, some of them lazily, so
+     * the build configures the collection instead. The case pins both spellings, the POM with the
+     * two fields defaulted from the module, the base artifact id a multiplatform module rewrites its
+     * publications with, the publish repository — which is not one the module resolves from — and
+     * the `signing` block whose `sign` call sits outside the key guard on purpose.
+     */
+    @Test fun publishing() = assertCase("publishing")
+
     @Test fun dependencyScopes() = assertCase("dependency-scopes")
 
     @Test fun rootModuleWithSubprojects() = assertCase("root-module-with-subprojects")

@@ -1,0 +1,39 @@
+product: jvm/lib
+
+repositories:
+  # Publishing target only: the build must not try to resolve its dependencies from it.
+  - id: localFile
+    url: build/repo
+    resolve: false
+    publish: true
+
+settings:
+  kotlin:
+    version: 2.4.10
+  jvm:
+    jdk:
+      version: 25
+    release: 17
+  publishing:
+    enabled: true
+    group: example.publishing
+    artifactId: published-library
+    version: 1.2.3
+    publishSources: true
+    # No signing key is set when the fixture builds, so this also pins that `publish` still runs.
+    signArtifacts: true
+    pom:
+      name: published-library
+      description: A converted library that still publishes
+      url: https://example.invalid/published-library
+      licenses:
+        - name: The Apache License, Version 2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0.txt
+      developers:
+        - id: example
+          name: Example Developer
+          email: developer@example.invalid
+          url: https://example.invalid/example
+          organization: Example Org
+          organizationUrl: https://example.invalid
+      scm: https://example.invalid/published-library.git

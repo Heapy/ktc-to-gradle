@@ -17,6 +17,8 @@ import io.heapy.ktctogradle.ConversionException
 internal data class ToolchainModel(
     val product: ProductSpec,
     val layout: Layout,
+    /** The module's own `description:`, which is what a published POM falls back to. */
+    val description: String? = null,
     val aliases: Map<String, Set<String>>,
     /** Declared dependencies by qualifier; `""` holds the unqualified `dependencies:` section. */
     val dependencies: Map<String, List<RawDependency>>,
@@ -196,6 +198,8 @@ internal data class RawRepository(
     val id: String?,
     val url: String,
     val resolve: Boolean = true,
+    /** `publish: true` names the repository `kotlin publish <id>` uploads to. */
+    val publish: Boolean = false,
     val credentials: RawCredentials? = null,
 )
 
@@ -212,6 +216,7 @@ internal data class Settings(
     val native: NativeSettings? = null,
     val junit: String? = null,
     val ktor: KtorSettings? = null,
+    val publishing: PublishingSettings? = null,
     /** The sibling `test-settings:` section, which only ever carries `jvm` keys. */
     val test: TestSettings? = null,
 ) {
@@ -277,4 +282,67 @@ internal data class TestSettings(
     val freeJvmArgs: List<String> = emptyList(),
     val systemProperties: Map<String, String> = emptyMap(),
     val extraEnvironment: Map<String, String> = emptyMap(),
+    /**
+     * The bytecode level the test compilation targets, which the converter reads and does not yet
+     * carry into the generated build.
+     *
+     * Bound so the interpret stage can say it was dropped instead of losing it in silence. Carrying
+     * it onto the test compilation is a separate change.
+     */
+    val release: String? = null,
+)
+
+/**
+ * `settings.publishing`, the section that makes a module publishable.
+ *
+ * [enabled] is separate from presence, as it is for `ktor`: a module can declare the whole section
+ * and turn it off. The rest is the Maven coordinate, the two artifact switches, and the POM.
+ */
+internal data class PublishingSettings(
+    val enabled: Boolean? = null,
+    val group: String? = null,
+    val artifactId: String? = null,
+    val version: String? = null,
+    val publishSources: Boolean? = null,
+    val signArtifacts: Boolean? = null,
+    /** Which checksums to publish. The Toolchain default is `[md5, sha1]`. */
+    val checksums: List<String> = emptyList(),
+    val mavenCentral: MavenCentralSpec? = null,
+    val pom: PomSpec? = null,
+)
+
+/** `mavenCentral: enabled` and `mavenCentral: { enabled: true, publishingMode: manual }` both parse. */
+internal data class MavenCentralSpec(
+    val enabled: Boolean? = null,
+    val publishingMode: String? = null,
+)
+
+internal data class PomSpec(
+    val name: String? = null,
+    val description: String? = null,
+    val url: String? = null,
+    val licenses: List<PomLicense> = emptyList(),
+    val developers: List<PomDeveloper> = emptyList(),
+    val scm: PomScm? = null,
+)
+
+internal data class PomLicense(val name: String? = null, val url: String? = null)
+
+internal data class PomDeveloper(
+    val id: String? = null,
+    val name: String? = null,
+    val url: String? = null,
+    val email: String? = null,
+    val organization: String? = null,
+    val organizationUrl: String? = null,
+)
+
+/**
+ * `scm: <url>` is a shorthand the Toolchain expands: both connection strings default to
+ * `scm:git:<url>`, and the object form overrides either of them.
+ */
+internal data class PomScm(
+    val url: String? = null,
+    val connection: String? = null,
+    val developerConnection: String? = null,
 )

@@ -1,0 +1,42 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+repositories:
+  - id: localFile
+    url: build/repo
+    resolve: false
+    publish: true
+
+settings:
+  kotlin:
+    version: 2.4.10
+  jvm:
+    jdk:
+      version: 25
+    release: 17
+  publishing:
+    enabled: true
+    group: example.publishing
+    # A multiplatform module publishes one artifact per target, so this name has nowhere to go.
+    artifactId: published-multiplatform
+    version: 1.2.3
+    # The Kotlin Gradle Plugin publishes a sources jar per target on its own, so this is the half of
+    # `publishSources` a multiplatform module has to say out loud.
+    publishSources: false
+    # Gradle writes its own checksum set and offers no way to choose one.
+    checksums: [md5, sha1, sha256]
+    mavenCentral:
+      enabled: true
+      publishingMode: manual
+    pom:
+      name: published-multiplatform
+      url: https://example.invalid/published-multiplatform
+      scm:
+        url: https://example.invalid/published-multiplatform
+        connection: scm:git:https://example.invalid/published-multiplatform.git
+        developerConnection: scm:git:ssh://git@example.invalid/published-multiplatform.git
+
+test-settings:
+  jvm:
+    release: 25

@@ -89,6 +89,18 @@ internal object Repositories {
         return model.repositories.any { it.credentials != null }
     }
 
+    /**
+     * Where a module publishes to, which is not where it resolves from.
+     *
+     * `of` supplies Maven Central and Google when a module names none, and neither is somewhere a
+     * build may upload to, so this list is the module's own `publish: true` declarations and has no
+     * default to fall back to.
+     */
+    fun forPublishing(model: ToolchainModel): List<Repository> {
+        model.raiseDeferred(Region.REPOSITORIES)
+        return model.repositories.filter { it.publish }.map { raw -> repository(raw, identify(raw)) }
+    }
+
     private fun identify(raw: RawRepository): String =
         raw.id ?: defaultRepositoryId(raw.url) ?: raw.url
 

@@ -51,6 +51,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     line(StaticAssets.header())
     appendCredentialsImport(module.requiresCredentialsImport)
     appendPluginBlock(module.plugins)
+    module.publication?.let { appendPublicationCoordinates(it) }
     blank()
     appendRepositories(module.repositories)
     blank()
@@ -62,6 +63,14 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     block("java") {
         line("sourceCompatibility = JavaVersion.toVersion(${quote(build.release)})")
         line("targetCompatibility = JavaVersion.toVersion(${quote(build.release)})")
+        module.publication?.let { publication ->
+            // Maven Central refuses a publication without a sources jar, and the Toolchain builds it
+            // from the same switch, so it is declared here rather than as a task of its own.
+            if (publication.publishSources) line("withSourcesJar()")
+            // The Toolchain adds an empty javadoc jar to every publication, because Maven Central
+            // refuses one without it and Kotlin has no javadoc to generate.
+            line("withJavadocJar()")
+        }
     }
     if (build.layout != Layout.MAVEN_LIKE) {
         blank()
@@ -93,6 +102,10 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
         block("application") {
             line("mainClass.set(${quote(mainClass)})")
         }
+    }
+    module.publication?.let {
+        appendPublishing(it)
+        appendSigning(it)
     }
 }.build()
 
@@ -168,12 +181,17 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     line(StaticAssets.header())
     appendCredentialsImport(module.requiresCredentialsImport)
     appendPluginBlock(module.plugins)
+    module.publication?.let { appendPublicationCoordinates(it) }
     blank()
     appendRepositories(module.repositories)
     blank()
     block("kotlin") {
         for (target in build.targets) appendTarget(target)
         build.jvmToolchain?.let { line("jvmToolchain($it)") }
+        // The Kotlin Gradle Plugin publishes a sources jar per target unless it is told not to,
+        // while `publishSources` defaults to off, so the multiplatform half of the switch is the
+        // `false` case and not the `true` one.
+        module.publication?.takeIf { !it.publishSources }?.let { line("withSourcesJar(publish = false)") }
         appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
         block("sourceSets") {
             for (sourceSet in build.sourceSets) appendSourceSet(sourceSet)
@@ -200,6 +218,10 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
             if (junitPlatform) line("useJUnitPlatform()")
             appendJvmTestSettings(build.testSettings)
         }
+    }
+    module.publication?.let {
+        appendPublishing(it)
+        appendSigning(it)
     }
 }.build()
 
@@ -306,7 +328,9 @@ internal fun PluginDecl.declaration(): String = buildString {
 /** The only place that knows how a [GradlePlugin] is spelled in the Gradle Kotlin DSL. */
 internal fun GradlePlugin.dsl(): String = when (this) {
     is GradlePlugin.Kotlin -> "kotlin(${quote(shortName)})"
-    is GradlePlugin.Builtin -> id
+    // `maven-publish` is not a Kotlin identifier, and the accessor Gradle generates for it has to be
+    // escaped. Every other builtin the converter applies is a plain word and stays one.
+    is GradlePlugin.Builtin -> if (id.all { it.isLetterOrDigit() }) id else "`$id`"
     is GradlePlugin.Android,
     is GradlePlugin.Other,
     -> "id(${quote(id)})"

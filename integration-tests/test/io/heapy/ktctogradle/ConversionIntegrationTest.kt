@@ -85,6 +85,110 @@ class ConversionIntegrationTest {
     }
 
     /**
+     * `settings.publishing` reaches the generated build, and what has no Gradle equivalent is named.
+     *
+     * The converted project publishes to a repository inside its own build directory, so the chain
+     * is asserted from the artifacts rather than from the script: the POM Gradle wrote is the only
+     * proof that every field of `settings.publishing.pom` survived, and the published file names are
+     * the only proof that `artifactId` reached a multiplatform module's per-target publications.
+     */
+    @Test
+    fun aPublishingModuleStillPublishesAfterConversion() {
+        val destination = convertedPublishingFixture()
+
+        val output = gradle(destination, ":kmp-lib:publish", ":jvm-lib:generatePomFileForMavenPublication")
+        assertEquals(0, output.exitCode, "Converted fixture 'publishing' failed to publish:\n${output.text}")
+
+        // `artifactId` is the base name: the Kotlin Gradle Plugin appends the platform to it.
+        val multiplatform = destination.resolve(
+            "kmp-lib/build/repo/example/publishing/published-multiplatform-jvm/1.2.3",
+        )
+        assertTrue(
+            Files.isRegularFile(multiplatform.resolve("published-multiplatform-jvm-1.2.3.jar")),
+            "The multiplatform jvm artifact was never published under its base artifact id",
+        )
+        assertTrue(
+            Files.notExists(destination.resolve("kmp-lib/build/repo/example/publishing/kmp-lib-jvm")),
+            "The publication kept the Gradle project name instead of the declared artifactId",
+        )
+        // publishSources: false, against a plugin that publishes one sources jar per target.
+        assertTrue(
+            Files.notExists(multiplatform.resolve("published-multiplatform-jvm-1.2.3-sources.jar")),
+            "publishSources: false did not stop the multiplatform sources jar",
+        )
+
+        val pom = Files.readString(destination.resolve("jvm-lib/build/publications/maven/pom-default.xml"))
+        for (expected in listOf(
+            "<artifactId>published-library</artifactId>",
+            "<name>published-library</name>",
+            "<description>A converted library that still publishes</description>",
+            "<url>https://example.invalid/published-library</url>",
+            "<name>The Apache License, Version 2.0</name>",
+            "<id>example</id>",
+            "<email>developer@example.invalid</email>",
+            "<organization>Example Org</organization>",
+            "<connection>scm:git:https://example.invalid/published-library.git</connection>",
+        )) {
+            assertTrue(expected in pom, "The generated POM is missing $expected:\n$pom")
+        }
+    }
+
+    /**
+     * `signArtifacts: true` with no key in the environment fails the publish rather than publishing
+     * unsigned, which is what the Kotlin Toolchain does.
+     *
+     * The `signing { }` block guards only the key lookup, so the `sign` call is reached either way
+     * and Gradle refuses the task for want of a signatory. A build that quietly shipped unsigned
+     * artifacts after the module asked for signatures is the failure this pins shut.
+     */
+    @Test
+    fun signArtifactsWithoutAKeyFailsThePublishInsteadOfPublishingUnsigned() {
+        val destination = convertedPublishingFixture()
+
+        val output = gradle(destination, ":jvm-lib:publish")
+
+        assertTrue(output.exitCode != 0, "The keyless publish succeeded:\n${output.text}")
+        assertTrue(
+            "signatory" in output.text,
+            "The failure did not name the missing signing key:\n${output.text}",
+        )
+    }
+
+    private fun convertedPublishingFixture(): Path {
+        val source = projectRoot().resolve("integration-tests/fixtures/publishing")
+        val destination = Files.createTempDirectory("ktc-to-gradle-publishing-")
+        copyRecursively(source, destination)
+
+        val result = Converter().convert(destination.absolutePathString().toPath())
+
+        assertEquals(
+            listOf(
+                "kmp-lib: test-settings.jvm.release '25' was dropped; the test compilation targets " +
+                    "the same bytecode level as the main one",
+                "kmp-lib: settings.publishing.mavenCentral has no Gradle equivalent (publishingMode " +
+                    "'manual' included); the generated build publishes to the repositories it declares " +
+                    "and uploads no Central Portal bundle",
+                "kmp-lib: settings.publishing.checksums md5, sha1, sha256 was dropped; Gradle writes " +
+                    "its own set next to every artifact and offers no way to choose one",
+            ),
+            result.diagnostics.map(Diagnostic::message),
+        )
+        return destination
+    }
+
+    private data class GradleRun(val exitCode: Int, val text: String)
+
+    private fun gradle(directory: Path, vararg tasks: String): GradleRun {
+        val command = gradleCommand(directory).dropLast(1) + tasks
+        val processBuilder = ProcessBuilder(command).directory(directory.toFile()).redirectErrorStream(true)
+        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
+        processBuilder.environment().remove("KOTLIN_TOOLCHAIN_SIGNING_KEY")
+        val process = processBuilder.start()
+        val text = process.inputStream.bufferedReader().readText()
+        return GradleRun(process.waitFor(), text)
+    }
+
+    /**
      * A `jvm/amper-plugin` module used to abort the whole run, so a project carrying one got no
      * files at all. It is now left out and named, and the rest of the project still builds.
      */

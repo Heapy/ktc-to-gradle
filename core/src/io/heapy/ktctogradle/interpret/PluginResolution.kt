@@ -130,6 +130,7 @@ internal object PluginResolution {
             else -> return emptyList()
         }
         if (Serialization.isEnabled(model)) plugins += GradlePlugin.Kotlin.SERIALIZATION
+        plugins += Publishing.pluginsOf(model)
         return plugins
     }
 

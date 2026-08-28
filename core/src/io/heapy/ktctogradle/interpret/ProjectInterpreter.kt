@@ -130,6 +130,7 @@ internal object ProjectInterpreter {
         val repositories = Repositories.of(module.model)
         val requiresCredentialsImport = Repositories.requiresCredentialsImport(module.model)
         val build: ModuleBuild = interpreter(index, module, diagnostics)
+        reportDroppedSections(module, diagnostics)
         return GradleModule(
             gradlePath = module.gradlePath,
             directory = module.directory,
@@ -137,8 +138,29 @@ internal object ProjectInterpreter {
             repositories = repositories,
             requiresCredentialsImport = requiresCredentialsImport,
             compilerPlugins = compilerPluginsOf(module),
+            publication = Publishing.of(module, diagnostics),
             build = build,
         )
+    }
+
+    /**
+     * The sections the converter reads and produces nothing from.
+     *
+     * A key it refuses is already reported, and a key it cannot parse already fails. This is the
+     * third case, and the one that used to be invisible: a section that binds, is understood, and
+     * reaches no line of the generated build. Silence there is worse than either of the other two,
+     * because the conversion looks complete.
+     *
+     * `settings.publishing` is reported by `Publishing` itself, per key, because most of it is now
+     * carried and only the rest has to be named.
+     */
+    private fun reportDroppedSections(module: ToolchainModule, diagnostics: DiagnosticCollector) {
+        module.model.settings.test?.release?.let { release ->
+            diagnostics.warn(
+                "${module.displayName}: test-settings.jvm.release '$release' was dropped; the test " +
+                    "compilation targets the same bytecode level as the main one",
+            )
+        }
     }
 
     /**

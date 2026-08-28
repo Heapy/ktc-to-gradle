@@ -106,7 +106,7 @@ Expected results below were observed with converter 0.12.0 against the repositor
 | Project | Shape | Exercises | Expected result |
 | --- | --- | --- | --- |
 | [kotlm](https://github.com/Heapy/kotlm) | single `jvm/app` | `maven-like` layout, `libs.versions.toml`, JUnit 5, JDK 25 | converts and builds; tests run |
-| [krogu-time](https://github.com/Heapy/krogu-time) | single `kmp/lib` | jvm + android + 3 ios targets, aliases, publishing, platform-qualified settings | converts; several settings dropped |
+| [krogu-time](https://github.com/Heapy/krogu-time) | single `kmp/lib` | jvm + android + 3 ios targets, aliases, publishing, platform-qualified settings | converts; publishing carried, the rest named as warnings |
 | [kotmark](https://github.com/Heapy/kotmark) | 13 modules | 18-platform `kmp/lib`, relative dependencies, `$kotlin.test` | converts with warnings |
 | [kwasm](https://github.com/Heapy/kwasm) | 4 modules | a project that already has a hand-written Gradle build | refuses to overwrite |
 | [kinetica](https://github.com/Heapy/kinetica) | 34 modules | templates, JS/browser/native/GTK, third-party compiler plugins | stops on `settings.compose` |
@@ -136,7 +136,7 @@ Check in `build.gradle.kts`:
 
 Then confirm the tests executed. Six result files with non-zero `tests=` counts were observed.
 
-## Case 2 — krogu-time: settings that get dropped
+## Case 2 — krogu-time: publishing, and the settings that still get dropped
 
 A single `kmp/lib` over `jvm, android, iosArm64, iosSimulatorArm64, iosX64`, with a
 `jvmAndAndroid` alias, full Maven Central publishing, per-platform `settings@<platform>` blocks, and
@@ -148,15 +148,20 @@ a `test-settings` block. Toolchain 0.12.0-dev. *Needs Android SDK to build.*
 
 The conversion succeeds. The generated `build.gradle.kts` is where the case is:
 
-- **`settings.publishing` produces nothing.** No `maven-publish` plugin, no `publishing` block, no
-  POM, no signing. The module publishes to Maven Central under Toolchain and cannot publish at all
-  after conversion.
+- **`settings.publishing` is carried.** Expect `maven-publish` and `signing` in the plugins block,
+  `group` and `version` on the project, and a `publishing { }` block whose
+  `publications.withType<MavenPublication>()` carries the whole POM. One warning is expected and
+  correct: `settings.publishing.mavenCentral` has no Gradle equivalent, because Gradle ships no
+  Central Portal upload. The `signing { }` block looks up `KOTLIN_TOOLCHAIN_SIGNING_KEY` and calls
+  `sign` whether or not it found one, so a keyless `./gradlew publish` fails rather than shipping
+  unsigned artifacts — check that, it is the behaviour Toolchain has.
 - **`settings@jvm` and the four other platform-qualified blocks are carried over.**
   `allWarningsAsErrors` is declared five times in `module.yaml` and appears five times in the
   output: once inside `jvm { compilerOptions { } }`, once inside `androidLibrary { }`, and once in
   each of the three iOS target blocks.
-- **`test-settings.jvm.release: 25` produces nothing.** The whole point of that key is that the JVM
-  differential tests compile against JDK 25 while the published bytecode targets 21.
+- **`test-settings.jvm.release: 25` still produces nothing, and now says so.** Expect
+  `warning: krogu-time: test-settings.jvm.release '25' was dropped`. The whole point of that key is
+  that the JVM differential tests compile against JDK 25 while the published bytecode targets 21.
 - The alias hierarchy *is* honored: look for `jvmAndAndroidMain`, `nativeMain` and their
   `dependsOn` wiring.
 
