@@ -262,6 +262,13 @@ internal data class AndroidLibraryTarget(
     val namespace: String,
     val compileSdk: String,
     val minSdk: String,
+    /**
+     * The bytecode level the target compiles to, resolved exactly like the `jvm()` target's.
+     *
+     * Without it the Android Gradle Plugin picks its own, and the two JVM targets of one module can
+     * disagree on the class-file version the module publishes.
+     */
+    val release: String,
 )
 
 /**

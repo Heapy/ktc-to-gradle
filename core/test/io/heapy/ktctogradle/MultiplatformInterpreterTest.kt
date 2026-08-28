@@ -18,6 +18,7 @@ import okio.Path.Companion.toPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 /**
  * What a multiplatform module.yaml means, asserted as data instead of as generated text.
@@ -87,6 +88,38 @@ class MultiplatformInterpreterTest {
 
         assertEquals(listOf(TargetKind.Jvm(release = "17")), jvm.targets.map(KmpTarget::kind))
         assertEquals("25", jvm.jvmToolchain)
+    }
+
+    /**
+     * Both JVM-flavoured targets compile against a JDK, so both need the toolchain pin.
+     *
+     * The android target also carries a `-Xjdk-release`, and the JDK Gradle happens to run on may
+     * not be able to supply that release at all.
+     */
+    @Test
+    fun theTwoJvmFlavouredTargetsShareTheToolchainAndTheRelease() {
+        val declaration = "settings:\n  jvm:\n    jdk:\n      version: 25\n    release: 21\n" +
+            "  android:\n    namespace: example.lib\n"
+
+        val both = interpret(module("lib", "product:\n  type: kmp/lib\n  platforms: [jvm, android]\n$declaration"))
+        assertEquals("25", both.jvmToolchain)
+        assertEquals(
+            listOf("21", "21"),
+            both.targets.map { target ->
+                when (val kind = target.kind) {
+                    is TargetKind.Jvm -> kind.release
+                    is TargetKind.Android -> kind.library.release
+                    else -> "?"
+                }
+            },
+            "A module that publishes both must publish them at one class-file version",
+        )
+
+        val androidOnly = interpret(module("lib", "product:\n  type: kmp/lib\n  platforms: [android]\n$declaration"))
+        assertEquals("25", androidOnly.jvmToolchain)
+
+        val nativeOnly = interpret(module("lib", "product:\n  type: kmp/lib\n  platforms: [linuxX64]\n$declaration"))
+        assertNull(nativeOnly.jvmToolchain, "Nothing on a native-only module compiles against a JDK")
     }
 
     /** A target inherits the module-wide options, so only the section that names it may add to them. */

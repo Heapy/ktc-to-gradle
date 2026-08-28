@@ -10,20 +10,14 @@ repositories {
 }
 
 kotlin {
-    jvm {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("25"))
-            freeCompilerArgs.add("-Xjdk-release=25")
-        }
-    }
     androidLibrary {
-        namespace = "io.heapy.example.compilesdk"
-        compileSdk = 34
+        namespace = "example.androidonly"
+        compileSdk = 37
         minSdk = 24
         withHostTestBuilder {}.configure {}
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("25"))
-            freeCompilerArgs.add("-Xjdk-release=25")
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("21"))
+            freeCompilerArgs.add("-Xjdk-release=21")
         }
     }
     jvmToolchain(25)
@@ -43,14 +37,9 @@ kotlin {
         }
         maybeCreate("androidMain").apply {
             dependsOn(getByName("commonMain"))
+            kotlin.srcDir("src@android")
         }
         maybeCreate("androidHostTest").apply {
-            dependsOn(getByName("commonTest"))
-        }
-        maybeCreate("jvmMain").apply {
-            dependsOn(getByName("commonMain"))
-        }
-        maybeCreate("jvmTest").apply {
             dependsOn(getByName("commonTest"))
         }
     }

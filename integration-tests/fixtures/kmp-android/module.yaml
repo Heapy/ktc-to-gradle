@@ -5,3 +5,8 @@ product:
 settings:
   android:
     namespace: io.heapy.ktctogradle.fixture
+  jvm:
+    jdk:
+      version: 25
+    # Deliberately below the toolchain JDK: the jvm() and androidLibrary targets must agree on it.
+    release: 21

@@ -12,8 +12,8 @@ repositories {
 kotlin {
     jvm {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("25"))
-            freeCompilerArgs.add("-Xjdk-release=25")
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("21"))
+            freeCompilerArgs.add("-Xjdk-release=21")
         }
     }
     androidLibrary {
@@ -21,6 +21,10 @@ kotlin {
         compileSdk = 37
         minSdk = 24
         withHostTestBuilder {}.configure {}
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("21"))
+            freeCompilerArgs.add("-Xjdk-release=21")
+        }
     }
     jvmToolchain(25)
     sourceSets {

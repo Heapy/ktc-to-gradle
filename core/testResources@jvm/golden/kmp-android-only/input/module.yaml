@@ -1,0 +1,11 @@
+product:
+  type: kmp/lib
+  platforms: [android]
+
+settings:
+  android:
+    namespace: example.androidonly
+  jvm:
+    jdk:
+      version: 25
+    release: 21

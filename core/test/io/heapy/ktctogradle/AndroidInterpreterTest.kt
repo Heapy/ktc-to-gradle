@@ -1,6 +1,7 @@
 package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.interpret.AndroidInterpreter
+import io.heapy.ktctogradle.interpret.Defaults
 import io.heapy.ktctogradle.interpret.PluginResolution
 import io.heapy.ktctogradle.load.ModuleIndex
 import io.heapy.ktctogradle.load.ModuleLayout
@@ -232,7 +233,7 @@ class AndroidInterpreterTest {
         )
 
         assertEquals(
-            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "37", minSdk = "24"),
+            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "37", minSdk = "24", release = "25"),
             AndroidInterpreter.libraryTarget(library, diagnostics),
         )
         assertEquals(emptyList<Diagnostic>(), diagnostics.collected())
@@ -244,7 +245,7 @@ class AndroidInterpreterTest {
         val library = module("libs/messages", "product:\n  type: kmp/lib\n  platforms: [jvm, android]\n")
 
         assertEquals(
-            AndroidLibraryTarget(namespace = "ktc.generated.libs.messages", compileSdk = "37", minSdk = "24"),
+            AndroidLibraryTarget(namespace = "ktc.generated.libs.messages", compileSdk = "37", minSdk = "24", release = "25"),
             AndroidInterpreter.libraryTarget(library, diagnostics),
         )
         assertEquals(
@@ -256,6 +257,28 @@ class AndroidInterpreterTest {
             ),
             diagnostics.collected(),
         )
+    }
+
+    /**
+     * The android target of a `kmp/lib` reads the bytecode level the `jvm()` target reads.
+     *
+     * A module that publishes both must publish them at the same class-file version, and the
+     * Android Gradle Plugin picks its own default when nothing says otherwise.
+     */
+    @Test
+    fun aLibraryTargetTakesTheSameJvmReleaseAsTheJvmTarget() {
+        fun releaseOf(jvmSettings: String) = AndroidInterpreter.libraryTarget(
+            module(
+                "libs/messages",
+                "product:\n  type: kmp/lib\n  platforms: [jvm, android]\n" +
+                    "settings:\n  android:\n    namespace: example.messages\n$jvmSettings",
+            ),
+            DiagnosticCollector(),
+        ).release
+
+        assertEquals("21", releaseOf("  jvm:\n    release: 21\n    jdk:\n      version: 25\n"))
+        assertEquals("21", releaseOf("  jvm:\n    jdk:\n      version: 21\n"))
+        assertEquals(Defaults.JVM_JDK, releaseOf(""))
     }
 
     /** A package segment is a Kotlin identifier, which a directory name is under no obligation to be. */
@@ -284,7 +307,7 @@ class AndroidInterpreterTest {
         )
 
         assertEquals(
-            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "35", minSdk = "26"),
+            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "35", minSdk = "26", release = "25"),
             AndroidInterpreter.libraryTarget(library, DiagnosticCollector()),
         )
     }
@@ -312,7 +335,7 @@ class AndroidInterpreterTest {
         )
 
         assertEquals(
-            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "34", minSdk = "24"),
+            AndroidLibraryTarget(namespace = "example.messages", compileSdk = "34", minSdk = "24", release = "25"),
             AndroidInterpreter.libraryTarget(library, DiagnosticCollector()),
         )
     }

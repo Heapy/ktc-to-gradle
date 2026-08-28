@@ -263,7 +263,11 @@ private fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, q
         line("compileSdk = ${target.compileSdk}")
         line("minSdk = ${target.minSdk}")
         line("withHostTestBuilder {}.configure {}")
-        appendCompilerOptions(qualifiedOptions)
+        block("compilerOptions") {
+            line("jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(${quote(target.release)}))")
+            line("freeCompilerArgs.add(${quote("-Xjdk-release=${target.release}")})")
+            appendCompilerOptionLines(qualifiedOptions)
+        }
     }
 }
 

@@ -40,12 +40,21 @@ internal object MultiplatformInterpreter {
         model.raiseDeferred(Region.SETTINGS)
         return MultiplatformBuild(
             targets = targets,
-            jvmToolchain = if ("jvm" in platforms) model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK else null,
+            // Both JVM-flavoured targets compile against a JDK, and both carry a release the JDK has
+            // to be able to supply, so an android-only module needs the toolchain pin just as much.
+            jvmToolchain = if (platforms.any(JVM_PLATFORMS::contains)) {
+                model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK
+            } else {
+                null
+            },
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin),
             qualifiedCompilerOptions = qualified.common,
             sourceSets = sourceSets(index, module, fragments, serialization),
         )
     }
+
+    /** The platforms whose compilations run on a JDK, and therefore need `jvmToolchain`. */
+    private val JVM_PLATFORMS = setOf("jvm", "android")
 
     private fun target(
         module: ToolchainModule,
@@ -56,9 +65,7 @@ internal object MultiplatformInterpreter {
     ): KmpTarget {
         val model = module.model
         val kind = when (platform) {
-            "jvm" -> TargetKind.Jvm(
-                release = model.settings.jvm?.release ?: model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK,
-            )
+            "jvm" -> TargetKind.Jvm(release = jvmRelease(model))
             "android" -> TargetKind.Android(AndroidInterpreter.libraryTarget(module, diagnostics))
             "js" -> TargetKind.Js
             "wasmJs" -> TargetKind.WasmJs

@@ -1,5 +1,7 @@
 package io.heapy.ktctogradle.interpret
 
+import io.heapy.ktctogradle.load.ToolchainModel
+
 /**
  * Every value the converter supplies when a module.yaml leaves one out.
  *
@@ -23,3 +25,12 @@ internal object Defaults {
     /** Prefix of the namespace the converter derives from a module path when the module names none. */
     val ANDROID_NAMESPACE_PREFIX = listOf("ktc", "generated")
 }
+
+/**
+ * The bytecode level a JVM compilation of [model] targets.
+ *
+ * Shared by every JVM-flavoured target of a multiplatform module, because a module that publishes
+ * two of them must publish both at the same class-file version.
+ */
+internal fun jvmRelease(model: ToolchainModel): String =
+    model.settings.jvm?.release ?: model.settings.jvm?.jdkVersion ?: Defaults.JVM_JDK

@@ -46,7 +46,10 @@ class ConversionIntegrationTest {
             val exitCode = process.waitFor()
             assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
             if (fixture == "kmp-library") assertJvmRelease(destination, expectedMajorVersion = 61)
-            if (fixture == "kmp-android") assertAndroidUnitTestsRan(destination)
+            if (fixture == "kmp-android") {
+                assertAndroidUnitTestsRan(destination)
+                assertTargetsAgreeOnBytecodeLevel(destination)
+            }
         }
     }
 
@@ -123,6 +126,25 @@ class ConversionIntegrationTest {
         val classFile = Files.walk(classes).use { paths ->
             paths.filter { it.fileName.toString() == "GreetingKt.class" }.findFirst().orElseThrow()
         }
+        assertClassFileVersion(classFile, expectedMajorVersion)
+    }
+
+    /**
+     * `settings.jvm.release: 21` is class-file 65, and the fixture pins it below the toolchain JDK.
+     *
+     * The `androidLibrary` target used to ignore the setting and fall back to whatever the Android
+     * Gradle Plugin defaulted to, so one module published two different bytecode levels.
+     */
+    private fun assertTargetsAgreeOnBytecodeLevel(directory: Path) {
+        val classes = directory.resolve("build/classes/kotlin")
+        val fixture = "io/heapy/ktctogradle/fixture"
+        assertClassFileVersion(classes.resolve("jvm/main/$fixture/PlatformKt.class"), 65)
+        assertClassFileVersion(classes.resolve("android/main/$fixture/PlatformKt.class"), 65)
+        assertClassFileVersion(classes.resolve("android/hostTest/$fixture/AndroidOnlyTest.class"), 65)
+    }
+
+    private fun assertClassFileVersion(classFile: Path, expectedMajorVersion: Int) {
+        assertTrue(Files.isRegularFile(classFile), "No class file at $classFile")
         val bytes = Files.readAllBytes(classFile)
         val majorVersion = (bytes[6].toInt() and 0xff) shl 8 or (bytes[7].toInt() and 0xff)
         assertEquals(expectedMajorVersion, majorVersion, "Unexpected JVM class-file version in $classFile")

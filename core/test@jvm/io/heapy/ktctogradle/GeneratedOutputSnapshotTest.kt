@@ -39,6 +39,14 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun androidApp() = assertCase("android-app")
 
+    /**
+     * A `kmp/lib` whose only platform is `android`.
+     *
+     * Its android target still carries a `-Xjdk-release`, so the build still needs the
+     * `jvmToolchain` that used to appear only next to a `jvm()` target.
+     */
+    @Test fun kmpAndroidOnly() = assertCase("kmp-android-only")
+
     @Test fun repoCredentials() = assertCase("repo-credentials")
 
     @Test fun customRepositories() = assertCase("custom-repositories")
