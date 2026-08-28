@@ -343,6 +343,29 @@ class AndroidInterpreterTest {
         )
     }
 
+    /**
+     * `compileSdk` is emitted unquoted, so a level that is not an integer would be emitted as a
+     * build script that does not parse. The failure is raised at conversion time and names the key.
+     */
+    @Test
+    fun aCompileSdkThatIsNotAnIntegerIsReported() {
+        val app = module(
+            "app",
+            """
+            product: android/app
+            settings:
+              android:
+                namespace: example.app
+                compileSdk: android-36
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "settings.android.compileSdk must be an integer, but was 'android-36'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
     /** `settings.jvm.test` now reaches the unit-test task, so a malformed value is raised here. */
     @Test
     fun aMalformedJvmTestArgumentListFailsAnAndroidModule() {

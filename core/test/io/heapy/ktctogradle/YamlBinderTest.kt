@@ -779,6 +779,97 @@ class YamlBinderTest {
         }
     }
 
+    /**
+     * The Gradle DSL takes these as bare integer literals, so a value that is not one would be
+     * interpolated into a build script that does not parse. The Toolchain answers `21.0.2` with
+     * "Expected: integer", and so does this.
+     */
+    @Test
+    fun defersTheFailureOfAJdkVersionThatIsNotAnInteger() {
+        val model = bind(
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                jdk:
+                  version: "21.0.2"
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.jvm.jdk.version must be an integer, but was '21.0.2'", model.errors["settings"])
+    }
+
+    @Test
+    fun defersTheFailureOfACompileSdkThatIsNotAnInteger() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk: android-36
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.android.compileSdk must be an integer, but was 'android-36'", model.errors["settings"])
+    }
+
+    /** The nested form binds to the same field, so its leaf is validated and its parent is not. */
+    @Test
+    fun defersTheFailureOfANestedCompileSdkApiLevelThatIsNotAnInteger() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk:
+                  apiLevel: android-36
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "settings.android.compileSdk.apiLevel must be an integer, but was 'android-36'",
+            model.errors["settings"],
+        )
+    }
+
+    /**
+     * The Toolchain reads `036` as `36` and prints it back that way; Kotlin rejects a leading zero
+     * with "Leading zeros are not allowed in integer literals", so the value has to be re-spelled.
+     */
+    @Test
+    fun bindsANumericSettingAsTheLiteralKotlinSpells() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk: 036
+                versionCode: +7
+            """.trimIndent(),
+        )
+
+        assertEquals("36", model.settings.android?.compileSdk)
+        assertEquals("7", model.settings.android?.versionCode)
+    }
+
+    /**
+     * A list is not a missing value: the Toolchain answers it with
+     * "Expected `integer`, but got `sequence []`", so it must not be read as absent and defaulted.
+     */
+    @Test
+    fun defersTheFailureOfANumericSettingThatIsNotAScalar() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                minSdk: [26]
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.android.minSdk must be an integer", model.errors["settings"])
+    }
+
     private fun bind(yaml: String): ToolchainModel =
         YamlBinder.bind(parseYaml(yaml, "shared/module.yaml"), "shared")
 

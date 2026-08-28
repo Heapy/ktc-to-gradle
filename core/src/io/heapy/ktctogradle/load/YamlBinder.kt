@@ -339,8 +339,8 @@ internal object YamlBinder {
             },
             jvm = present.value("jvm")?.let {
                 JvmSettings(
-                    jdkVersion = present.string("jvm.jdk.version"),
-                    release = present.string("jvm.release"),
+                    jdkVersion = present.integer("jvm.jdk.version", "settings.", lenient),
+                    release = present.integer("jvm.release", "settings.", lenient),
                     mainClass = present.string("jvm.mainClass"),
                     // A malformed argument list defers under its own region, so it is raised by the
                     // interpreter that reads the test settings and not by an unrelated section.
@@ -354,11 +354,18 @@ internal object YamlBinder {
             android = present.value("android")?.let {
                 AndroidSettings(
                     namespace = present.string("android.namespace"),
-                    compileSdk = present.string("android.compileSdk") ?: present.string("android.compileSdk.apiLevel"),
-                    minSdk = present.string("android.minSdk"),
-                    targetSdk = present.string("android.targetSdk"),
+                    // The bare level and the nested `compileSdk: { apiLevel: }` form bind to one
+                    // field, so which of the two the module wrote is decided before it is read: an
+                    // object is the nested form and not a level that failed to be an integer.
+                    compileSdk = if (present.value("android.compileSdk") is Value.Mapping) {
+                        present.integer("android.compileSdk.apiLevel", "settings.", lenient)
+                    } else {
+                        present.integer("android.compileSdk", "settings.", lenient)
+                    },
+                    minSdk = present.integer("android.minSdk", "settings.", lenient),
+                    targetSdk = present.integer("android.targetSdk", "settings.", lenient),
                     applicationId = present.string("android.applicationId"),
-                    versionCode = present.string("android.versionCode"),
+                    versionCode = present.integer("android.versionCode", "settings.", lenient),
                     versionName = present.string("android.versionName"),
                 )
             },
@@ -466,6 +473,32 @@ internal object YamlBinder {
         value(path).asSequence("$prefix$path").mapIndexed { index, item ->
             item.scalarOrNull() ?: throw ConversionException("Expected a string at $prefix$path[$index]")
         }
+    }
+
+    /**
+     * A setting the Toolchain schema types as an integer, bound as the literal Kotlin spells it.
+     *
+     * The Gradle DSL takes these as bare integer literals, so anything else would be interpolated
+     * into a build script that does not parse, and the converter would report success for a project
+     * whose first `./gradlew` run fails on a syntax error. The Toolchain answers the same input with
+     * "Expected: integer"; this says the same thing at the same point, and names the key.
+     *
+     * The value is re-spelled rather than passed through, because the two languages accept different
+     * texts for the same number: the Toolchain reads `036` as `36`, and Kotlin rejects a leading zero
+     * outright. Re-spelling is what the Toolchain prints back, so it is also what the module meant.
+     *
+     * A qualified section drops what it cannot read rather than raising, hence [lenient].
+     */
+    private fun Value.Mapping.integer(path: String, prefix: String, lenient: Boolean): String? {
+        val node = value(path)
+        if (node == null || node is Value.Null) return null
+        val text = node.scalarOrNull()
+        text?.toIntOrNull()?.let { return it.toString() }
+        if (lenient) return null
+        // A list or an object is reported without quoting a value, because there is no scalar the
+        // module wrote to quote back at it.
+        val actual = if (text == null) "" else ", but was '$text'"
+        throw ConversionException("$prefix$path must be an integer$actual")
     }
 
     private fun stringMap(value: Value?): Map<String, String> =

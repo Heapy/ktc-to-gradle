@@ -311,6 +311,29 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * `jvmToolchain(...)` takes a bare integer, so a jdk version that is not one would be emitted as
+     * a build script that does not parse. The failure is raised at conversion time and names the key.
+     */
+    @Test
+    fun aJdkVersionThatIsNotAnIntegerIsReported() {
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                jdk:
+                  version: "21.0.2"
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "settings.jvm.jdk.version must be an integer, but was '21.0.2'",
+            assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
     @Test
     fun aBuiltInCatalogTheConverterCannotMapIsReported() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - ${'$'}compose.foundation\n")
