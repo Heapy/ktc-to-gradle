@@ -56,7 +56,7 @@ There are five layers, and a change belongs in exactly one of them.
    `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
    `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
    `FileWriter` against a temp directory.
-5. **Golden snapshots** — 25 cases under `core/testResources@jvm/golden/`, driven by
+5. **Golden snapshots** — 26 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.

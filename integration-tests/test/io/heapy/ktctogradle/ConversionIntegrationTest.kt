@@ -46,6 +46,9 @@ class ConversionIntegrationTest {
             val exitCode = process.waitFor()
             assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
             if (fixture == "kmp-library") assertJvmRelease(destination, expectedMajorVersion = 61)
+            if (fixture == "android-app") {
+                assertUnitTestsRan(destination, "testDebugUnitTest", "example.android.PayloadTest")
+            }
             if (fixture == "kmp-android") {
                 assertAndroidUnitTestsRan(destination)
                 assertTargetsAgreeOnBytecodeLevel(destination)
@@ -154,11 +157,27 @@ class ConversionIntegrationTest {
      * Android unit tests run from androidHostTest. A test left in androidTest compiles and
      * the build still passes, so assert the report exists instead of trusting the exit code.
      */
-    private fun assertAndroidUnitTestsRan(directory: Path) {
-        val reports = Files.walk(directory).use { paths ->
-            paths.filter { it.fileName.toString() == "TEST-io.heapy.ktctogradle.fixture.AndroidOnlyTest.xml" }.toList()
-        }
-        assertTrue(reports.isNotEmpty(), "android unit tests never ran; check the androidHostTest source set")
+    private fun assertAndroidUnitTestsRan(directory: Path) =
+        assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.AndroidOnlyTest")
+
+    /**
+     * The JUnit report of one test class, read where the named task writes it.
+     *
+     * The counts are what make this an oracle rather than a file check: a suite the runner never
+     * discovered still leaves no report, and a report with `tests="0"` is the same silence.
+     */
+    private fun assertUnitTestsRan(directory: Path, task: String, testClass: String) {
+        val report = directory.resolve("build/test-results/$task/TEST-$testClass.xml")
+        assertTrue(Files.isRegularFile(report), "$report was never written, so those unit tests never ran")
+        val summary = Files.readString(report).substringAfter("<testsuite").substringBefore(">")
+        assertTrue(
+            Regex("""tests="([1-9]\d*)"""").containsMatchIn(summary),
+            "No test of $testClass executed: $summary",
+        )
+        assertTrue(
+            """failures="0"""" in summary && """errors="0"""" in summary,
+            "$testClass did not pass: $summary",
+        )
     }
 
     private fun configureAndroidSdk(directory: Path): Boolean {

@@ -135,6 +135,15 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
             line("kotlin.srcDirs(\"test\", \"test@android\")")
             line("resources.srcDirs(\"testResources\", \"testResources@android\")")
         }
+        // The Android Gradle Plugin runs unit tests on JUnit 4 unless it is told otherwise, so a
+        // JUnit 5 suite compiles and is then never discovered.
+        if (build.testFramework == TestFramework.JUNIT_5) {
+            block("testOptions") {
+                block("unitTests.all") {
+                    line("it.useJUnitPlatform()")
+                }
+            }
+        }
     }
     blank()
     block("kotlin") {

@@ -40,6 +40,14 @@ class GeneratedOutputSnapshotTest {
     @Test fun androidApp() = assertCase("android-app")
 
     /**
+     * An `android/app` that asks for JUnit 4, which is what the Android Gradle Plugin runs anyway.
+     *
+     * The JUnit 5 case emits `testOptions.unitTests.all { useJUnitPlatform() }`; this one pins that
+     * the block stays out when the module did not ask for the platform.
+     */
+    @Test fun androidJunit4() = assertCase("android-junit4")
+
+    /**
      * A `kmp/lib` whose only platform is `android`.
      *
      * Its android target still carries a `-Xjdk-release`, so the build still needs the
