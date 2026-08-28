@@ -30,9 +30,7 @@ internal class ModuleLayoutProbe(private val fileSystem: FileSystem) {
     private fun detectMainClass(directory: Path): String? {
         val sourceRoots = listOf(directory / "src", directory / "src@jvm")
         for (root in sourceRoots.filter(fileSystem::exists)) {
-            val files = mutableListOf<Path>()
-            collectKotlinFiles(root, files)
-            val main = files.firstOrNull { it.name.equals("main.kt", ignoreCase = true) } ?: continue
+            val main = firstMainKt(root) ?: continue
             val text = fileSystem.read(main) { readUtf8() }
             if (!Regex("\\bfun\\s+main\\s*\\(").containsMatchIn(text)) continue
             val packageName = Regex("(?m)^\\s*package\\s+([A-Za-z_][\\w.]*)").find(text)?.groupValues?.get(1)
@@ -42,11 +40,30 @@ internal class ModuleLayoutProbe(private val fileSystem: FileSystem) {
         return null
     }
 
-    private fun collectKotlinFiles(directory: Path, destination: MutableList<Path>) {
+    /**
+     * The first `main.kt` under [directory], depth first.
+     *
+     * The walk stops at it rather than collecting every `.kt` path to pick one out afterwards: a
+     * module with a few thousand sources otherwise stats and keeps all of them on every run to use
+     * a single entry.
+     *
+     * Each directory is still visited in name order, which is what makes the answer independent of
+     * the order the file system happens to list a directory in.
+     *
+     * Stopping early moves one boundary, deliberately: a directory the walk can no longer read is
+     * only reached when nothing before it matched. A module whose `main.kt` sorts first now
+     * converts even when some unrelated directory further down became unreadable, where collecting
+     * everything first would have failed the run.
+     */
+    private fun firstMainKt(directory: Path): Path? {
         for (child in fileSystem.list(directory).sortedBy(Path::name)) {
-            if (fileSystem.metadata(child).isDirectory) collectKotlinFiles(child, destination)
-            else if (child.name.endsWith(".kt", ignoreCase = true)) destination += child
+            if (fileSystem.metadata(child).isDirectory) {
+                firstMainKt(child)?.let { return it }
+            } else if (child.name.equals("main.kt", ignoreCase = true)) {
+                return child
+            }
         }
+        return null
     }
 
     private companion object {
