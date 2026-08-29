@@ -1,0 +1,8 @@
+product: android/app
+
+settings:
+  android:
+    namespace: example.junitplatformversion
+  jvm:
+    test:
+      junitPlatformVersion: 5.14.1

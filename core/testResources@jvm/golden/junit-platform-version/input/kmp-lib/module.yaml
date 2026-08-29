@@ -1,0 +1,8 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+settings:
+  jvm:
+    test:
+      junitPlatformVersion: 6.0.1

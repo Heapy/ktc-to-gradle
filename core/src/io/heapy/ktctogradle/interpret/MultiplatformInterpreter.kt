@@ -55,7 +55,10 @@ internal object MultiplatformInterpreter {
         // "does this run on a JDK" is `TargetKind`, and the renderer cannot disagree with this.
         val runsOnAJdk = targets.any { it.kind.runsOnAJdk }
         val testFramework = JvmInterpreter.testFramework(model)
-        if (runsOnAJdk) JvmInterpreter.warnAboutJunitNone(module, testFramework, diagnostics)
+        if (runsOnAJdk) {
+            JvmInterpreter.warnAboutJunitNone(module, testFramework, diagnostics)
+            JvmInterpreter.warnAboutJunitPlatformVersion(module, diagnostics)
+        }
         return MultiplatformBuild(
             targets = targets,
             // Both JVM-flavoured targets compile against a JDK, and both carry a release the JDK has

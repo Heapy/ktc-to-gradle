@@ -97,6 +97,17 @@ class GeneratedOutputSnapshotTest {
      */
     @Test fun androidJunitNone() = assertCase("android-junit-none")
 
+    /**
+     * `settings.jvm.test.junitPlatformVersion` on each of the three products that read the section.
+     *
+     * The key picks the `junit-platform-console-standalone` release the Kotlin Toolchain runs its
+     * JVM tests with, and Gradle has no equivalent: a `Test` task runs whatever the test runtime
+     * classpath resolves to. So every module here is converted as if it had not named a version, and
+     * the case pins the two halves of that — the builds are unchanged, and the diagnostics say once
+     * per module which value was dropped.
+     */
+    @Test fun junitPlatformVersion() = assertCase("junit-platform-version")
+
     @Test fun ktorBom() = assertCase("ktor-bom")
 
     /**

@@ -436,6 +436,7 @@ internal object YamlBinder {
                     },
                     testSystemProperties = stringMap(present.value("jvm.test.systemProperties")),
                     testExtraEnvironment = stringMap(present.value("jvm.test.extraEnvironment")),
+                    testJunitPlatformVersion = present.string("jvm.test.junitPlatformVersion"),
                 )
             },
             android = present.value("android")?.let {

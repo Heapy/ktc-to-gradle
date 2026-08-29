@@ -1,0 +1,6 @@
+product: jvm/lib
+
+settings:
+  jvm:
+    test:
+      junitPlatformVersion: 1.11.4

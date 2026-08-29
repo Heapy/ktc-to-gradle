@@ -1,0 +1,4 @@
+modules:
+  - jvm-lib
+  - kmp-lib
+  - android-app

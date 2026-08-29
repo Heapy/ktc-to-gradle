@@ -276,6 +276,17 @@ internal data class JvmSettings(
     val testFreeJvmArgs: List<String> = emptyList(),
     val testSystemProperties: Map<String, String> = emptyMap(),
     val testExtraEnvironment: Map<String, String> = emptyMap(),
+    /**
+     * `settings.jvm.test.junitPlatformVersion`, bound only so the interpret stage can say it was
+     * dropped.
+     *
+     * The Kotlin Toolchain runs its JVM tests through `junit-platform-console-standalone` and this
+     * key picks the release it downloads. A Gradle `Test` task has no such knob: it runs whatever
+     * launcher and engines the test runtime classpath resolves to, and pinning that from here would
+     * mean forcing `org.junit:junit-bom`, which drags the module's whole JUnit family to the same
+     * release. Nothing reads this field except the diagnostic that names it.
+     */
+    val testJunitPlatformVersion: String? = null,
 )
 
 internal data class AndroidSettings(

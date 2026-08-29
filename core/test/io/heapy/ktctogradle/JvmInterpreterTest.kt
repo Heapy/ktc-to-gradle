@@ -183,6 +183,47 @@ class JvmInterpreterTest {
     }
 
     /**
+     * `settings.jvm.test.junitPlatformVersion` reaches no Gradle task, and is named rather than lost.
+     *
+     * The Kotlin Toolchain downloads `junit-platform-console-standalone` at that release and runs
+     * its JVM tests with it. A Gradle `Test` task runs whatever the test runtime classpath resolves
+     * to, and pinning that would mean forcing `org.junit:junit-bom` onto the module's whole JUnit
+     * family. So the key is dropped, and a module that pinned it is told so.
+     */
+    @Test
+    fun theJunitPlatformVersionIsReportedAsDropped() {
+        val quiet = DiagnosticCollector()
+        val plain = module("app", "product: jvm/lib\n")
+        JvmInterpreter.interpret(ModuleIndex.of(listOf(plain)), plain, quiet)
+        assertEquals(emptyList(), quiet.collected())
+
+        val diagnostics = DiagnosticCollector()
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+
+            settings:
+              jvm:
+                test:
+                  junitPlatformVersion: 1.11.4
+            """.trimIndent(),
+        )
+        JvmInterpreter.interpret(ModuleIndex.of(listOf(app)), app, diagnostics)
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "app: settings.jvm.test.junitPlatformVersion '1.11.4' has no Gradle equivalent and " +
+                        "was dropped; the generated build runs the JUnit platform its test dependencies " +
+                        "resolve to",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /**
      * `test-settings.jvm.release` reaches the build on its own, separately from the main release.
      *
      * The test classes are never published, so nothing ties them to the level the module ships. A

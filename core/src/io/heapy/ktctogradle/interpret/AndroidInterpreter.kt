@@ -37,6 +37,7 @@ internal object AndroidInterpreter {
             JvmInterpreter.implied(model, serialization)
         val testFramework = JvmInterpreter.testFramework(model)
         JvmInterpreter.warnAboutJunitNone(module, testFramework, diagnostics)
+        JvmInterpreter.warnAboutJunitPlatformVersion(module, diagnostics)
         val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS) +
             JvmInterpreter.platformLauncher(testFramework)
         // Read last: the module's own pinned-Kotlin-version warning keeps its place ahead of the

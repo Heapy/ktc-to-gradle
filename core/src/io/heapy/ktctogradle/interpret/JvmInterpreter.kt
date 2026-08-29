@@ -39,6 +39,7 @@ internal object JvmInterpreter {
         val declared = Dependencies.of(index, module, test = false, qualifiers = QUALIFIERS)
         val testFramework = testFramework(model)
         warnAboutJunitNone(module, testFramework, diagnostics)
+        warnAboutJunitPlatformVersion(module, diagnostics)
         val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS) +
             platformLauncher(testFramework)
         return JvmBuild(
@@ -86,6 +87,30 @@ internal object JvmInterpreter {
             "${module.displayName}: settings.junit: none keeps the JUnit platform but adds no engine, " +
                 "and the Kotlin Toolchain supplies one of its own; declare a JUnit platform engine in " +
                 "the test dependencies of every JVM-backed platform",
+        )
+    }
+
+    /**
+     * `settings.jvm.test.junitPlatformVersion`, which the converted build cannot honour.
+     *
+     * The Kotlin Toolchain runs its JVM tests through `junit-platform-console-standalone` and this
+     * key names the release it downloads. Gradle runs the tests with whatever launcher and engines
+     * the test runtime classpath resolves to, and the only way to pin that from the build is to
+     * force `org.junit:junit-bom` — which aligns the module's whole JUnit family to the same
+     * release and would silently move a module off the JUnit major it declared.
+     *
+     * So the key is dropped rather than guessed at, and named here. Warning rather than refusal,
+     * because the qualified spelling of the very same key is already warned about and dropped by
+     * the unreadable-key walk: one form of a key must not abort a conversion the other survives.
+     *
+     * Raised once per module rather than per platform, because the module is where the setting is.
+     */
+    fun warnAboutJunitPlatformVersion(module: ToolchainModule, diagnostics: DiagnosticCollector) {
+        val version = module.model.settings.jvm?.testJunitPlatformVersion ?: return
+        diagnostics.warn(
+            "${module.displayName}: settings.jvm.test.junitPlatformVersion '$version' has no Gradle " +
+                "equivalent and was dropped; the generated build runs the JUnit platform its test " +
+                "dependencies resolve to",
         )
     }
 

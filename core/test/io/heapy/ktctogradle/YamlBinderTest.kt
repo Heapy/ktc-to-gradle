@@ -383,6 +383,22 @@ class YamlBinderTest {
         assertNull(bind("product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10\n").settings.publishing)
     }
 
+    /**
+     * `settings.jvm.test.junitPlatformVersion`, which is bound so the interpret stage can drop it
+     * out loud rather than silently.
+     */
+    @Test
+    fun bindsTheJunitPlatformVersion() {
+        assertEquals(
+            "1.11.4",
+            bind("product: jvm/lib\nsettings:\n  jvm:\n    test:\n      junitPlatformVersion: 1.11.4\n")
+                .settings.jvm?.testJunitPlatformVersion,
+        )
+        assertNull(
+            bind("product: jvm/lib\nsettings:\n  jvm:\n    release: 21\n").settings.jvm?.testJunitPlatformVersion,
+        )
+    }
+
     /** `test-settings.jvm.release`, which is bound apart from `settings.jvm.release`. */
     @Test
     fun bindsTheTestSettingsRelease() {
