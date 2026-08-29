@@ -11,6 +11,7 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import okio.Path as OkioPath
 
 class ProjectRootTest {
@@ -152,6 +153,78 @@ class ProjectRootTest {
         ProjectLoader(recording).load(root)
 
         assertEquals(emptyList(), listed.filter { it != root })
+    }
+
+    /**
+     * `./kotlin show modules` on a zero-byte project.yaml beside a root module.yaml lists that root
+     * module, so an empty document is an empty project mapping and not a parse failure.
+     */
+    @Test
+    fun anEmptyProjectYamlLoadsTheRootModule() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-empty-doc-")
+        write(outer.resolve("project.yaml"), "")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+        write(outer.resolve("samples/demo/module.yaml"), "product: jvm/app\n")
+        write(outer.resolve("samples/demo/src/main.kt"), "fun main() = Unit\n")
+
+        val project = load(outer)
+
+        assertEquals(canonical(outer), project.root)
+        assertEquals(listOf(""), project.modules.map { it.path.notation })
+    }
+
+    /** A comment-only document carries no mapping either, and means the same empty project. */
+    @Test
+    fun aCommentOnlyProjectYamlLoadsTheRootModule() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-comment-doc-")
+        write(outer.resolve("project.yaml"), "# nothing here yet\n")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+
+        assertEquals(listOf(""), load(outer).modules.map { it.path.notation })
+    }
+
+    /**
+     * An empty ancestor project lists no modules, so it does not contain the module the conversion
+     * started from; the Toolchain falls back to that module, and so does the root walk.
+     */
+    @Test
+    fun anEmptyAncestorProjectYamlDoesNotBecomeTheRoot() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-empty-ancestor-")
+        write(outer.resolve("project.yaml"), "")
+        val module = outer.resolve("work/lib")
+        write(module.resolve("module.yaml"), "product: jvm/lib\n")
+
+        val project = load(module)
+
+        assertEquals(canonical(module), project.root)
+        assertEquals(listOf(""), project.modules.map { it.path.notation })
+    }
+
+    /**
+     * A document that spells out `null` is not an empty one: `./kotlin show modules` answers it with
+     * "`null` value is unexpected here", so the emptiness allowance must not stretch to cover it.
+     */
+    @Test
+    fun aNullProjectYamlStillFails() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-null-doc-")
+        write(outer.resolve("project.yaml"), "null\n")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+
+        val error = assertFailsWith<ConversionException> { load(outer) }
+
+        assertTrue(error.message!!.startsWith("Expected an object at "), error.message)
+    }
+
+    /** An unreadable project.yaml is a failure, not an absent one: it must not be silently skipped. */
+    @Test
+    fun anUnparseableProjectYamlStillFails() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-broken-doc-")
+        write(outer.resolve("project.yaml"), "modules: [unclosed\n")
+        write(outer.resolve("module.yaml"), "product: jvm/lib\n")
+
+        val error = assertFailsWith<ConversionException> { load(outer) }
+
+        assertTrue(error.message!!.startsWith("Cannot parse "), error.message)
     }
 
     private fun load(start: Path) = ProjectLoader(FileSystem.SYSTEM).load(start.toString().toPath())

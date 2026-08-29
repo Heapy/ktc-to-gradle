@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle.load
 
+import com.charleskorn.kaml.EmptyYamlDocumentException
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlList
 import com.charleskorn.kaml.YamlMap
@@ -18,6 +19,25 @@ internal sealed interface Value {
 internal fun parseYaml(text: String, source: String): Value.Mapping {
     val node = try {
         Yaml.default.parseToYamlNode(text)
+    } catch (error: Exception) {
+        throw ConversionException("Cannot parse $source: ${error.message}")
+    }
+    return node.toValue().asMapping(source)
+}
+
+/**
+ * Parses a document that is allowed to carry nothing, and reads that as an empty mapping.
+ *
+ * kaml refuses a document with no content node — a zero-byte or comment-only file — outright, while
+ * the Toolchain reads every top-level value it cannot find as absent and carries on. Every other
+ * malformed document still fails, and so does a document that spells out `null`: the Toolchain
+ * rejects that one too.
+ */
+internal fun parseYamlAllowingAnEmptyDocument(text: String, source: String): Value.Mapping {
+    val node = try {
+        Yaml.default.parseToYamlNode(text)
+    } catch (_: EmptyYamlDocumentException) {
+        return Value.Mapping(emptyMap())
     } catch (error: Exception) {
         throw ConversionException("Cannot parse $source: ${error.message}")
     }

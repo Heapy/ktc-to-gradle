@@ -22,7 +22,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         val requested = fileSystem.canonicalize(start)
         val root = findRoot(fileSystem, requested)
         val projectFile = root / "project.yaml"
-        val projectConfig = if (fileSystem.exists(projectFile)) readYaml(fileSystem, projectFile) else null
+        val projectConfig = if (fileSystem.exists(projectFile)) readProjectYaml(fileSystem, projectFile) else null
         val patterns = projectConfig?.strings("modules").orEmpty().map(::normalizeModulePattern)
         patterns.firstOrNull { "**" in it }?.let {
             throw ConversionException("project.yaml module glob '$it' uses unsupported recursive ** syntax")
@@ -73,6 +73,14 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
 internal fun readYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
     parseYaml(fileSystem.read(path) { readUtf8() }, path.toString())
 
+/**
+ * A project.yaml exists to name modules and defaults, and a project that has none of either writes
+ * an empty file rather than deleting it. `kotlin show modules` on a zero-byte project.yaml beside a
+ * root module.yaml lists that module, so an empty document is an empty project here too.
+ */
+private fun readProjectYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
+    parseYamlAllowingAnEmptyDocument(fileSystem.read(path) { readUtf8() }, path.toString())
+
 private val IGNORED_DIRECTORIES = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules")
 
 private fun findRoot(fileSystem: FileSystem, start: Path): Path {
@@ -100,7 +108,7 @@ private fun findRoot(fileSystem: FileSystem, start: Path): Path {
  */
 private fun selectsModule(fileSystem: FileSystem, projectFile: Path, root: Path, module: Path): Boolean {
     val patterns = runCatching {
-        readYaml(fileSystem, projectFile).strings("modules").map(::normalizeModulePattern)
+        readProjectYaml(fileSystem, projectFile).strings("modules").map(::normalizeModulePattern)
     }.getOrElse { return true }
     if (patterns.any { "**" in it }) return true
     val relative = ModulePath.relativize(root, module) ?: return false
