@@ -69,17 +69,6 @@ kotlin {
             dependsOn(getByName("nativeTest"))
             dependsOn(getByName("posixTest"))
         }
-        maybeCreate("jvmMain").apply {
-            dependsOn(getByName("desktopMain"))
-            kotlin.srcDir("src@jvm")
-        }
-        maybeCreate("jvmTest").apply {
-            dependsOn(getByName("desktopTest"))
-            dependencies {
-                implementation(kotlin("test-junit5"))
-                implementation("org.example:jvm-test:1.0")
-            }
-        }
         maybeCreate("linuxMain").apply {
             dependsOn(getByName("nativeMain"))
             dependsOn(getByName("desktopMain"))
@@ -90,6 +79,27 @@ kotlin {
             dependsOn(getByName("nativeTest"))
             dependsOn(getByName("desktopTest"))
             dependsOn(getByName("posixTest"))
+        }
+        maybeCreate("serverMain").apply {
+            dependsOn(getByName("desktopMain"))
+            kotlin.srcDir("src@server")
+            dependencies {
+                implementation("org.example:server:1.0")
+            }
+        }
+        maybeCreate("serverTest").apply {
+            dependsOn(getByName("desktopTest"))
+        }
+        maybeCreate("jvmMain").apply {
+            dependsOn(getByName("serverMain"))
+            kotlin.srcDir("src@jvm")
+        }
+        maybeCreate("jvmTest").apply {
+            dependsOn(getByName("serverTest"))
+            dependencies {
+                implementation(kotlin("test-junit5"))
+                implementation("org.example:jvm-test:1.0")
+            }
         }
         maybeCreate("linuxX64Main").apply {
             dependsOn(getByName("linuxMain"))

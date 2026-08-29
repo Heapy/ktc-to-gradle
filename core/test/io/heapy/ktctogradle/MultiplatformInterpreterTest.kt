@@ -385,6 +385,41 @@ class MultiplatformInterpreterTest {
     }
 
     /**
+     * The leaf overrides the alias that names only it, because the alias is now above the leaf.
+     *
+     * `QualifiedSettings` ranks a section by where its fragment sits in the hierarchy, so placing a
+     * single-platform alias above its leaf decides this too: `settings@jvm` is the narrower of the
+     * two and wins, the way `settings@iosArm64` wins over `settings@ios`.
+     */
+    @Test
+    fun aPlatformQualifierOverridesTheAliasThatNamesOnlyThatPlatform() {
+        val build = interpret(
+            module(
+                "lib",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+                aliases:
+                  - server: [jvm]
+                settings@jvm:
+                  kotlin:
+                    allWarningsAsErrors: false
+                settings@server:
+                  kotlin:
+                    allWarningsAsErrors: true
+                    optIns: [kotlin.ExperimentalStdlibApi]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = false, optIns = listOf("kotlin.ExperimentalStdlibApi")),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+    }
+
+    /**
      * A qualified section the converter cannot carry is reported key by key and dropped, never
      * raised: the module still converts, and the user is told exactly what did not survive.
      */
@@ -684,6 +719,82 @@ class MultiplatformInterpreterTest {
                 environment = mapOf("MODE" to "base"),
             ),
             interpret(shared).testSettings,
+        )
+    }
+
+    /**
+     * An alias naming exactly one platform is still a fragment between `common` and that platform.
+     *
+     * It covers no more leaves than the platform's own source set does, so nothing but the leaf can
+     * depend on it: were it left beside the leaf instead of above it, `src@server` and
+     * `dependencies@server` would reach no compilation at all.
+     */
+    @Test
+    fun anAliasNamingOnePlatformBecomesThatPlatformsParent() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+                aliases:
+                  - server: [jvm]
+                dependencies@server:
+                  - org.example:server:1.0
+                """.trimIndent(),
+                layout = ModuleLayout(setOf("src@server"), detectedMainClass = null),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                KmpSourceSet(
+                    name = "commonMain",
+                    parents = emptyList(),
+                    test = false,
+                    builtIn = true,
+                    sourceDirs = listOf("src"),
+                    resourceDirs = listOf("resources"),
+                    dependencies = emptyList(),
+                ),
+                KmpSourceSet(
+                    name = "commonTest",
+                    parents = emptyList(),
+                    test = true,
+                    builtIn = true,
+                    sourceDirs = listOf("test"),
+                    resourceDirs = listOf("testResources"),
+                    dependencies = listOf(Dependency(DependencyTarget.KotlinBuiltin("test"))),
+                ),
+                sourceSet("nativeMain", "commonMain"),
+                sourceSet("nativeTest", "commonTest", test = true),
+                KmpSourceSet(
+                    name = "serverMain",
+                    parents = listOf("commonMain"),
+                    test = false,
+                    builtIn = false,
+                    sourceDirs = listOf("src@server"),
+                    resourceDirs = emptyList(),
+                    dependencies = listOf(Dependency(DependencyTarget.Maven("org.example:server:1.0"))),
+                ),
+                sourceSet("serverTest", "commonTest", test = true),
+                sourceSet("jvmMain", "serverMain"),
+                KmpSourceSet(
+                    name = "jvmTest",
+                    parents = listOf("serverTest"),
+                    test = true,
+                    builtIn = false,
+                    sourceDirs = emptyList(),
+                    resourceDirs = emptyList(),
+                    dependencies = listOf(Dependency(DependencyTarget.KotlinBuiltin("test-junit5"))),
+                ),
+                sourceSet("linuxMain", "nativeMain"),
+                sourceSet("linuxTest", "nativeTest", test = true),
+                sourceSet("linuxX64Main", "linuxMain"),
+                sourceSet("linuxX64Test", "linuxTest", test = true),
+            ),
+            build.sourceSets,
         )
     }
 

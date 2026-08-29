@@ -55,6 +55,56 @@ class KmpFragmentsTest {
     }
 
     /**
+     * An alias naming exactly one platform sits between that platform and its natural parent.
+     *
+     * It covers no more leaves than the platform's own fragment, so the size comparison alone would
+     * leave it beside the leaf with nothing depending on it. A native leaf keeps its natural chain
+     * and gains the alias as a second parent; the grouping fragments above it are untouched.
+     */
+    @Test
+    fun anAliasNamingOnePlatformIsThatPlatformsParent() {
+        val jvmAlias = fragments("[jvm, linuxX64]", "aliases:\n  - server: [jvm]\n").associateBy(KmpFragment::name)
+
+        assertEquals(
+            KmpFragment("server", setOf("jvm"), natural = false, parents = listOf("common")),
+            jvmAlias.getValue("server"),
+        )
+        assertEquals(listOf("server"), jvmAlias.getValue("jvm").parents)
+
+        val nativeAlias = fragments("[jvm, linuxX64]", "aliases:\n  - box: [linuxX64]\n").associateBy(KmpFragment::name)
+
+        assertEquals(
+            KmpFragment("box", setOf("linuxX64"), natural = false, parents = listOf("common")),
+            nativeAlias.getValue("box"),
+        )
+        assertEquals(listOf("linux", "box"), nativeAlias.getValue("linuxX64").parents)
+        assertEquals(listOf("common"), nativeAlias.getValue("native").parents)
+        assertEquals(listOf("native"), nativeAlias.getValue("linux").parents)
+    }
+
+    /**
+     * An alias covering every declared platform stays under `common` rather than beside it.
+     *
+     * `common` is above everything by name, so an alias that covers exactly as much must not be
+     * made broader than `common` in turn: the two would then be mutually broader, each would drop
+     * the other from the leaves' direct parents, and the leaves would be left with no parent.
+     */
+    @Test
+    fun anAliasCoveringEveryDeclaredPlatformStaysUnderCommon() {
+        assertEquals(
+            listOf(
+                KmpFragment("common", setOf("jvm", "linuxX64"), natural = true, parents = emptyList()),
+                KmpFragment("both", setOf("jvm", "linuxX64"), natural = false, parents = listOf("common")),
+                KmpFragment("jvm", setOf("jvm"), natural = true, parents = listOf("both")),
+                KmpFragment("native", setOf("linuxX64"), natural = true, parents = listOf("both")),
+                KmpFragment("linux", setOf("linuxX64"), natural = true, parents = listOf("native")),
+                KmpFragment("linuxX64", setOf("linuxX64"), natural = true, parents = listOf("linux")),
+            ),
+            fragments("[jvm, linuxX64]", "aliases:\n  - both: [jvm, linuxX64]\n"),
+        )
+    }
+
+    /**
      * The order is topological — every parent precedes its children — and total: fragments that
      * become available together are sorted by name, so the same module never reorders its output.
      */

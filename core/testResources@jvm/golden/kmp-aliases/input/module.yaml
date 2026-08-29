@@ -5,12 +5,16 @@ product:
 aliases:
   - desktop: [jvm, linuxX64]
   - posix: [linuxX64, macosArm64]
+  - server: [jvm]
 
 dependencies:
   - org.example:common:1.0
 
 dependencies@desktop:
   - org.example:desktop:1.0
+
+dependencies@server:
+  - org.example:server:1.0
 
 dependencies@native:
   - org.example:native-only:1.0

@@ -9,8 +9,9 @@ import io.heapy.ktctogradle.load.raiseDeferred
  * One source-set fragment of a multiplatform module, before it is split into a main and a test one.
  *
  * [platforms] is what makes a fragment comparable to another: a fragment is a parent of a second
- * one when it covers strictly more leaf platforms, which is how a declared alias finds its place in
- * the default hierarchy without the module having to say so.
+ * one when it covers more leaf platforms, or — for a declared alias naming exactly one platform —
+ * the same single leaf. That is how an alias finds its place in the default hierarchy without the
+ * module having to say so.
  */
 internal data class KmpFragment(
     val name: String,
@@ -120,12 +121,25 @@ internal object KmpFragments {
      * `common` is above everything, a natural fragment is above its natural descendants, and any
      * fragment covering strictly more platforms is above the ones it contains — which is what
      * places an alias inside the default hierarchy.
+     *
+     * Size alone leaves an alias naming exactly one platform with nothing under it, because the
+     * leaf it names covers exactly as much as it does. Such an alias goes above that leaf instead,
+     * which is the only placement where the sources and dependencies it qualifies reach a
+     * compilation. It is deliberately the only equal-size case: an alias covering the same
+     * platforms as a grouping fragment such as `native` must not re-nest the natural hierarchy,
+     * and one covering every declared platform must not end up mutually broader with `common`.
      */
     private fun isBroader(candidate: KmpFragment, fragment: KmpFragment): Boolean {
         if (candidate.name == COMMON && fragment.name != COMMON) return true
         if (candidate.natural && fragment.natural && isNaturalAncestor(candidate.name, fragment.name)) return true
-        return candidate.platforms.size > fragment.platforms.size && candidate.platforms.containsAll(fragment.platforms)
+        if (!candidate.platforms.containsAll(fragment.platforms)) return false
+        if (candidate.platforms.size > fragment.platforms.size) return true
+        return !candidate.natural && isLeafPlatform(fragment)
     }
+
+    /** Whether [fragment] is a declared platform's own fragment, the bottom of the hierarchy. */
+    private fun isLeafPlatform(fragment: KmpFragment): Boolean =
+        fragment.natural && fragment.platforms.singleOrNull() == fragment.name
 
     const val COMMON = "common"
 
