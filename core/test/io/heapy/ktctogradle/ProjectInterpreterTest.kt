@@ -765,9 +765,142 @@ class ProjectInterpreterTest {
             listOf(
                 "shared: settings.publishing.mavenCentral has no Gradle equivalent; the generated build " +
                     "publishes to the repositories it declares and uploads no Central Portal bundle",
+                "shared: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
+                    "publication missing settings.publishing.signArtifacts, " +
+                    "settings.publishing.publishSources, settings.publishing.pom.description, " +
+                    "settings.publishing.pom.url, settings.publishing.pom.licenses, " +
+                    "settings.publishing.pom.developers, settings.publishing.pom.scm; the Kotlin " +
+                    "Toolchain checks the same requirements before it uploads",
+                JAVADOC_JAR_WARNING,
             ),
             diagnostics.collected().map(Diagnostic::message),
         )
+    }
+
+    /**
+     * `mavenCentral: enabled` names every requirement the publication does not meet, one at a time.
+     *
+     * The Toolchain's own publish refuses a module that fails any of them, so a converted build that
+     * dropped the check would hand the developer a Portal rejection instead of a message naming the
+     * key. The loop drops exactly one requirement from a section that satisfies all of them, which
+     * is what makes each assertion say that *this* key is the one being reported: a check keyed on
+     * the wrong field would either name it while it is present or stay silent while it is gone.
+     */
+    @Test
+    fun mavenCentralNamesEachRequirementThePublicationDoesNotMeet() {
+        for ((requirement, _) in CENTRAL_REQUIREMENTS) {
+            val diagnostics = DiagnosticCollector()
+            val project = project(module("library", centralModule(dropped = requirement)))
+
+            ProjectInterpreter.interpret(project, diagnostics)
+
+            assertEquals(
+                listOf(
+                    CENTRAL_PORTAL_WARNING,
+                    "library: settings.publishing.mavenCentral is enabled, and Maven Central refuses " +
+                        "a publication missing $requirement; the Kotlin Toolchain checks the same " +
+                        "requirements before it uploads",
+                ),
+                diagnostics.collected().map(Diagnostic::message),
+                "for $requirement",
+            )
+        }
+    }
+
+    /**
+     * A publication that meets every requirement is reported for the upload alone.
+     *
+     * The silence is the half that keeps the warning worth reading: a check that fired on a complete
+     * section would train the reader to skip the module that really is missing a license.
+     */
+    @Test
+    fun aCompleteCentralPublicationIsReportedOnlyForTheMissingUpload() {
+        val diagnostics = DiagnosticCollector()
+        val project = project(module("library", centralModule(dropped = null)))
+
+        ProjectInterpreter.interpret(project, diagnostics)
+
+        assertEquals(listOf(CENTRAL_PORTAL_WARNING), diagnostics.collected().map(Diagnostic::message))
+    }
+
+    /**
+     * The requirements are read off the POM the converter produces, not off the section as written.
+     *
+     * `pom.description` defaults to the module's own `description`, so a module that names it once
+     * at the top publishes a POM Maven Central accepts, and a check that read `settings.publishing`
+     * directly would report a key the generated build does not need.
+     */
+    @Test
+    fun theModuleDescriptionSatisfiesThePomDescriptionRequirement() {
+        val diagnostics = DiagnosticCollector()
+        val yaml = "description: A library\n" + centralModule(dropped = "settings.publishing.pom.description")
+        val project = project(module("library", yaml))
+
+        ProjectInterpreter.interpret(project, diagnostics)
+
+        assertEquals(listOf(CENTRAL_PORTAL_WARNING), diagnostics.collected().map(Diagnostic::message))
+    }
+
+    /**
+     * A `kmp/lib` is told about the javadoc jar even when its section is complete.
+     *
+     * It is the one Central requirement no key can add: a `jvm/lib` publication carries the
+     * `withJavadocJar()` the Toolchain adds by default, and the Kotlin Gradle Plugin builds no
+     * javadoc per target, so the multiplatform publication has none whatever the module writes.
+     */
+    @Test
+    fun aMultiplatformPublicationIsToldAboutTheJavadocJarItCannotBuild() {
+        val diagnostics = DiagnosticCollector()
+        val yaml = centralModule(dropped = null)
+            .replace("product: jvm/lib", "product:\n  type: kmp/lib\n  platforms: [jvm]")
+        val project = project(module("shared", yaml))
+
+        ProjectInterpreter.interpret(project, diagnostics)
+
+        assertEquals(
+            listOf(
+                "shared: settings.publishing.mavenCentral has no Gradle equivalent; the generated build " +
+                    "publishes to the repositories it declares and uploads no Central Portal bundle",
+                JAVADOC_JAR_WARNING,
+            ),
+            diagnostics.collected().map(Diagnostic::message),
+        )
+    }
+
+    /**
+     * A module that publishes without asking for the Portal is not held to the Portal's rules.
+     *
+     * `mavenCentral` is the switch: a library published to a company repository has no reason to
+     * carry a license block, and reporting one would be noise the reader learns to skip.
+     */
+    @Test
+    fun theRequirementsAreCheckedOnlyForAModuleThatAsksForMavenCentral() {
+        val diagnostics = DiagnosticCollector()
+        val yaml = centralModule(dropped = "settings.publishing.pom.licenses")
+            .replace("    mavenCentral: enabled\n", "")
+        val project = project(module("library", yaml))
+
+        ProjectInterpreter.interpret(project, diagnostics)
+
+        assertEquals(emptyList(), diagnostics.collected())
+    }
+
+    /**
+     * A `jvm/lib` whose `settings.publishing` satisfies every Maven Central requirement.
+     *
+     * [dropped] names the one requirement to leave out, so each case differs from the complete
+     * section in exactly the field under test.
+     */
+    private fun centralModule(dropped: String?): String = buildString {
+        append("product: jvm/lib\n\nsettings:\n  publishing:\n    enabled: true\n")
+        append("    group: example.library\n    version: 1.2.3\n    mavenCentral: enabled\n")
+        for ((requirement, yaml) in CENTRAL_REQUIREMENTS) {
+            if (requirement != dropped && !requirement.startsWith("settings.publishing.pom.")) append(yaml)
+        }
+        append("    pom:\n")
+        for ((requirement, yaml) in CENTRAL_REQUIREMENTS) {
+            if (requirement != dropped && requirement.startsWith("settings.publishing.pom.")) append(yaml)
+        }
     }
 
     /**
@@ -937,5 +1070,31 @@ class ProjectInterpreterTest {
         private const val DROPPED_PLUGINS =
             "app: 'plugins' cannot be converted automatically; " +
                 "the section was dropped and needs a hand-written Gradle equivalent"
+
+        private const val CENTRAL_PORTAL_WARNING =
+            "library: settings.publishing.mavenCentral has no Gradle equivalent; the generated build " +
+                "publishes to the repositories it declares and uploads no Central Portal bundle"
+
+        private const val JAVADOC_JAR_WARNING =
+            "shared: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
+                "publication without a javadoc jar; the generated build has none, because the Kotlin " +
+                "Gradle Plugin builds no javadoc per target and the 'withJavadocJar()' a jvm/lib gets " +
+                "has no multiplatform equivalent"
+
+        /**
+         * Every Maven Central requirement, next to the YAML that satisfies it.
+         *
+         * The order is the one the diagnostic lists them in, so a case dropping one requirement names
+         * it and a case dropping none says nothing.
+         */
+        private val CENTRAL_REQUIREMENTS = listOf(
+            "settings.publishing.signArtifacts" to "    signArtifacts: true\n",
+            "settings.publishing.publishSources" to "    publishSources: true\n",
+            "settings.publishing.pom.description" to "      description: A library\n",
+            "settings.publishing.pom.url" to "      url: https://example.invalid/library\n",
+            "settings.publishing.pom.licenses" to "      licenses:\n        - name: Apache-2.0\n",
+            "settings.publishing.pom.developers" to "      developers:\n        - id: example\n",
+            "settings.publishing.pom.scm" to "      scm: https://example.invalid/library.git\n",
+        )
     }
 }

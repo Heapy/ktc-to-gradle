@@ -88,6 +88,7 @@ internal object Publishing {
             return null
         }
 
+        val pom = pom(module, settings)
         if (settings.mavenCentral?.enabled == true) {
             val mode = settings.mavenCentral.publishingMode?.let { " (publishingMode '$it' included)" }.orEmpty()
             diagnostics.warn(
@@ -95,6 +96,7 @@ internal object Publishing {
                     "the generated build publishes to the repositories it declares and uploads no " +
                     "Central Portal bundle",
             )
+            reportCentralRequirements(module, settings, pom, product, diagnostics)
         }
         if (settings.checksums.isNotEmpty()) {
             diagnostics.warn(
@@ -110,11 +112,58 @@ internal object Publishing {
             artifactId = settings.artifactId,
             publishSources = settings.publishSources == true,
             signArtifacts = settings.signArtifacts == true,
-            pom = pom(module, settings),
+            pom = pom,
             perTarget = product in ProductType.MULTIPLATFORM,
             projectName = projectName(module),
             repositories = Repositories.forPublishing(model),
         )
+    }
+
+    /**
+     * What Maven Central requires and this publication does not carry.
+     *
+     * The Toolchain refuses to publish a module that fails any of these — `kotlin publish` runs the
+     * check before it uploads — so a converted build that dropped them silently would swap a refusal
+     * the developer can read for a rejection from the Portal after the artifacts are already built.
+     * Nothing here changes the generated build: every requirement is a key the module can add, or,
+     * for the javadoc jar, a fact about the Kotlin Gradle Plugin.
+     */
+    private fun reportCentralRequirements(
+        module: ToolchainModule,
+        settings: PublishingSettings,
+        pom: Pom?,
+        product: String,
+        diagnostics: DiagnosticCollector,
+    ) {
+        // The coordinate is not checked here: `of` has already reported a missing group or version
+        // as an error and returned, so a module that reaches this point has one.
+        val missing = listOfNotNull(
+            "settings.publishing.signArtifacts".takeIf { settings.signArtifacts != true },
+            "settings.publishing.publishSources".takeIf { settings.publishSources != true },
+            "settings.publishing.pom.description".takeIf { pom?.description == null },
+            "settings.publishing.pom.url".takeIf { pom?.url == null },
+            "settings.publishing.pom.licenses".takeIf { pom?.licenses.isNullOrEmpty() },
+            "settings.publishing.pom.developers".takeIf { pom?.developers.isNullOrEmpty() },
+            "settings.publishing.pom.scm".takeIf { pom?.scm == null },
+        )
+        if (missing.isNotEmpty()) {
+            diagnostics.warn(
+                "${module.displayName}: settings.publishing.mavenCentral is enabled, and Maven Central " +
+                    "refuses a publication missing ${missing.joinToString()}; the Kotlin Toolchain " +
+                    "checks the same requirements before it uploads",
+            )
+        }
+        // The javadoc jar is the one requirement no key can add. A `jvm/lib` gets `withJavadocJar()`,
+        // which is what the Toolchain adds by default; the Kotlin Gradle Plugin builds no javadoc per
+        // target, so a multiplatform publication has none and there is no one-line way to give it one.
+        if (product in ProductType.MULTIPLATFORM) {
+            diagnostics.warn(
+                "${module.displayName}: settings.publishing.mavenCentral is enabled, and Maven Central " +
+                    "refuses a publication without a javadoc jar; the generated build has none, because " +
+                    "the Kotlin Gradle Plugin builds no javadoc per target and the 'withJavadocJar()' a " +
+                    "jvm/lib gets has no multiplatform equivalent",
+            )
+        }
     }
 
     /**

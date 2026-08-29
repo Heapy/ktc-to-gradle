@@ -123,6 +123,22 @@ class GeneratedOutputSnapshotTest {
     @Test fun publishing() = assertCase("publishing")
 
     /**
+     * `mavenCentral: enabled` on a module that meets none of the Portal's requirements, and on one
+     * that meets every requirement a key can meet.
+     *
+     * The Toolchain refuses its own publish unless the module carries signing, sources, a
+     * description, a POM url, licenses, developers and scm, so a converted build that dropped the
+     * check would swap a message naming the key for a rejection from the Portal. The `jvm/lib` half
+     * pins the whole list; the `kmp/lib` half pins what is left when the list is satisfied — the
+     * javadoc jar, which is the one requirement no key can add, because the Kotlin Gradle Plugin
+     * builds none per target while a `jvm/lib` publication gets `withJavadocJar()`.
+     *
+     * Diagnostic-only, so the two builds are exactly the ones the modules would have produced
+     * without the section's Central switch.
+     */
+    @Test fun mavenCentralRequirements() = assertCase("maven-central-requirements")
+
+    /**
      * `test-settings.jvm.release` on a `jvm/lib` and on a `kmp/lib`, both publishing lower bytecode.
      *
      * The two products need different DSL for the same thing. A `jvm/lib` configures the two test

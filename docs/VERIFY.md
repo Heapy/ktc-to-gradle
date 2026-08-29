@@ -150,9 +150,11 @@ The conversion succeeds. The generated `build.gradle.kts` is where the case is:
 
 - **`settings.publishing` is carried.** Expect `maven-publish` and `signing` in the plugins block,
   `group` and `version` on the project, and a `publishing { }` block whose
-  `publications.withType<MavenPublication>()` carries the whole POM. One warning is expected and
-  correct: `settings.publishing.mavenCentral` has no Gradle equivalent, because Gradle ships no
-  Central Portal upload. The `signing { }` block looks up `KOTLIN_TOOLCHAIN_SIGNING_KEY` and calls
+  `publications.withType<MavenPublication>()` carries the whole POM. Two warnings are expected and
+  correct, both from `settings.publishing.mavenCentral`: it has no Gradle equivalent, because Gradle
+  ships no Central Portal upload, and the publication carries no javadoc jar, because the Kotlin
+  Gradle Plugin builds none per target. A third names any Central requirement the module leaves
+  unmet. The `signing { }` block looks up `KOTLIN_TOOLCHAIN_SIGNING_KEY` and calls
   `sign` whether or not it found one, so a keyless `./gradlew publish` fails rather than shipping
   unsigned artifacts — check that, it is the behaviour Toolchain has.
 - **`settings@jvm` and the four other platform-qualified blocks are carried over.**

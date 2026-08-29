@@ -1,0 +1,24 @@
+product:
+  type: kmp/lib
+  platforms: [jvm]
+
+# The other half: a section that satisfies every requirement a key can satisfy, so the only thing
+# left to report is the javadoc jar the Kotlin Gradle Plugin does not build per target.
+settings:
+  publishing:
+    enabled: true
+    group: example.central
+    version: 1.0.0
+    publishSources: true
+    signArtifacts: true
+    mavenCentral: enabled
+    pom:
+      description: A converted library that publishes to Maven Central
+      url: https://example.invalid/shared
+      licenses:
+        - name: The Apache License, Version 2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0.txt
+      developers:
+        - id: example
+          name: Example Developer
+      scm: https://example.invalid/shared.git

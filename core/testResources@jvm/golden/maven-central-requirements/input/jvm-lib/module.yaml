@@ -1,0 +1,10 @@
+product: jvm/lib
+
+# Everything Maven Central requires beyond the coordinate is missing, which is the shape the
+# converter used to accept in silence.
+settings:
+  publishing:
+    enabled: true
+    group: example.central
+    version: 1.0.0
+    mavenCentral: enabled

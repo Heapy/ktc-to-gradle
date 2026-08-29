@@ -196,6 +196,15 @@ class ConversionIntegrationTest {
                 "kmp-lib: settings.publishing.mavenCentral has no Gradle equivalent (publishingMode " +
                     "'manual' included); the generated build publishes to the repositories it declares " +
                     "and uploads no Central Portal bundle",
+                "kmp-lib: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
+                    "publication missing settings.publishing.signArtifacts, " +
+                    "settings.publishing.publishSources, settings.publishing.pom.description, " +
+                    "settings.publishing.pom.licenses, settings.publishing.pom.developers; the Kotlin " +
+                    "Toolchain checks the same requirements before it uploads",
+                "kmp-lib: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
+                    "publication without a javadoc jar; the generated build has none, because the " +
+                    "Kotlin Gradle Plugin builds no javadoc per target and the 'withJavadocJar()' a " +
+                    "jvm/lib gets has no multiplatform equivalent",
                 "kmp-lib: settings.publishing.checksums md5, sha1, sha256 was dropped; Gradle writes " +
                     "its own set next to every artifact and offers no way to choose one",
             ),
