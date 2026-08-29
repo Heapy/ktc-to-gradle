@@ -3,6 +3,7 @@ package io.heapy.ktctogradle.load
 import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.ModulePath
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 
 /**
@@ -40,7 +41,13 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
             }
         }
         if (selected.isEmpty()) {
-            throw ConversionException("No module.yaml files selected by ${projectFile.name}")
+            throw ConversionException("No modules found in $root: it has no module.yaml, and project.yaml selects none")
+        }
+        // A module.yaml that is not a file — a directory carrying that name, or a symlink pointing
+        // nowhere — otherwise reaches okio as a raw I/O failure and surfaces as "unexpected
+        // failure: Is a directory", naming neither the path nor what is wrong with it.
+        selected.firstOrNull { !isRegularFile(fileSystem, it) }?.let { moduleFile ->
+            throw ConversionException("Module file $moduleFile is not a regular file")
         }
         val modules = selected.map { moduleFile ->
             val directory = moduleFile.parent!!
@@ -80,6 +87,17 @@ internal fun readYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
  */
 private fun readProjectYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
     parseYamlAllowingAnEmptyDocument(fileSystem.read(path) { readUtf8() }, path.toString())
+
+/**
+ * Resolves the path before asking, so a `module.yaml` that is a symlink to a real file still counts:
+ * okio reports metadata without following links, and such a module converts today.
+ */
+private fun isRegularFile(fileSystem: FileSystem, path: Path): Boolean =
+    try {
+        fileSystem.metadata(fileSystem.canonicalize(path)).isRegularFile
+    } catch (_: IOException) {
+        false
+    }
 
 private val IGNORED_DIRECTORIES = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules")
 

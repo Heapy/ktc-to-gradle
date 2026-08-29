@@ -95,7 +95,55 @@ class ProjectRootTest {
 
         val error = assertFailsWith<ConversionException> { load(outer) }
 
-        assertEquals("No module.yaml files selected by project.yaml", error.message)
+        assertEquals(
+            "No modules found in ${canonical(outer)}: it has no module.yaml, and project.yaml selects none",
+            error.message,
+        )
+    }
+
+    /**
+     * An empty `modules:` list is the plainest way to reach the failure, and the message has to name
+     * the root and both places a module was looked for: the user cannot act on "selected by
+     * project.yaml" alone.
+     */
+    @Test
+    fun aProjectYamlListingNoModulesNamesTheRootItLookedIn() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-no-modules-")
+        write(outer.resolve("project.yaml"), "modules: []\n")
+
+        val error = assertFailsWith<ConversionException> { load(outer) }
+
+        assertEquals(
+            "No modules found in ${canonical(outer)}: it has no module.yaml, and project.yaml selects none",
+            error.message,
+        )
+    }
+
+    /**
+     * A directory named module.yaml used to reach okio as a bare "Is a directory", which escaped the
+     * conversion as an unexpected failure naming no path at all.
+     */
+    @Test
+    fun aModuleYamlThatIsNotARegularFileIsRejectedByName() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-module-dir-")
+        outer.resolve("module.yaml").createDirectories()
+
+        val error = assertFailsWith<ConversionException> { load(outer) }
+
+        assertEquals(
+            "Module file ${canonical(outer) / "module.yaml"} is not a regular file",
+            error.message,
+        )
+    }
+
+    /** A symlinked module.yaml resolves to a real file, so the regular-file check must not reject it. */
+    @Test
+    fun aSymlinkedModuleYamlStillLoads() {
+        val outer = Files.createTempDirectory("ktc-to-gradle-module-link-")
+        write(outer.resolve("elsewhere/module.yaml"), "product: jvm/lib\n")
+        Files.createSymbolicLink(outer.resolve("module.yaml"), outer.resolve("elsewhere/module.yaml"))
+
+        assertEquals(listOf(""), load(outer).modules.map { it.path.notation })
     }
 
     /**
