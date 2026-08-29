@@ -293,7 +293,11 @@ internal sealed interface DependencyTarget {
 
     data class Project(val gradlePath: String) : DependencyTarget
 
-    /** A version-catalog accessor such as `libs.serialization.json`, written without the `$`. */
+    /**
+     * A version-catalog accessor such as `libs.serialization.json`, written without the `$`, with a
+     * segment that is a Kotlin hard keyword backticked — ``libs.aws.`object`.store``. So this is the
+     * accessor as Kotlin spells it, not a path to split on `.` or to escape a second time.
+     */
     data class Catalog(val accessor: String) : DependencyTarget
 
     /** Applied as `kotlin("<name>")`: `reflect`, `test`, `test-junit`, `test-junit5`. */

@@ -418,6 +418,81 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * Every `${'$'}libs.` shape the Toolchain reads, spelled as the Gradle accessor it becomes.
+     *
+     * The Toolchain resolves the key against the accessor path Gradle generates rather than against
+     * the raw `libs.versions.toml` alias, so the two spellings coincide and the key is passed
+     * through. Measured on 0.12.0 with `kotlin show modules`: `junit-jupiter-api` is read as
+     * `${'$'}libs.junit.jupiter.api`, `my_lib` as `${'$'}libs.my.lib`, and `ktorClient` as `${'$'}libs.ktorClient`;
+     * the dashed and underscored spellings of the same aliases are each answered with
+     * "No catalog value for the key". So `-` and `_` are alias separators that never reach an
+     * accessor segment, and a segment is one word, in whatever case the alias spelled it.
+     */
+    @Test
+    fun everyCatalogAccessorShapeTheToolchainReadsIsPassedThrough() {
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+            dependencies:
+              - ${'$'}libs.okio
+              - ${'$'}libs.junit.jupiter.api
+              - ${'$'}libs.ktorClient
+              - ${'$'}libs.junit5
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                Dependency(DependencyTarget.Catalog("libs.okio")),
+                Dependency(DependencyTarget.Catalog("libs.junit.jupiter.api")),
+                Dependency(DependencyTarget.Catalog("libs.ktorClient")),
+                Dependency(DependencyTarget.Catalog("libs.junit5")),
+            ),
+            interpret(app).dependencies,
+        )
+    }
+
+    /**
+     * A dashed alias nests into a segment that is a Kotlin keyword, and the Toolchain accepts it:
+     * `aws-object-store` is read as `${'$'}libs.aws.object.store`. Emitted bare it produced
+     * `implementation(libs.aws.object.store)`, which Gradle 9.7.1 answers with
+     * "Expecting a class body"; backticked it configures and resolves the alias.
+     */
+    @Test
+    fun aCatalogAccessorSegmentThatIsAKotlinKeywordIsBackticked() {
+        val app = module("app", "product: jvm/lib\ndependencies:\n  - ${'$'}libs.aws.object.store\n")
+
+        assertEquals(
+            listOf(Dependency(DependencyTarget.Catalog("libs.aws.`object`.store"))),
+            interpret(app).dependencies,
+        )
+    }
+
+    /**
+     * A key that cannot be spelled as a Kotlin accessor used to be emitted as one: `${'$'}libs.1bad`
+     * produced `implementation(libs.1bad)` and a conversion that reported success, while the failure
+     * only surfaced on the first `./gradlew` run with nothing pointing back at the notation.
+     *
+     * Existence is not checked — the converter never reads `libs.versions.toml` — so only the shape
+     * is. Each of these is refused by the Toolchain too.
+     */
+    @Test
+    fun aCatalogKeyThatCannotBecomeAKotlinAccessorIsReported() {
+        for (notation in listOf("${'$'}libs.1bad", "${'$'}libs.", "${'$'}libs.junit-jupiter-api", "${'$'}libs.a..b", "${'$'}libs.bad key")) {
+            val app = module("app", "product: jvm/lib\ndependencies:\n  - '$notation'\n")
+
+            assertEquals(
+                "app: catalog dependency '$notation' is not a version catalog accessor; " +
+                    "'\$libs.' takes the dot-separated accessor Gradle generates for the alias, so a " +
+                    "'ktor-client-core' alias is written '\$libs.ktor.client.core'",
+                assertFailsWith<ConversionException> { interpret(app) }.message,
+                "for $notation",
+            )
+        }
+    }
+
     @Test
     fun aBuiltInCatalogTheConverterCannotMapIsReported() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - ${'$'}compose.foundation\n")

@@ -203,7 +203,7 @@ internal object ProjectInterpreter {
      * coordinate — and a local module never is.
      */
     private fun compilerPluginDependency(module: ToolchainModule, notation: String): DependencyTarget = when {
-        notation.startsWith("\$libs.") -> DependencyTarget.Catalog(notation.removePrefix("\$"))
+        notation.startsWith("\$libs.") -> Dependencies.catalogTarget(module, notation)
         notation.startsWith("\$") || isLocalNotation(notation) -> throw ConversionException(
             "${module.displayName}: settings.kotlin.compilerPlugins dependency '$notation' must be a Maven " +
                 "coordinate or a \$libs catalog alias",

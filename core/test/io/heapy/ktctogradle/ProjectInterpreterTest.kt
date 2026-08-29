@@ -453,6 +453,35 @@ class ProjectInterpreterTest {
         )
     }
 
+    /** The compiler-plugin path reaches the same accessor check as a declared dependency. */
+    @Test
+    fun aCompilerPluginCatalogAliasThatCannotBecomeAKotlinAccessorIsRefused() {
+        val failure = assertFailsWith<ConversionException> {
+            interpret(
+                project(
+                    module(
+                        "app",
+                        """
+                            product: jvm/lib
+                            settings:
+                              kotlin:
+                                compilerPlugins:
+                                  - id: org.example.plugin
+                                    dependency: ${'$'}libs.example-compiler
+                        """.trimIndent(),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(
+            "app: catalog dependency '\$libs.example-compiler' is not a version catalog accessor; " +
+                "'\$libs.' takes the dot-separated accessor Gradle generates for the alias, so a " +
+                "'ktor-client-core' alias is written '\$libs.ktor.client.core'",
+            failure.message,
+        )
+    }
+
     @Test
     fun aCompilerPluginDependencyThatNamesAModuleIsRefused() {
         val failure = assertFailsWith<ConversionException> {
