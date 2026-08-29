@@ -1,0 +1,31 @@
+product: jvm/lib
+
+repositories:
+  - url: https://repo.example.com
+    credentials:
+      file: local.properties
+      usernameKey: user
+      passwordKey: password
+      passwordKy: password
+
+settings:
+  junti: 5
+  kotlin:
+    languageVersion: 2.0
+    suppressWarnings: true
+  publishing:
+    enabled: true
+    group: org.example
+    version: 1.0.0
+    publishSource: true
+    pom:
+      name: Library
+      developers:
+        - id: jane
+          organisation: Example
+
+test-settings:
+  jvm:
+    freeJvmArgs: [-Xmx2g]
+  kotlin:
+    languageVersion: 2.0

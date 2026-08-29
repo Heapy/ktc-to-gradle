@@ -37,6 +37,7 @@ internal object YamlBinder {
             },
             qualifiedSections = bindQualifiedSections(config),
             unsupported = bindUnsupported(config),
+            unknownKeys = unknownModuleKeys(config),
             errors = errors,
         )
     }

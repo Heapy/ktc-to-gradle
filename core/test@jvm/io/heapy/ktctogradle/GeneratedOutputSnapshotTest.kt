@@ -218,6 +218,19 @@ class GeneratedOutputSnapshotTest {
      */
     @Test fun pluginRepositories() = assertCase("plugin-repositories")
 
+    /**
+     * A module whose keys the converter reads nothing out of, in six different positions.
+     *
+     * Four are misspellings — `passwordKy`, `junti`, `publishSource`, `organisation` — and two are
+     * keys the Kotlin Toolchain really does define and this converter has no equivalent for:
+     * `settings.kotlin.suppressWarnings`, and a `test-settings.kotlin` section of which only the
+     * `jvm` sibling is ever read. The generated build treats all six the same way, so the case pins
+     * that the build is exactly the one the module would have produced without them — the
+     * misspelled `publishSource` costs it a sources jar — and that the run says so once per key
+     * instead of exiting 0 in silence.
+     */
+    @Test fun unknownKeys() = assertCase("unknown-keys")
+
     @Test fun staticAssets() = assertCase("static-assets")
 
     private fun assertCase(case: String) {

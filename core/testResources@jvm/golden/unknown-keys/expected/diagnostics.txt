@@ -1,0 +1,6 @@
+WARNING: unknown-keys: 'repositories[0].credentials.passwordKy' is not read by the converter and was dropped
+WARNING: unknown-keys: 'settings.junti' is not read by the converter and was dropped
+WARNING: unknown-keys: 'settings.kotlin.suppressWarnings' is not read by the converter and was dropped
+WARNING: unknown-keys: 'settings.publishing.publishSource' is not read by the converter and was dropped
+WARNING: unknown-keys: 'settings.publishing.pom.developers[0].organisation' is not read by the converter and was dropped
+WARNING: unknown-keys: 'test-settings.kotlin' is not read by the converter and was dropped

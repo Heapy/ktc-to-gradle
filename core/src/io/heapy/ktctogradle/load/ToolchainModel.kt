@@ -30,6 +30,16 @@ internal data class ToolchainModel(
     /** Rejected keys in the order `rejectUnsupported` reports them. */
     val unsupported: List<String>,
     /**
+     * Every key the module wrote that the binder reads nothing out of, as a dotted path, in
+     * declaration order.
+     *
+     * Separate from [unsupported], which is the fixed list of sections the converter refuses by
+     * name. These are the keys nothing asked for in the first place — a misspelled `publishSource`,
+     * a `settings.kotlin` option this converter has no equivalent for — and they reach the user as
+     * warnings rather than stopping the run. See `ModuleSchema.kt` for what counts as read.
+     */
+    val unknownKeys: List<String>,
+    /**
      * The message of the failure a region defers, keyed by the region that defers it: `product`,
      * `aliases`, `repositories`, `settings`, `settings.jvm.test`, `settings.kotlin.serialization`,
      * a dependency section key such as `dependencies` or `test-dependencies@jvm`, or the

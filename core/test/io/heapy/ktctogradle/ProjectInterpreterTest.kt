@@ -361,6 +361,54 @@ class ProjectInterpreterTest {
     }
 
     /**
+     * A key nothing in the converter reads is named, wherever in the module it sits.
+     *
+     * It is a warning and not an error: the module converts, and every line the generated build was
+     * ever going to carry is in it. What the user has to know is that the key is not one of them.
+     */
+    @Test
+    fun everyKeyNothingReadsIsReportedWithItsPath() {
+        val diagnostics = DiagnosticCollector()
+        ProjectInterpreter.interpret(
+            project(
+                module(
+                    "app",
+                    """
+                        product: jvm/lib
+                        repositories:
+                          - url: https://repo.example.com
+                            credentials:
+                              file: local.properties
+                              usernameKey: user
+                              passwordKey: password
+                              passwordKy: password
+                        settings:
+                          junti: 5
+                          publishing:
+                            enabled: true
+                            group: org.example
+                            version: 1.0.0
+                            pom:
+                              developers:
+                                - id: jane
+                                  organisation: Example
+                    """.trimIndent(),
+                ),
+            ),
+            diagnostics,
+        )
+
+        assertEquals(
+            listOf(
+                unread("repositories[0].credentials.passwordKy"),
+                unread("settings.junti"),
+                unread("settings.publishing.pom.developers[0].organisation"),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
+    /**
      * A `plugins:` section names build plugins the module compiles without, so the section is
      * dropped with an error and the module is still converted.
      */
@@ -876,6 +924,9 @@ class ProjectInterpreterTest {
             layout = ModuleLayout(existingSourceDirs = emptySet(), detectedMainClass = null),
         )
     }
+
+    private fun unread(path: String): Diagnostic =
+        Diagnostic(Diagnostic.Severity.WARNING, "app: '$path' is not read by the converter and was dropped")
 
     private companion object {
         private val ROOT: Path = "/workspace".toPath()

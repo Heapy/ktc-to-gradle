@@ -289,6 +289,7 @@ class PluginResolutionTest {
         },
         qualifiedSections = emptyList(),
         unsupported = emptyList(),
+        unknownKeys = emptyList(),
         errors = emptyMap(),
     )
 }

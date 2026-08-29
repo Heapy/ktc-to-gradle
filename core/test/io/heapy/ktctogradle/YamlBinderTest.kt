@@ -1047,6 +1047,189 @@ class YamlBinderTest {
     }
 
     @Test
+    fun recordsAKeyNothingReads() {
+        val model = bind(
+            """
+                product: jvm/lib
+                repositories:
+                  - url: https://repo.example.com
+                    credentials:
+                      file: local.properties
+                      usernameKey: user
+                      passwordKey: password
+                      passwordKy: password
+                settings:
+                  junti: 5
+                  publishing:
+                    enabled: true
+                    group: org.example
+                    version: 1.0.0
+                    publishSource: true
+                    pom:
+                      developers:
+                        - id: jane
+                          organisation: Example
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "repositories[0].credentials.passwordKy",
+                "settings.junti",
+                "settings.publishing.publishSource",
+                "settings.publishing.pom.developers[0].organisation",
+            ),
+            model.unknownKeys,
+        )
+    }
+
+    /** The module misspelled one key, so the report names that key and not every leaf beneath it. */
+    @Test
+    fun recordsAnUnreadKeyWithoutDescendingIntoIt() {
+        val model = bind(
+            """
+                product: jvm/lib
+                setings:
+                  jvm:
+                    release: 17
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("setings"), model.unknownKeys)
+    }
+
+    /**
+     * The sections another part of the converter already accounts for, none of which may be reported
+     * a second time here.
+     *
+     * `dependencies-dev` is among them because `bindDependencies` matches on the prefix alone and
+     * binds such a key as a qualifier of its own; a qualified `settings@` section carries its own
+     * walk; and `plugins:` is refused by name.
+     */
+    @Test
+    fun readsNothingUnreadOutOfAModuleThatDeclaresEverySectionTheBinderTakes() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                layout: maven-like
+                description: A module
+                aliases:
+                  jvmAndAndroid: [jvm, android]
+                dependencies:
+                  - org.example:library:1.0
+                dependencies-dev:
+                  - org.example:dev:1.0
+                test-dependencies@jvm:
+                  - org.example:testing:1.0
+                plugins:
+                  - id: org.example.plugin
+                repositories:
+                  - https://repo.example.com
+                  - id: internal
+                    url: https://internal.example.com
+                    resolve: true
+                    publish: true
+                    credentials:
+                      file: local.properties
+                      usernameKey: user
+                      passwordKey: password
+                settings@jvm:
+                  kotlin:
+                    languageVersion: 2.0
+                test-settings@jvm:
+                  jvm:
+                    freeJvmArgs: [-Xmx1g]
+                settings:
+                  junit: junit-5
+                  ktor:
+                    enabled: true
+                    version: 3.5.0
+                  native:
+                    entryPoint: main
+                  android:
+                    namespace: org.example
+                    compileSdk:
+                      apiLevel: 36
+                    minSdk: 24
+                    targetSdk: 36
+                    applicationId: org.example
+                    versionCode: 1
+                    versionName: "1.0"
+                  jvm:
+                    jdk:
+                      version: 21
+                    release: 17
+                    mainClass: org.example.MainKt
+                    test:
+                      freeJvmArgs: [-Xmx1g]
+                      systemProperties:
+                        anything: goes
+                      extraEnvironment:
+                        ANYTHING: goes
+                      junitPlatformVersion: 1.13.0
+                  kotlin:
+                    version: 2.4.10
+                    languageVersion: 2.0
+                    apiVersion: 2.0
+                    allWarningsAsErrors: true
+                    progressiveMode: true
+                    freeCompilerArgs: [-Xcontext-parameters]
+                    optIns: [kotlin.time.ExperimentalTime]
+                    serialization:
+                      enabled: true
+                      version: 1.9.0
+                      format: json
+                    compilerPlugins:
+                      - id: org.example.plugin
+                        dependency: org.example:plugin:1.0
+                        options:
+                          anything: goes
+                  publishing:
+                    enabled: true
+                    group: org.example
+                    artifactId: library
+                    version: 1.0.0
+                    publishSources: true
+                    signArtifacts: true
+                    checksums: [sha256]
+                    mavenCentral:
+                      enabled: true
+                      publishingMode: manual
+                    pom:
+                      name: Library
+                      description: A library
+                      url: https://example.com
+                      licenses:
+                        - name: Apache-2.0
+                          url: https://example.com/license
+                      developers:
+                        - id: jane
+                          name: Jane
+                          url: https://example.com/jane
+                          email: jane@example.com
+                          organization: Example
+                          organizationUrl: https://example.com
+                      scm:
+                        url: https://example.com/repo
+                        connection: scm:git:https://example.com/repo
+                        developerConnection: scm:git:ssh://example.com/repo
+                test-settings:
+                  jvm:
+                    freeJvmArgs: [-Xmx2g]
+                    systemProperties:
+                      anything: goes
+                    extraEnvironment:
+                      ANYTHING: goes
+                    release: 17
+            """.trimIndent(),
+        )
+
+        assertEquals(emptyList(), model.unknownKeys)
+    }
+
+    @Test
     fun bindsAnEmptyModuleToAModelWithNoSections() {
         val model = bind("product: jvm/lib")
 
@@ -1061,6 +1244,7 @@ class YamlBinderTest {
                 settings = Settings.EMPTY,
                 qualifiedSections = emptyList(),
                 unsupported = emptyList(),
+                unknownKeys = emptyList(),
                 errors = emptyMap(),
             ),
             model,

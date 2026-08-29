@@ -6,9 +6,9 @@ The conversion runs as four stages, wired in `core/src/io/heapy/ktctogradle/Conv
 load, interpret, render, write.
 
 - **`load/`** reads the project from disk: `ProjectLoader`, `TemplateGraph`, `ModuleLayout`,
-  `YamlBinder`, `YamlValues`, `ModuleIndex`. It produces a `ToolchainProject` of `ToolchainModel`
-  data classes. This is the only stage that parses YAML, and the untyped `Value` tree may not leave
-  it. Nothing here imports from a later stage.
+  `YamlBinder`, `YamlValues`, `ModuleSchema`, `ModuleIndex`. It produces a `ToolchainProject` of
+  `ToolchainModel` data classes. This is the only stage that parses YAML, and the untyped `Value`
+  tree may not leave it. Nothing here imports from a later stage.
 - **`interpret/`** turns a `ToolchainProject` into a `GradleProject`: `ProjectInterpreter`,
   `JvmInterpreter`, `AndroidInterpreter`, `MultiplatformInterpreter`, `KmpFragments`,
   `PluginResolution`, `Dependencies`, `Repositories`, `Serialization`, `Defaults`.
@@ -83,7 +83,7 @@ There are five layers, and a change belongs in exactly one of them.
    `ModuleLayoutProbeTest`, `ModuleDirectoryResolutionTest`, `DiagnosticIsolationTest`,
    `QualifiedSettingsDiagnosticsTest`, `FileWriterTest`. Drive them through `ProjectLoader` or
    `FileWriter` against a temp directory.
-5. **Golden snapshots** — 36 cases under `core/testResources@jvm/golden/`, driven by
+5. **Golden snapshots** — 37 cases under `core/testResources@jvm/golden/`, driven by
    `core/test@jvm/io/heapy/ktctogradle/GeneratedOutputSnapshotTest.kt` through
    `Converter.generateFiles()`. Every generated file, the file list, and the diagnostics are
    compared byte for byte against the baseline.

@@ -153,6 +153,11 @@ internal object ProjectInterpreter {
      *
      * `settings.publishing` is reported by `Publishing` itself, per key, because most of it is now
      * carried and only the rest has to be named.
+     *
+     * `ToolchainModel.unknownKeys` is the fourth case and the last silent one: a key nothing in the
+     * converter ever asks for. It is reported here rather than beside `plugins:` so the promise
+     * `interpretModule` makes still holds — a product the converter refuses is refused before any
+     * other section of that module is discussed.
      */
     private fun reportDroppedSections(module: ToolchainModule, diagnostics: DiagnosticCollector) {
         val release = module.model.settings.test?.release
@@ -161,6 +166,9 @@ internal object ProjectInterpreter {
                 "${module.displayName}: test-settings.jvm.release '$release' was dropped; this module " +
                     "has no Kotlin JVM test compilation to carry it",
             )
+        }
+        for (key in module.model.unknownKeys) {
+            diagnostics.warn("${module.displayName}: '$key' is not read by the converter and was dropped")
         }
     }
 
