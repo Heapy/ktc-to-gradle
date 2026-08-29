@@ -1161,6 +1161,150 @@ class YamlBinderTest {
         assertEquals("settings.android.minSdk must be an integer", model.errors["settings"])
     }
 
+    /**
+     * An integer is not yet a usable one. The Toolchain refuses `jdk.version: 0` while it reads the
+     * project model — "Unsupported JDK version 0. Should be at least 17." — and Gradle refuses the
+     * `jvmToolchain(0)` it used to convert to, so the floor is stated where the value is read.
+     */
+    @Test
+    fun defersTheFailureOfAJdkVersionBelowTheSupportedFloor() {
+        val model = bind(
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                jdk:
+                  version: 11
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.jvm.jdk.version must be at least 17, but was 11", model.errors["settings"])
+    }
+
+    /** 17 is the floor itself, measured against the Toolchain, so it binds. */
+    @Test
+    fun bindsTheLowestSupportedJdkVersion() {
+        val model = bind(
+            """
+            product: jvm/lib
+            settings:
+              jvm:
+                jdk:
+                  version: 17
+            """.trimIndent(),
+        )
+
+        assertEquals("17", model.settings.jvm?.jdkVersion)
+    }
+
+    /**
+     * The Toolchain answers every Android level below 21 with "Android version 20 is too old
+     * (should be at least 21)", whichever of the three keys carried it.
+     */
+    @Test
+    fun defersTheFailureOfACompileSdkBelowTheSupportedFloor() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk: 20
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.android.compileSdk must be at least 21, but was 20", model.errors["settings"])
+    }
+
+    /** The nested form binds to the same field, so its leaf carries the same floor. */
+    @Test
+    fun defersTheFailureOfANestedCompileSdkApiLevelBelowTheSupportedFloor() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk:
+                  apiLevel: 20
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "settings.android.compileSdk.apiLevel must be at least 21, but was 20",
+            model.errors["settings"],
+        )
+    }
+
+    @Test
+    fun defersTheFailureOfAMinSdkBelowTheSupportedFloor() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                minSdk: -1
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.android.minSdk must be at least 21, but was -1", model.errors["settings"])
+    }
+
+    @Test
+    fun defersTheFailureOfATargetSdkBelowTheSupportedFloor() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                targetSdk: 0
+            """.trimIndent(),
+        )
+
+        assertEquals("settings.android.targetSdk must be at least 21, but was 0", model.errors["settings"])
+    }
+
+    /** 21 is the floor itself, measured against the Toolchain, so it binds. */
+    @Test
+    fun bindsTheLowestSupportedAndroidLevel() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              android:
+                compileSdk: 21
+                minSdk: 21
+                targetSdk: 21
+            """.trimIndent(),
+        )
+
+        assertEquals("21", model.settings.android?.compileSdk)
+        assertEquals("21", model.settings.android?.minSdk)
+        assertEquals("21", model.settings.android?.targetSdk)
+    }
+
+    /**
+     * `settings.jvm.release` and `settings.android.versionCode` carry no floor, because the
+     * Toolchain gives them none: measured on 0.12.0, `./kotlin show settings` reads `release: 0`
+     * and `versionCode: -1` without complaint. `release: 0` does fail the Toolchain's own build
+     * with "Unknown -Xjdk-release value: 0", but that set is a property of the Kotlin compiler
+     * version rather than of the schema, the same way the JDK ceiling is.
+     */
+    @Test
+    fun bindsAReleaseAndAVersionCodeThatTheToolchainAccepts() {
+        val model = bind(
+            """
+            product: android/app
+            settings:
+              jvm:
+                release: 0
+              android:
+                versionCode: -1
+            """.trimIndent(),
+        )
+
+        assertEquals("0", model.settings.jvm?.release)
+        assertEquals("-1", model.settings.android?.versionCode)
+    }
+
     private fun bind(yaml: String): ToolchainModel =
         YamlBinder.bind(parseYaml(yaml, "shared/module.yaml"), "shared")
 

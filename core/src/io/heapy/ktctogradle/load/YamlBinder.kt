@@ -426,7 +426,7 @@ internal object YamlBinder {
             },
             jvm = present.value("jvm")?.let {
                 JvmSettings(
-                    jdkVersion = present.integer("jvm.jdk.version", "settings.", lenient),
+                    jdkVersion = present.integer("jvm.jdk.version", "settings.", lenient, atLeast = JDK_FLOOR),
                     release = present.integer("jvm.release", "settings.", lenient),
                     mainClass = present.string("jvm.mainClass"),
                     // A malformed argument list defers under its own region, so it is raised by the
@@ -445,12 +445,12 @@ internal object YamlBinder {
                     // field, so which of the two the module wrote is decided before it is read: an
                     // object is the nested form and not a level that failed to be an integer.
                     compileSdk = if (present.value("android.compileSdk") is Value.Mapping) {
-                        present.integer("android.compileSdk.apiLevel", "settings.", lenient)
+                        present.integer("android.compileSdk.apiLevel", "settings.", lenient, atLeast = ANDROID_FLOOR)
                     } else {
-                        present.integer("android.compileSdk", "settings.", lenient)
+                        present.integer("android.compileSdk", "settings.", lenient, atLeast = ANDROID_FLOOR)
                     },
-                    minSdk = present.integer("android.minSdk", "settings.", lenient),
-                    targetSdk = present.integer("android.targetSdk", "settings.", lenient),
+                    minSdk = present.integer("android.minSdk", "settings.", lenient, atLeast = ANDROID_FLOOR),
+                    targetSdk = present.integer("android.targetSdk", "settings.", lenient, atLeast = ANDROID_FLOOR),
                     applicationId = present.string("android.applicationId"),
                     versionCode = present.integer("android.versionCode", "settings.", lenient),
                     versionName = present.string("android.versionName"),
@@ -666,12 +666,26 @@ internal object YamlBinder {
      * outright. Re-spelling is what the Toolchain prints back, so it is also what the module meant.
      *
      * A qualified section drops what it cannot read rather than raising, hence [lenient].
+     *
+     * [atLeast] is the floor the Toolchain enforces on the setting, for the settings that have one.
+     * Being an integer is not yet being a usable one: the converter used to emit `jvmToolchain(0)`
+     * and report success for a build Gradle then refuses to configure. The floors are read off the
+     * Toolchain rather than off Gradle, because that is the authority on what the module may say —
+     * see [JDK_FLOOR] and [ANDROID_FLOOR].
      */
-    private fun Value.Mapping.integer(path: String, prefix: String, lenient: Boolean): String? {
+    private fun Value.Mapping.integer(path: String, prefix: String, lenient: Boolean, atLeast: Int? = null): String? {
         val node = value(path)
         if (node == null || node is Value.Null) return null
         val text = node.scalarOrNull()
-        text?.toIntOrNull()?.let { return it.toString() }
+        text?.toIntOrNull()?.let { number ->
+            // The floor is checked against the number and not the text, so `020` is 20 here as it is
+            // to the Toolchain, and the message states it the unquoted way the Toolchain states it.
+            if (atLeast != null && number < atLeast) {
+                if (lenient) return null
+                throw ConversionException("$prefix$path must be at least $atLeast, but was $number")
+            }
+            return number.toString()
+        }
         if (lenient) return null
         // A list or an object is reported without quoting a value, because there is no scalar the
         // module wrote to quote back at it.
@@ -681,6 +695,24 @@ internal object YamlBinder {
 
     private fun stringMap(value: Value?): Map<String, String> =
         (value as? Value.Mapping)?.entries?.mapValues { (_, item) -> item.scalarOrNull().orEmpty() }.orEmpty()
+
+    /**
+     * The oldest JDK `settings.jvm.jdk.version` may name.
+     *
+     * Measured on Toolchain 0.12.0: every level below it is answered with "Unsupported JDK version
+     * <n>. Should be at least 17." while the project model is read. There is a ceiling too, but it
+     * is a property of the Kotlin compiler the module pins — "supports JDK up to 26" for 2.4.10 —
+     * rather than of the schema, so it is not restated here.
+     */
+    private const val JDK_FLOOR = 17
+
+    /**
+     * The oldest Android API level `compileSdk`, `minSdk` and `targetSdk` may name.
+     *
+     * Measured on Toolchain 0.12.0, which answers each of the three with "Android version <n> is
+     * too old (should be at least 21)".
+     */
+    private const val ANDROID_FLOOR = 21
 
     private const val SETTINGS_PREFIX = "settings@"
 
