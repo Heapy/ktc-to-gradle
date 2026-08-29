@@ -77,14 +77,25 @@ private fun renderProject(project: GradleProject): List<GeneratedFile> = buildLi
     }
     add(GeneratedFile(project.root / "gradlew", FileContent.Text(GradleWrapperAssets.unixLauncher())))
     add(GeneratedFile(project.root / "gradlew.bat", FileContent.Text(GradleWrapperAssets.windowsLauncher())))
-    val wrapperProperties = project.root / "gradle" / "wrapper" / "gradle-wrapper.properties"
-    add(GeneratedFile(wrapperProperties, FileContent.Text(StaticAssets.wrapperProperties())))
+    val wrapperDirectory = project.root / "gradle" / "wrapper"
+    add(GeneratedFile(wrapperDirectory / "gradle-wrapper.properties", FileContent.Text(StaticAssets.wrapperProperties())))
     // The jar is the wrapper: the two scripts do nothing but run it. It carries no ownership
     // marker of its own, so it points at the properties file beside it instead.
+    //
+    // That is the closest approximation of the marker contract a file which cannot self-report
+    // allows, and it is weaker than the contract a text file gets: a text file is vouched for by
+    // its own bytes, so replacing it wholesale removes the marker and protects it, while a jar is
+    // vouched for out-of-band and a replaced one is still claimed by the untouched properties
+    // beside it. A user who swaps in a corporate-signed or CVE-patched jar therefore loses it on
+    // the next run. Recording our own hash in gradle-wrapper.properties would close that gap and
+    // is refused on purpose: the wrapper files are Gradle's, not ours, and a converter that
+    // refused any jar it did not write could no longer heal a truncated or stale one — a worse
+    // failure mode for far more users. The asymmetry is paid in the README instead, where the
+    // rule is stated for the user who needs to know it.
     add(
         GeneratedFile(
-            project.root / "gradle" / "wrapper" / "gradle-wrapper.jar",
-            FileContent.Binary(GradleWrapperAssets.wrapperJar(), ownershipFollows = wrapperProperties),
+            wrapperDirectory / "gradle-wrapper.jar",
+            FileContent.Binary(GradleWrapperAssets.wrapperJar(), ownershipFollows = "gradle-wrapper.properties"),
         ),
     )
     add(GeneratedFile(project.root / "gradle.properties", FileContent.Text(StaticAssets.generatedGradleProperties())))

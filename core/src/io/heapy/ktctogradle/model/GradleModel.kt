@@ -21,7 +21,15 @@ internal sealed interface FileContent {
         override val bytes: ByteString get() = value.encodeUtf8()
     }
 
-    data class Binary(override val bytes: ByteString, val ownershipFollows: Path) : FileContent
+    /**
+     * [ownershipFollows] is, by convention, the bare file name of a companion beside this file: the
+     * write stage resolves it against this file's own parent rather than against the project root.
+     *
+     * The convention is not enforced. okio returns an absolute child from `resolve` unchanged and
+     * keeps a `..` segment literally, so a caller that passed a path where a name belongs would be
+     * followed out of the directory. The type narrows the mistake, it does not exclude it.
+     */
+    data class Binary(override val bytes: ByteString, val ownershipFollows: String) : FileContent
 }
 
 /**

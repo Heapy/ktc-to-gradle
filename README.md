@@ -40,6 +40,8 @@ Use `--dry-run` to validate without writing. Existing Gradle files that were not
 
 The converter lays down the standard Gradle wrapper — `gradlew`, `gradlew.bat` and `gradle/wrapper/` — so no manual Gradle installation is required. These are Gradle's own files, not a launcher of ours: they are carried inside the converter binary and written out verbatim, with one comment added to each script so the converter recognises its own output. Change the Gradle version the way you would in any Gradle project, by editing `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` — and update `distributionSha256Sum` in the same edit, or the wrapper refuses the download it no longer recognises. Remove the line to skip verification. The generated project needs a JVM on `PATH`, which Gradle needs anyway, and `xargs`, which Gradle's launcher uses to parse quoted arguments.
 
+`gradle-wrapper.jar` is the one file the converter writes that cannot carry that comment, so it inherits the ownership of the `gradle-wrapper.properties` beside it: a rerun replaces the jar while that properties file is still the converter's own, and refuses when it is foreign or missing. A jar you replaced by hand — a corporate-signed or security-patched build — is therefore overwritten by the next conversion, exactly as a hand-edited `build.gradle.kts` that kept its header is. Keep such a jar outside the converter's reach, or put it back afterwards; `--force` overrides the refusal in the other direction.
+
 Maintainers: `tools/update-gradle-wrapper.sh` is the only thing that rewrites the embedded wrapper, and a scheduled workflow runs it and opens a pull request when a new stable Gradle is released.
 
 ## Conversion coverage

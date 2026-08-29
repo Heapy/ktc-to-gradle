@@ -3,6 +3,7 @@ package io.heapy.ktctogradle
 import io.heapy.ktctogradle.model.FileContent
 import io.heapy.ktctogradle.model.GeneratedFile
 import io.heapy.ktctogradle.write.FileWriter
+import okio.ByteString.Companion.encodeUtf8
 import okio.FileSystem
 import okio.Path as OkioPath
 import okio.Path.Companion.toPath
@@ -130,6 +131,151 @@ class FileWriterTest {
     }
 
     /**
+     * A binary file carries no marker, so its ownership is the marker of the companion beside it.
+     *
+     * That is the closest approximation of the marker contract a file which cannot self-report
+     * allows, and it is deliberately weaker than the one a text file gets. A text file is vouched
+     * for by its own bytes, so replacing it wholesale strips the marker and protects it; only an
+     * edit that preserved the header is lost. A jar is vouched for out of band, so a replaced one
+     * is still claimed by the untouched properties beside it and goes on the next run — a
+     * corporate-signed or CVE-patched jar included. Recording our own hash in the properties would
+     * close that gap and is refused on purpose: the wrapper files are Gradle's, and a converter
+     * that kept every jar it did not write could no longer heal a truncated or stale one. The
+     * asymmetry is paid out of band too, in the README. `--force` is the escape hatch.
+     *
+     * The seven tests below are the whole matrix, one per row, plus the `--force` escape and the
+     * sibling rule the companion name is resolved by.
+     */
+    @Test
+    fun anAbsentJarIsWrittenWithoutConsultingAnyCompanion() {
+        val root = temp("jar-absent")
+
+        val written = writer().write(
+            root = root.okio(),
+            files = listOf(jar(root, "new-jar")),
+            force = false,
+            dryRun = false,
+        )
+
+        assertEquals(listOf(JAR), written.map(::notation))
+        assertEquals("new-jar", root.resolve(JAR).readText(), "Nothing was there, so nothing had to vouch for it")
+    }
+
+    @Test
+    fun aJarWhoseBytesAreIdenticalIsNeverOwnershipChecked() {
+        val root = temp("jar-identical")
+        write(root.resolve(JAR), "same-jar")
+        write(root.resolve(PROPERTIES), FOREIGN_PROPERTIES)
+        val before = root.resolve(JAR).getLastModifiedTime()
+
+        val written = writer().write(
+            root = root.okio(),
+            files = listOf(jar(root, "same-jar")),
+            force = false,
+            dryRun = false,
+        )
+
+        assertEquals(emptyList(), written, "An unchanged jar is never checked, foreign companion or not")
+        assertEquals(before, root.resolve(JAR).getLastModifiedTime(), "An unchanged file keeps its timestamp")
+    }
+
+    @Test
+    fun aJarIsReplacedWhenTheCompanionBesideItCarriesTheMarker() {
+        val root = temp("jar-ours")
+        write(root.resolve(JAR), "old-jar")
+        write(root.resolve(PROPERTIES), OUR_PROPERTIES)
+
+        val written = writer().write(
+            root = root.okio(),
+            files = listOf(jar(root, "new-jar")),
+            force = false,
+            dryRun = false,
+        )
+
+        assertEquals(listOf(JAR), written.map(::notation))
+        assertEquals("new-jar", root.resolve(JAR).readText())
+    }
+
+    @Test
+    fun aJarIsRefusedWhenTheCompanionBesideItIsForeign() {
+        val root = temp("jar-foreign")
+        write(root.resolve(JAR), "old-jar")
+        write(root.resolve(PROPERTIES), FOREIGN_PROPERTIES)
+
+        val failure = kotlin.runCatching {
+            writer().write(
+                root = root.okio(),
+                files = listOf(jar(root, "new-jar")),
+                force = false,
+                dryRun = false,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is ConversionException, "Expected a conversion failure, got $failure")
+        assertEquals(JAR_REFUSAL, failure.message)
+        assertEquals("old-jar", root.resolve(JAR).readText(), "The refused jar is untouched")
+    }
+
+    @Test
+    fun aJarIsRefusedWhenTheCompanionBesideItIsGone() {
+        val root = temp("jar-orphan")
+        write(root.resolve(JAR), "old-jar")
+
+        val failure = kotlin.runCatching {
+            writer().write(
+                root = root.okio(),
+                files = listOf(jar(root, "new-jar")),
+                force = false,
+                dryRun = false,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is ConversionException, "Expected a conversion failure, got $failure")
+        assertEquals(JAR_REFUSAL, failure.message)
+        assertEquals("old-jar", root.resolve(JAR).readText(), "Deleting the only evidence of ownership refuses, not replaces")
+    }
+
+    @Test
+    fun aRefusedJarIsReplacedWithForce() {
+        val root = temp("jar-forced")
+        write(root.resolve(JAR), "old-jar")
+
+        writer().write(
+            root = root.okio(),
+            files = listOf(jar(root, "new-jar")),
+            force = true,
+            dryRun = false,
+        )
+
+        assertEquals("new-jar", root.resolve(JAR).readText(), "--force is the escape hatch out of every refusal row")
+    }
+
+    /**
+     * The companion is a file name resolved beside the jar, so only the sibling can vouch for it.
+     *
+     * A marker-carrying file of the same name elsewhere in the tree is not the companion, and the
+     * write stage never reads it.
+     */
+    @Test
+    fun onlyTheCompanionInTheSameDirectoryVouchesForAJar() {
+        val root = temp("jar-sibling")
+        write(root.resolve(JAR), "old-jar")
+        write(root.resolve("gradle-wrapper.properties"), OUR_PROPERTIES)
+
+        val failure = kotlin.runCatching {
+            writer().write(
+                root = root.okio(),
+                files = listOf(jar(root, "new-jar")),
+                force = false,
+                dryRun = false,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is ConversionException, "Expected a conversion failure, got $failure")
+        assertEquals(JAR_REFUSAL, failure.message)
+    }
+
+    /**
      * Every file the converter produces carries the ownership marker [FileWriter] keys on.
      *
      * Written once, then written again with changed content: the second run runs the ownership check
@@ -178,6 +324,12 @@ class FileWriterTest {
         content = FileContent.Text(content),
     )
 
+    /** The wrapper jar as the converter emits it: bytes, and the name of the companion beside it. */
+    private fun jar(root: Path, content: String) = GeneratedFile(
+        path = JAR.split('/').fold(root.okio()) { path, segment -> path / segment },
+        content = FileContent.Binary(content.encodeUtf8(), ownershipFollows = "gradle-wrapper.properties"),
+    )
+
     private fun temp(name: String): Path =
         Files.createTempDirectory("ktc-to-gradle-writer-").resolve(name).also(Path::createDirectories)
 
@@ -186,5 +338,15 @@ class FileWriterTest {
     private fun write(path: Path, content: String) {
         path.parent.createDirectories()
         path.writeText(content)
+    }
+
+    private companion object {
+        const val JAR = "gradle/wrapper/gradle-wrapper.jar"
+        const val PROPERTIES = "gradle/wrapper/gradle-wrapper.properties"
+        const val OUR_PROPERTIES = "# Generated by ktc-to-gradle. Safe to regenerate.\ndistributionPath=wrapper/dists\n"
+        const val FOREIGN_PROPERTIES = "distributionPath=wrapper/dists\n"
+        const val JAR_REFUSAL =
+            "Refusing to overwrite existing files: gradle/wrapper/gradle-wrapper.jar. " +
+                "Re-run with --force after reviewing them."
     }
 }

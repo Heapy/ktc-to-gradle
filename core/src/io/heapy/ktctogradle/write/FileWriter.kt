@@ -32,8 +32,7 @@ internal class FileWriter(private val fileSystem: FileSystem) {
         // Read once per path: the changed check and the collision check both need the old content.
         // The companion of a binary file is read too, because that is where its ownership is
         // recorded, and it is not always one of the files being written.
-        val paths = files.map(GeneratedFile::path) +
-            files.mapNotNull { (it.content as? FileContent.Binary)?.ownershipFollows }
+        val paths = files.map(GeneratedFile::path) + files.mapNotNull(::companionOf)
         val onDisk = paths.distinct().associateWith { path ->
             if (fileSystem.exists(path)) read(path) else null
         }
@@ -67,11 +66,26 @@ internal class FileWriter(private val fileSystem: FileSystem) {
      * `gradle-wrapper.properties` beside it, and a companion that is not on disk cannot vouch for
      * anything.
      */
-    private fun isGenerated(file: GeneratedFile, onDisk: Map<Path, ByteString?>): Boolean? = when (val content = file.content) {
+    private fun isGenerated(file: GeneratedFile, onDisk: Map<Path, ByteString?>): Boolean? = when (file.content) {
         is FileContent.Text -> onDisk[file.path]?.let(::carriesMarker)
         is FileContent.Binary ->
-            if (onDisk[file.path] == null) null else carriesMarker(onDisk[content.ownershipFollows] ?: return false)
+            if (onDisk[file.path] == null) {
+                null
+            } else {
+                val companion = companionOf(file)?.let(onDisk::get)
+                companion != null && carriesMarker(companion)
+            }
     }
+
+    /**
+     * The file a binary one named as the record of its ownership, resolved beside it.
+     *
+     * `FileContent.Binary` names its companion by bare file name by convention, so in practice the
+     * answer is the sibling `Converter` intended. Resolution is what makes that so, not the type:
+     * an absolute name, or one carrying `..`, would still resolve out of this directory.
+     */
+    private fun companionOf(file: GeneratedFile): Path? =
+        (file.content as? FileContent.Binary)?.let { binary -> file.path.parent?.div(binary.ownershipFollows) }
 
     private fun carriesMarker(content: ByteString): Boolean =
         content.utf8().contains(StaticAssets.GENERATED_MARKER, ignoreCase = true)
