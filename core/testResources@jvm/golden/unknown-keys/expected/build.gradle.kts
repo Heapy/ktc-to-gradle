@@ -30,6 +30,7 @@ kotlin {
     compilerOptions {
         languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion("2.0"))
         this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("25"))
+        freeCompilerArgs.add("-Xjdk-release=25")
     }
 }
 
@@ -37,6 +38,10 @@ java {
     sourceCompatibility = JavaVersion.toVersion("25")
     targetCompatibility = JavaVersion.toVersion("25")
     withJavadocJar()
+}
+
+tasks.compileJava {
+    options.release.set(25)
 }
 
 sourceSets {

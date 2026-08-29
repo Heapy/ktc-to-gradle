@@ -57,7 +57,15 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     blank()
     block("kotlin") {
         line("jvmToolchain(${build.jdk})")
-        appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
+        appendCompilerOptions(
+            build.compilerOptions,
+            build.qualifiedCompilerOptions,
+            module.compilerPlugins,
+            // Module-wide reaches every compilation the module has, which is what it asked for when
+            // it named no separate test release. With one, the flag moves onto `compileKotlin` so
+            // the test compilation is not handed two of them.
+            jdkRelease = build.release.takeIf { build.testRelease == null },
+        )
     }
     blank()
     block("java") {
@@ -72,6 +80,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
             line("withJavadocJar()")
         }
     }
+    appendMainRelease(build)
     if (build.layout != Layout.MAVEN_LIKE) {
         blank()
         block("sourceSets") {
@@ -261,6 +270,36 @@ private fun KmpTarget.testTask(): Pair<String, JvmTestSettings>? = when (val kin
 }
 
 /**
+ * What a `jvm/lib` or `jvm/app` does with `settings.jvm.release` beyond the bytecode level.
+ *
+ * `jvmTarget` and `sourceCompatibility`/`targetCompatibility` say what version the class files claim
+ * to be, and nothing more: a JDK 25 toolchain compiling for release 21 still resolves the whole JDK
+ * 25 API, so a module can call an API that is missing at run time and publish an artifact labelled
+ * Java 21 that fails on a real Java 21. `-Xjdk-release` and `options.release` are what close that,
+ * and Gradle's own toolchain documentation recommends them for the same reason.
+ *
+ * The Kotlin half is written module-wide by the caller when the module named no test release, which
+ * is the shorter spelling and covers the test compilation too. With a test release it moves here,
+ * onto `compileKotlin` alone: a module-wide flag reaches the test compilation as well, and the
+ * compiler then reports '-Xjdk-release' passed multiple times on every build. The `jvmTarget` the
+ * module-wide block sets still reaches both compilations, so only the flag has to move.
+ */
+private fun KtsWriter.appendMainRelease(build: JvmBuild) {
+    if (build.testRelease != null) {
+        blank()
+        block("tasks.compileKotlin") {
+            block("compilerOptions") {
+                line("freeCompilerArgs.add(${quote("-Xjdk-release=${build.release}")})")
+            }
+        }
+    }
+    blank()
+    block("tasks.compileJava") {
+        line("options.release.set(${build.release})")
+    }
+}
+
+/**
  * What a `jvm/lib` or `jvm/app` does with `test-settings.jvm.release`.
  *
  * The test compilation is not published, so nothing ties it to the level the main one targets: a
@@ -431,16 +470,21 @@ internal fun GradlePlugin.dsl(): String = when (this) {
  *
  * [extra] is emitted after [options] rather than merged into it: Gradle applies the later
  * statement, so that is how a platform-qualified section overrides what it restates.
+ *
+ * [jdkRelease] is the `-Xjdk-release` every compilation the block covers is given, or `null` when
+ * the flag belongs on one compilation rather than on all of them.
  */
 private fun KtsWriter.appendCompilerOptions(
     options: CompilerOptions,
     extra: CompilerOptions = CompilerOptions.EMPTY,
     compilerPlugins: List<CompilerPlugin> = emptyList(),
+    jdkRelease: String? = null,
 ) {
     val pluginArgs = compilerPlugins.map(CompilerPlugin::optionArguments).filter(List<String>::isNotEmpty)
-    if (options.isEmpty && extra.isEmpty && pluginArgs.isEmpty()) return
+    if (options.isEmpty && extra.isEmpty && pluginArgs.isEmpty() && jdkRelease == null) return
     block("compilerOptions") {
         appendCompilerOptionLines(options)
+        jdkRelease?.let { line("freeCompilerArgs.add(${quote("-Xjdk-release=$it")})") }
         appendCompilerOptionLines(extra)
         for (arguments in pluginArgs) line("freeCompilerArgs.addAll(${arguments.joinToString(prefix = "listOf(", postfix = ")", transform = ::quote)})")
     }

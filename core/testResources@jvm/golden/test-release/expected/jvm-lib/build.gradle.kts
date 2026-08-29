@@ -20,6 +20,16 @@ java {
     targetCompatibility = JavaVersion.toVersion("21")
 }
 
+tasks.compileKotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xjdk-release=21")
+    }
+}
+
+tasks.compileJava {
+    options.release.set(21)
+}
+
 sourceSets {
     main {
         kotlin.srcDir("src")

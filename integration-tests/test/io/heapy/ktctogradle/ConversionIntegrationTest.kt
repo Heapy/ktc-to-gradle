@@ -293,6 +293,60 @@ class ConversionIntegrationTest {
         assertEquals(0, process.waitFor(), "Generated credential repository DSL failed:\n$output")
     }
 
+    /**
+     * `settings.jvm.release` has to reach the main compilation as a `--release`, not only as a
+     * bytecode level.
+     *
+     * A JDK 25 toolchain told to emit class-file 65 still resolves the whole JDK 25 API unless the
+     * compiler is given `-Xjdk-release`, so a module could call an API that is not there at run time
+     * and publish an artifact labelled Java 21 that fails on a real Java 21. The only source here
+     * reads a JDK 24 API, so the build has to refuse it — and refuse it for that reason and not
+     * another, which is what the second assertion is for.
+     *
+     * The module names no `test-settings.jvm.release`, so this is the module-wide spelling of the
+     * flag; the `test-release` fixture covers the per-compilation one.
+     */
+    @Test
+    fun aMainSourceReadingAnApiNewerThanItsReleaseFailsToCompile() {
+        val destination = Files.createTempDirectory("ktc-to-gradle-main-release-")
+        Files.writeString(
+            destination.resolve("module.yaml"),
+            """
+            product: jvm/lib
+
+            settings:
+              kotlin:
+                version: 2.4.10
+              jvm:
+                jdk:
+                  version: 25
+                release: 21
+            """.trimIndent(),
+        )
+        destination.resolve("src").createDirectories()
+        Files.writeString(
+            destination.resolve("src/NewApi.kt"),
+            """
+            package example.mainrelease
+
+            // java.lang.classfile is a JDK 24 API, and the module publishes class-file 65.
+            fun classFile(): Any = java.lang.classfile.ClassFile.of()
+            """.trimIndent(),
+        )
+        Converter().convert(destination.absolutePathString().toPath())
+
+        val output = gradle(destination, "compileKotlin")
+
+        assertTrue(
+            output.exitCode != 0,
+            "The main compilation accepted a JDK 24 API at release 21:\n${output.text}",
+        )
+        assertTrue(
+            "Unresolved reference" in output.text,
+            "The main compilation failed for some other reason than the API being out of reach:\n${output.text}",
+        )
+    }
+
     private fun assertJvmRelease(directory: Path, expectedMajorVersion: Int) {
         val classes = directory.resolve("build/classes/kotlin/jvm/main")
         val classFile = Files.walk(classes).use { paths ->

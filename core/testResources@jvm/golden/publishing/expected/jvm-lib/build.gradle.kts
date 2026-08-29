@@ -17,6 +17,7 @@ kotlin {
     jvmToolchain(25)
     compilerOptions {
         this.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("17"))
+        freeCompilerArgs.add("-Xjdk-release=17")
     }
 }
 
@@ -25,6 +26,10 @@ java {
     targetCompatibility = JavaVersion.toVersion("17")
     withSourcesJar()
     withJavadocJar()
+}
+
+tasks.compileJava {
+    options.release.set(17)
 }
 
 sourceSets {
