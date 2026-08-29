@@ -353,7 +353,9 @@ internal object YamlBinder {
      * The three keys a Gradle `Test` task takes, reported by shape rather than by name.
      *
      * A malformed one binds to nothing just as an absent one does, so it has to be named here or it
-     * vanishes without a word.
+     * vanishes without a word. That holds one level down too: a list whose element or a map whose
+     * value is not a scalar binds to nothing either, so the element is named by its own index or key
+     * rather than the whole section being blamed for one entry.
      */
     private fun testSettingKeys(prefix: String, node: Value): List<UnsupportedKey> {
         val test = node as? Value.Mapping ?: return listOf(UnsupportedKey(prefix, "must be an object"))
@@ -362,9 +364,21 @@ internal object YamlBinder {
                 when (key) {
                     "freeJvmArgs" -> if (value !is Value.Sequence) {
                         add(UnsupportedKey("$prefix.$key", "must be a list"))
+                    } else {
+                        value.items.forEachIndexed { index, item ->
+                            if (item.scalarOrNull() == null) {
+                                add(UnsupportedKey("$prefix.$key[$index]", "must be a string"))
+                            }
+                        }
                     }
                     "systemProperties", "extraEnvironment" -> if (value !is Value.Mapping) {
                         add(UnsupportedKey("$prefix.$key", "must be an object"))
+                    } else {
+                        for ((name, item) in value.entries) {
+                            if (item.scalarOrNull() == null) {
+                                add(UnsupportedKey("$prefix.$key.$name", "must be a string"))
+                            }
+                        }
                     }
                     else -> for (path in leafPaths("$prefix.$key", value)) {
                         add(UnsupportedKey(path, UnsupportedKey.UNSUPPORTED))
@@ -435,8 +449,12 @@ internal object YamlBinder {
                     testFreeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
                         present.stringList("jvm.test.freeJvmArgs", "settings.", lenient)
                     },
-                    testSystemProperties = stringMap(present.value("jvm.test.systemProperties")),
-                    testExtraEnvironment = stringMap(present.value("jvm.test.extraEnvironment")),
+                    testSystemProperties = deferring(errors, Region.JVM_TEST_SETTINGS, emptyMap()) {
+                        present.stringMap("jvm.test.systemProperties", "settings.", lenient)
+                    },
+                    testExtraEnvironment = deferring(errors, Region.JVM_TEST_SETTINGS, emptyMap()) {
+                        present.stringMap("jvm.test.extraEnvironment", "settings.", lenient)
+                    },
                     testJunitPlatformVersion = present.string("jvm.test.junitPlatformVersion"),
                 )
             },
@@ -472,8 +490,12 @@ internal object YamlBinder {
                     freeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
                         it.stringList("jvm.freeJvmArgs", "test-settings.", lenient)
                     },
-                    systemProperties = stringMap(it.value("jvm.systemProperties")),
-                    extraEnvironment = stringMap(it.value("jvm.extraEnvironment")),
+                    systemProperties = deferring(errors, Region.JVM_TEST_SETTINGS, emptyMap()) {
+                        it.stringMap("jvm.systemProperties", "test-settings.", lenient)
+                    },
+                    extraEnvironment = deferring(errors, Region.JVM_TEST_SETTINGS, emptyMap()) {
+                        it.stringMap("jvm.extraEnvironment", "test-settings.", lenient)
+                    },
                     release = it.integer("jvm.release", "test-settings.", lenient),
                 )
             },
@@ -695,8 +717,27 @@ internal object YamlBinder {
         throw ConversionException("$prefix$path must be an integer$actual")
     }
 
-    private fun stringMap(value: Value?): Map<String, String> =
-        (value as? Value.Mapping)?.entries?.mapValues { (_, item) -> item.scalarOrNull().orEmpty() }.orEmpty()
+    /**
+     * A map of scalars, read by the same rule as [stringList] one level down.
+     *
+     * A value that is not a scalar used to bind to `""`, so `systemProperty("mode", "")` reached the
+     * `Test` task as a real setting the module never wrote. It is refused instead: an entry the
+     * Toolchain types as a string and the module spelled as an object is a mistake, not an empty
+     * value. A YAML null is refused for the same reason the list refuses `[~]`.
+     *
+     * In a qualified section the entry is dropped rather than raised, hence [lenient]; the walk in
+     * [testSettingKeys] is what names it there.
+     */
+    private fun Value.Mapping.stringMap(path: String, prefix: String, lenient: Boolean): Map<String, String> {
+        val mapping = value(path) as? Value.Mapping ?: return emptyMap()
+        return buildMap {
+            for ((key, item) in mapping.entries) {
+                val text = item.scalarOrNull()
+                    ?: if (lenient) continue else throw ConversionException("Expected a string at $prefix$path.$key")
+                put(key, text)
+            }
+        }
+    }
 
     /**
      * The oldest JDK `settings.jvm.jdk.version` may name.

@@ -62,4 +62,49 @@ class QualifiedSettingsDiagnosticsTest {
             diagnostics.map { it.message },
         )
     }
+
+    /**
+     * The same leniency one level down: an entry of a `Test` task list or map that is not a scalar
+     * binds to nothing, so it is named by its own index or key and the rest of the entry survives.
+     */
+    @Test
+    fun nonScalarTestSettingEntriesAreReportedWordForWordAndDropped() {
+        val root = Files.createTempDirectory("ktc-to-gradle-test-entries-").resolve("shared")
+        root.createDirectories()
+        root.resolve("module.yaml").writeText(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+
+                settings@jvm:
+                  jvm:
+                    test:
+                      freeJvmArgs:
+                        - -ea
+                        - bad: value
+                      systemProperties:
+                        mode:
+                          nested: value
+                        kept: plain
+
+                test-settings@jvm:
+                  jvm:
+                    extraEnvironment:
+                      HOME_DIR:
+                        nested: value
+            """.trimIndent(),
+        )
+
+        val diagnostics = Converter(FileSystem.SYSTEM).generateFiles(root.toString().toPath()).diagnostics
+
+        assertEquals(
+            listOf(
+                "shared: 'settings@jvm.jvm.test.freeJvmArgs[1]' must be a string and was dropped",
+                "shared: 'settings@jvm.jvm.test.systemProperties.mode' must be a string and was dropped",
+                "shared: 'test-settings@jvm.jvm.extraEnvironment.HOME_DIR' must be a string and was dropped",
+            ),
+            diagnostics.map { it.message },
+        )
+    }
 }

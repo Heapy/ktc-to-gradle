@@ -873,6 +873,147 @@ class YamlBinderTest {
     }
 
     /**
+     * The shape being right is not the whole check: an element of the list or a value of the map has
+     * to be a scalar too, or it reaches the `Test` task as an argument nobody wrote.
+     */
+    @Test
+    fun reportsANonScalarElementOfAnUnqualifiedJvmTestList() {
+        val model = bind(
+            """
+                product: jvm/lib
+                settings:
+                  jvm:
+                    test:
+                      freeJvmArgs:
+                        - -ea
+                        - bad: value
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            mapOf(Region.JVM_TEST_SETTINGS to "Expected a string at settings.jvm.test.freeJvmArgs[1]"),
+            model.errors,
+        )
+        assertEquals(emptyList(), model.settings.jvm?.testFreeJvmArgs)
+    }
+
+    @Test
+    fun reportsANonScalarElementOfAnUnqualifiedTestSettingsList() {
+        val model = bind(
+            """
+                product: jvm/lib
+                test-settings:
+                  jvm:
+                    freeJvmArgs:
+                      - -ea
+                      - bad: value
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            mapOf(Region.JVM_TEST_SETTINGS to "Expected a string at test-settings.jvm.freeJvmArgs[1]"),
+            model.errors,
+        )
+        assertEquals(emptyList(), model.settings.test?.freeJvmArgs)
+    }
+
+    /**
+     * A nested value used to bind to `""`, which reaches Gradle as `systemProperty("mode", "")` — a
+     * setting the module never wrote, and one nothing else would have named.
+     */
+    @Test
+    fun reportsANonScalarValueOfAnUnqualifiedJvmTestMap() {
+        val model = bind(
+            """
+                product: jvm/lib
+                settings:
+                  jvm:
+                    test:
+                      systemProperties:
+                        mode:
+                          nested: value
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            mapOf(Region.JVM_TEST_SETTINGS to "Expected a string at settings.jvm.test.systemProperties.mode"),
+            model.errors,
+        )
+        assertEquals(emptyMap(), model.settings.jvm?.testSystemProperties)
+    }
+
+    @Test
+    fun reportsANonScalarValueOfAnUnqualifiedTestSettingsMap() {
+        val model = bind(
+            """
+                product: jvm/lib
+                test-settings:
+                  jvm:
+                    extraEnvironment:
+                      HOME_DIR:
+                        nested: value
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            mapOf(Region.JVM_TEST_SETTINGS to "Expected a string at test-settings.jvm.extraEnvironment.HOME_DIR"),
+            model.errors,
+        )
+        assertEquals(emptyMap(), model.settings.test?.extraEnvironment)
+    }
+
+    /**
+     * A qualified section raises nothing, so the same two failures are named by the walk that
+     * reports its dropped keys, one entry at a time: the rest of the list or map still binds.
+     */
+    @Test
+    fun namesTheNonScalarEntriesAQualifiedJvmTestKeyCarries() {
+        val model = bind(
+            """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android]
+                settings@jvm:
+                  jvm:
+                    test:
+                      freeJvmArgs:
+                        - -ea
+                        - bad: value
+                      systemProperties:
+                        mode:
+                          nested: value
+                        kept: plain
+                test-settings@android:
+                  jvm:
+                    extraEnvironment:
+                      HOME_DIR:
+                        nested: value
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                UnsupportedKey("jvm.test.freeJvmArgs[1]", "must be a string"),
+                UnsupportedKey("jvm.test.systemProperties.mode", "must be a string"),
+            ),
+            model.qualifiedSections.section("settings@jvm").unsupportedKeys,
+        )
+        assertEquals(
+            listOf(UnsupportedKey("jvm.extraEnvironment.HOME_DIR", "must be a string")),
+            model.qualifiedSections.section("test-settings@android").unsupportedKeys,
+        )
+        assertEquals(
+            JvmSettings(testFreeJvmArgs = listOf("-ea"), testSystemProperties = mapOf("kept" to "plain")),
+            model.qualifiedSections.section("settings@jvm").settings?.jvm,
+        )
+        assertEquals(
+            TestSettings(),
+            model.qualifiedSections.section("test-settings@android").settings?.test,
+        )
+        assertEquals(emptyMap(), model.errors)
+    }
+
+    /**
      * A malformed qualified section is warned about and dropped by the stage that knows which
      * platforms the module has — the wording of those diagnostics is pinned by the
      * `qualified-settings` golden case. Binding must therefore stay silent about it: no exception
