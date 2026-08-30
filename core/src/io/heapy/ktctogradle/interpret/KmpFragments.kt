@@ -34,6 +34,25 @@ internal object KmpFragments {
      *
      * The order is a topological one, with the fragments of one level sorted by name, so the same
      * module always produces the same source-set order.
+     *
+     * It is also the precedence `QualifiedSettings` gives the `settings@<qualifier>` sections: a
+     * fragment later in this list overrides an earlier one on every leaf the two share. For a
+     * fragment and its ancestor that is the rule the Toolchain states — the narrower section wins.
+     * Two fragments that overlap without either containing the other are neither's ancestor, and
+     * then depth decides first and the name only after it. A fragment is emitted once every one of
+     * its parents is, so a third fragment containing one of the pair can push that one further down
+     * the list, and the deeper of the two is the one that wins. On `[jvm, linuxX64, linuxArm64]`
+     * with an alias `zdesktop: [jvm, linuxX64]` the two overlap on `linuxX64`, and `settings@linux`
+     * wins that leaf because `linux` waits for `native` while the alias hangs straight off `common`
+     * — the name would have said the opposite. Only between two fragments that come out at the same
+     * depth does the name settle it, comparing UTF-16 code units: with `zeta: [jvm, js]` and
+     * `alpha: [jvm, android]` and nothing above either, `settings@zeta` wins the shared `jvm` leaf
+     * whichever order the module declared the two aliases in.
+     *
+     * Both sections make a demand of one Gradle target and only one of them can be emitted, so
+     * something has to decide. This is the decision that keeps the output stable when the module is
+     * reordered, and is chosen for that rather than for meaning anything — an unrelated third
+     * fragment can flip the winner, which is how arbitrary the tie really is.
      */
     fun of(model: ToolchainModel, displayName: String): List<KmpFragment> {
         model.raiseDeferred(Region.ALIASES)

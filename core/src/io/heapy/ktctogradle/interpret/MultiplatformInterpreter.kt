@@ -274,7 +274,9 @@ internal object QualifiedSettings {
      * Splits the qualified sections of a module into the part that applies to every platform and the
      * part that applies to single ones. [fragmentOrder] lists the qualifiers the module accepts,
      * broadest first, so a narrower section overrides a broader one even when both happen to cover
-     * the same leaves.
+     * the same leaves. Two qualifiers that overlap without either containing the other stand in no
+     * such relation, and their order — depth in the hierarchy first, then the name — is what decides
+     * them instead; [KmpFragments.of] states that rule.
      *
      * [jvmBackedPlatforms] names the platforms that have a `Test` task at all. A section that asks
      * for test settings and reaches none of them is reported rather than lost, exactly as an

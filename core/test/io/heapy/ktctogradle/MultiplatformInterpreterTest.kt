@@ -420,6 +420,147 @@ class MultiplatformInterpreterTest {
     }
 
     /**
+     * Two aliases that overlap without either containing the other and come out at the same
+     * depth are decided by name.
+     *
+     * Neither is the other's ancestor and nothing else in the module contains either, so the two
+     * come out at the same depth, where `KmpFragments` sorts by name and `QualifiedSettings` turns
+     * that order into precedence: `settings@zeta` wins over `settings@alpha` on the `jvm` leaf both
+     * cover, and the module cannot change that by declaring the aliases the other way round. The
+     * name only settles a tie at one depth — see the sibling test for the pair that depth decides —
+     * and only on a shared leaf: `android` still reads `alpha` and `js` still reads `zeta`.
+     */
+    @Test
+    fun twoOverlappingAliasesAreDecidedByNameRatherThanByDeclarationOrder() {
+        val zetaFirst = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android, js]
+                settings:
+                  android:
+                    namespace: example.shared
+                aliases:
+                  - zeta: [jvm, js]
+                  - alpha: [jvm, android]
+                settings@zeta:
+                  kotlin:
+                    languageVersion: "2.1"
+                  jvm:
+                    test:
+                      systemProperties:
+                        who: zeta
+                settings@alpha:
+                  kotlin:
+                    languageVersion: "2.2"
+                  jvm:
+                    test:
+                      systemProperties:
+                        who: alpha
+                """.trimIndent(),
+            ),
+        )
+        val alphaFirst = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, android, js]
+                settings:
+                  android:
+                    namespace: example.shared
+                aliases:
+                  - alpha: [jvm, android]
+                  - zeta: [jvm, js]
+                settings@alpha:
+                  kotlin:
+                    languageVersion: "2.2"
+                  jvm:
+                    test:
+                      systemProperties:
+                        who: alpha
+                settings@zeta:
+                  kotlin:
+                    languageVersion: "2.1"
+                  jvm:
+                    test:
+                      systemProperties:
+                        who: zeta
+                """.trimIndent(),
+            ),
+        )
+
+        for (build in listOf(zetaFirst, alphaFirst)) {
+            val jvm = build.targets.single { it.name == "jvm" }
+            assertEquals(CompilerOptions(languageVersion = "2.1"), jvm.compilerOptions)
+            assertEquals(
+                JvmTestSettings(systemProperties = mapOf("who" to "zeta")),
+                (jvm.kind as TargetKind.Jvm).testSettings,
+            )
+
+            val android = build.targets.single { it.name == "android" }
+            assertEquals(CompilerOptions(languageVersion = "2.2"), android.compilerOptions)
+            assertEquals(
+                JvmTestSettings(systemProperties = mapOf("who" to "alpha")),
+                (android.kind as TargetKind.Android).library.testSettings,
+            )
+
+            assertEquals(
+                CompilerOptions(languageVersion = "2.1"),
+                build.targets.single { it.name == "js" }.compilerOptions,
+            )
+        }
+    }
+
+    /**
+     * Depth settles an incomparable overlap before the name is even consulted.
+     *
+     * `linux` covers `[linuxX64, linuxArm64]` and the alias covers `[jvm, linuxX64]`: they overlap
+     * on `linuxX64` with neither containing the other, and `"linux"` sorts first, so name order
+     * alone would hand that leaf to the alias. It does not get it. `linux` waits for `native` while
+     * the alias hangs straight off `common`, so `linux` is emitted later and overrides — which is
+     * why the rule cannot be stated as "the name decides an incomparable pair". `jvm`, which the
+     * alias reaches alone, is untouched by any of it.
+     */
+    @Test
+    fun aDeeperFragmentOverridesAShallowerOneItOverlapsEvenWhenTheNameSaysOtherwise() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64, linuxArm64]
+                aliases:
+                  - zdesktop: [jvm, linuxX64]
+                settings@zdesktop:
+                  kotlin:
+                    languageVersion: "2.1"
+                settings@linux:
+                  kotlin:
+                    languageVersion: "2.2"
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(languageVersion = "2.2"),
+            build.targets.single { it.name == "linuxX64" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(languageVersion = "2.2"),
+            build.targets.single { it.name == "linuxArm64" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(languageVersion = "2.1"),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+    }
+
+    /**
      * A qualified section the converter cannot carry is reported key by key and dropped, never
      * raised: the module still converts, and the user is told exactly what did not survive.
      */
