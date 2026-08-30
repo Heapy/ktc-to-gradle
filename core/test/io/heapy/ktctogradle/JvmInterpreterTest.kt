@@ -918,6 +918,50 @@ class JvmInterpreterTest {
         )
     }
 
+    /**
+     * A narrower section that gets a test key wrong keeps the broader value, and only says so.
+     *
+     * The two halves of one qualified section answer this differently on purpose, and not because
+     * of how their values combine: [aMalformedFreeCompilerArgListSuppressesTheBroaderOne] clears a
+     * broader list that a well-formed narrower one would only have added to. What differs is reach
+     * — a compiler marker erases the options the section named, out of a vocabulary the converter
+     * defines, while a `systemProperties` that is not an object names none of the entries
+     * [aQualifiedJvmTestSettingJoinsTheOneTestTaskOfAJvmModule] merges one at a time.
+     * `QualifiedSettings.merge` carries the reason.
+     */
+    @Test
+    fun aMalformedQualifiedTestKeyKeepsTheBroaderValueInsteadOfClearingIt() {
+        val diagnostics = DiagnosticCollector()
+        val app = module(
+            "app",
+            """
+            product: jvm/lib
+            settings@common:
+              jvm:
+                test:
+                  systemProperties:
+                    mode: common
+            settings@jvm:
+              jvm:
+                test:
+                  systemProperties: nope
+            """.trimIndent(),
+        )
+
+        val build = JvmInterpreter.interpret(ModuleIndex.of(listOf(app)), app, diagnostics)
+
+        assertEquals(JvmTestSettings(systemProperties = mapOf("mode" to "common")), build.testSettings)
+        assertEquals(
+            listOf(
+                Diagnostic(
+                    Diagnostic.Severity.WARNING,
+                    "app: 'settings@jvm.jvm.test.systemProperties' must be an object and was dropped",
+                ),
+            ),
+            diagnostics.collected(),
+        )
+    }
+
     private fun interpret(module: ToolchainModule, vararg others: ToolchainModule): JvmBuild =
         JvmInterpreter.interpret(ModuleIndex.of(listOf(module) + others), module, DiagnosticCollector())
 

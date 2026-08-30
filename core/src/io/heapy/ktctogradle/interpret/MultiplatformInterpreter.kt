@@ -429,6 +429,21 @@ internal object QualifiedSettings {
      * broader value does not apply here, and the fact that it then failed to say what does apply
      * cannot resurrect it. Dropping that distinction would make a broken `settings@jvm` silently
      * inherit `settings@common`'s value instead of clearing it.
+     *
+     * The test settings merge on the values that bound instead: a malformed key there leaves
+     * [lower]'s value standing, and the diagnostic is its only effect. That asymmetry is a decision
+     * rather than an oversight, and it does not follow from how the two halves combine — a malformed
+     * `freeCompilerArgs` clears the broader list although a well-formed one would only have added to
+     * it, so on the compiler side declaring a key outranks merging it whichever way the values would
+     * have combined.
+     *
+     * What separates them is how far suppression would reach. A compiler option is one of the six
+     * [QualifiedOption] keys, so a marker erases exactly the options the section named, out of a
+     * vocabulary the converter defines. A `Test` task's maps are keyed by names the module invents
+     * and merge entry by entry, and a `systemProperties` that is not an object names none of those
+     * entries: a marker there could only erase the whole map the broader section contributed,
+     * entries this section never mentioned included. The three test keys are decided together
+     * because they are one section of one task, and it is the maps that decide them.
      */
     private fun merge(lower: Contribution, higher: Contribution): Contribution =
         Contribution(
