@@ -134,8 +134,26 @@ class KmpFragmentsTest {
     @Test
     fun aSinglePlatformProductAcceptsCommonAndItsOwnQualifier() {
         assertEquals(
-            listOf("common" to setOf("jvm"), "jvm" to setOf("jvm")),
+            listOf(
+                KmpFragment("common", setOf("jvm"), natural = true, parents = emptyList()),
+                KmpFragment("jvm", setOf("jvm"), natural = true, parents = listOf("common")),
+            ),
             KmpFragments.singlePlatform("jvm"),
+        )
+    }
+
+    @Test
+    fun aNaturalQualifierKeepsTheLeavesTheModuleDidNotDeclare() {
+        val leaves = KmpFragments.settingsLeaves(fragments("[jvm, linuxX64]", "aliases:\n  - box: [linuxX64]\n"))
+
+        assertEquals(setOf("linuxX64", "linuxArm64"), leaves.getValue("linux"))
+        assertEquals(setOf("linuxX64"), leaves.getValue("linuxX64"))
+        assertEquals(setOf("linuxX64"), leaves.getValue("box"))
+        assertEquals(setOf("jvm"), leaves.getValue("jvm"))
+        assertEquals(KmpFragments.NATIVE_TARGETS, leaves.getValue("native"))
+        assertEquals(
+            KmpFragments.NATIVE_TARGETS + setOf("jvm", "android", "js", "wasmJs", "wasmWasi"),
+            leaves.getValue("common"),
         )
     }
 

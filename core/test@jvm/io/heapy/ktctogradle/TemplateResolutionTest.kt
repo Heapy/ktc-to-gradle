@@ -104,6 +104,47 @@ class TemplateResolutionTest {
         assertTrue(error.message.orEmpty().contains("Conflicting template values for 'settings.jvm.release'"))
     }
 
+    /**
+     * Measured against Kotlin Toolchain 0.12.0: the module's `settings@two` replaces the template's
+     * `settings@one` because both name the same platforms and the module is the more specific
+     * source, leaving `two` and `cross` agreeing on `true`. The converter cannot see which file a
+     * qualified value came from, so it must not read the replaced template value as a conflict.
+     */
+    @Test
+    fun aTemplateSectionAModuleReplacesIsNotAConflict() {
+        val root = Files.createTempDirectory("ktc-template-qualified-").resolve("shared")
+        root.createDirectories()
+        root.resolve("base.module-template.yaml").writeText(
+            "settings@one: { kotlin: { allWarningsAsErrors: false } }\n",
+        )
+        root.resolve("module.yaml").writeText(
+            """
+            product:
+              type: kmp/lib
+              platforms: [jvm, js, linuxX64]
+
+            apply: [./base.module-template.yaml]
+
+            aliases:
+              - one: [jvm, js]
+              - two: [jvm, js]
+              - cross: [jvm, linuxX64]
+
+            settings@two:
+              kotlin:
+                allWarningsAsErrors: true
+
+            settings@cross:
+              kotlin:
+                allWarningsAsErrors: true
+            """.trimIndent(),
+        )
+
+        val generated = Converter(okio.FileSystem.SYSTEM).generateFiles(root.absolutePathString().toPath())
+
+        assertTrue(generated.files.any { it.path.name == "build.gradle.kts" })
+    }
+
     private fun write(path: Path, content: String) {
         path.parent.createDirectories()
         path.writeText(content)

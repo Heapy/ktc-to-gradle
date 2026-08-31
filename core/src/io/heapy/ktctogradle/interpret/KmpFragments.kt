@@ -17,8 +17,9 @@ internal data class KmpFragment(
 internal object KmpFragments {
     /**
      * Returns a stable topological order with parents before children and same-level ties sorted by
-     * name. `QualifiedSettings` also uses this order as precedence, so narrower sections win;
-     * incomparable overlaps are settled by depth and then name.
+     * name. `QualifiedSettings` also uses this order as precedence, so narrower sections win; an
+     * incomparable overlap is settled by depth and then name where its contributions still combine,
+     * and refused by [settingsLeaves] where they disagree on one value.
      */
     fun of(model: ToolchainModel, displayName: String): List<KmpFragment> {
         model.raiseDeferred(Region.ALIASES)
@@ -82,8 +83,26 @@ internal object KmpFragments {
     }
 
     /** Qualifiers accepted by a single-platform product, broadest first. */
-    fun singlePlatform(platform: String): List<Pair<String, Set<String>>> =
-        listOf(COMMON to setOf(platform), platform to setOf(platform))
+    fun singlePlatform(platform: String): List<KmpFragment> =
+        listOf(
+            KmpFragment(COMMON, setOf(platform), natural = true),
+            KmpFragment(platform, setOf(platform), natural = true, parents = listOf(COMMON)),
+        )
+
+    /**
+     * The leaves each qualifier covers in the complete platform hierarchy, which is the set Kotlin
+     * Toolchain compares to decide whether one qualified section refines another. Unlike
+     * [KmpFragment.platforms] a natural qualifier is not narrowed to the module's declared
+     * platforms: `linux` stays broader than an alias naming only `linuxX64` even in a module that
+     * declares no other Linux platform, which is how the Toolchain reads the same pair.
+     */
+    fun settingsLeaves(fragments: List<KmpFragment>): Map<String, Set<String>> =
+        fragments.associate { fragment ->
+            fragment.name to if (fragment.natural) naturalLeaves(fragment.name) else fragment.platforms
+        }
+
+    private fun naturalLeaves(name: String): Set<String> =
+        LEAF_PLATFORMS.filterTo(linkedSetOf()) { leaf -> leaf == name || isNaturalAncestor(name, leaf) }
 
     private fun isNaturalAncestor(ancestor: String, descendant: String): Boolean {
         var current = NATURAL_PLATFORM_PARENTS[descendant]
@@ -147,6 +166,9 @@ internal object KmpFragments {
         "androidNativeX86" to "androidNative",
         "androidNativeX64" to "androidNative",
     )
+
+    /** The platforms nothing refines: every other natural qualifier is a grouping above them. */
+    private val LEAF_PLATFORMS = NATURAL_PLATFORM_PARENTS.keys - NATURAL_PLATFORM_PARENTS.values.toSet()
 
     /** Platforms that use the Kotlin/Native target DSL. */
     val NATIVE_TARGETS = setOf(

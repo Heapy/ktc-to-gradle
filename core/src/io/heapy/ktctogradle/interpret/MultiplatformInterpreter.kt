@@ -23,12 +23,7 @@ internal object MultiplatformInterpreter {
         val model = module.model
         val serialization = Serialization.of(model)
         val fragments = KmpFragments.of(model, module.displayName)
-        val qualified = QualifiedSettings.of(
-            module,
-            fragments.map { it.name to it.platforms },
-            JVM_BACKED_QUALIFIERS,
-            diagnostics,
-        )
+        val qualified = QualifiedSettings.of(module, fragments, JVM_BACKED_QUALIFIERS, diagnostics)
         val platforms = model.product.platforms
         val executable = model.product.type.endsWith("/app")
         val targets = platforms.map { platform ->
@@ -212,16 +207,16 @@ internal object QualifiedSettings {
     )
 
     /**
-     * Splits common and per-platform contributions. [fragmentOrder] is broadest first and therefore
-     * also defines override precedence; test settings that reach no `Test` task are reported.
+     * Splits common and per-platform contributions. [fragments] is broadest first and therefore also
+     * defines override precedence; test settings that reach no `Test` task are reported.
      */
     fun of(
         module: ToolchainModule,
-        fragmentOrder: List<Pair<String, Set<String>>>,
+        fragments: List<KmpFragment>,
         jvmBackedPlatforms: Set<String>,
         diagnostics: DiagnosticCollector,
     ): Resolved {
-        val resolved = resolve(module, fragmentOrder, jvmBackedPlatforms, diagnostics)
+        val resolved = resolve(module, fragments, jvmBackedPlatforms, diagnostics)
         return Resolved(
             common = resolved.common.options,
             byPlatform = resolved.byPlatform.mapValues { (_, contribution) -> contribution.options },
@@ -232,12 +227,12 @@ internal object QualifiedSettings {
 
     private fun resolve(
         module: ToolchainModule,
-        fragmentOrder: List<Pair<String, Set<String>>>,
+        fragments: List<KmpFragment>,
         jvmBackedPlatforms: Set<String>,
         diagnostics: DiagnosticCollector,
     ): ResolvedContributions {
-        val rank = fragmentOrder.withIndex().associate { (index, entry) -> entry.first to index }
-        val platformsOf = fragmentOrder.toMap()
+        val rank = fragments.withIndex().associate { (index, fragment) -> fragment.name to index }
+        val platformsOf = fragments.associate { it.name to it.platforms }
         val sections = mutableListOf<RankedSection>()
         for (section in module.model.qualifiedSections) {
             val platforms = platformsOf[section.qualifier]
@@ -257,6 +252,8 @@ internal object QualifiedSettings {
                 rank = rank.getValue(section.qualifier),
                 test = section.test,
                 platforms = platforms,
+                key = section.key,
+                qualifier = section.qualifier,
                 contribution = Contribution(
                     options = options(settings),
                     malformedOptions = section.malformedOptions,
@@ -275,20 +272,77 @@ internal object QualifiedSettings {
         // in, which is the rule the unqualified pair already follows. The sort is stable, so two
         // sections of the same qualifier and kind keep their declaration order.
         sections.sortWith(compareBy({ it.rank }, { it.test }))
+        raiseOnConflictingValues(module, fragments, sections)
 
         var common = Contribution.EMPTY
         val byPlatform = mutableMapOf<String, Contribution>()
-        for ((index, _, platforms, contribution) in sections) {
-            if (fragmentOrder[index].first == KmpFragments.COMMON) {
+        for (section in sections) {
+            val contribution = section.contribution
+            if (section.qualifier == KmpFragments.COMMON) {
                 common = merge(common, contribution)
                 continue
             }
-            for (platform in platforms) {
+            for (platform in section.platforms) {
                 byPlatform[platform] = byPlatform[platform]?.let { merge(it, contribution) } ?: contribution
             }
         }
         return ResolvedContributions(common, byPlatform)
     }
+
+    /**
+     * Refuses the value conflict the Toolchain refuses. For one leaf platform and one option the
+     * Toolchain keeps only the sections nothing applicable refines, and fails when those disagree.
+     * A section a narrower one resolves therefore never conflicts, which is why this cannot be a
+     * plain scan of overlapping pairs: `settings@alpha` and `settings@zeta` may disagree over `jvm`
+     * as long as `settings@jvm` settles it.
+     *
+     * The Toolchain separates two qualifiers covering the same leaves by the file each value was
+     * written in, which the converter does not track. Where such a pair disagrees it cannot tell
+     * which value survives to be compared with the rest, so it refuses nothing for that option on
+     * that platform: a template a module overrides must not read as a conflict. Only declared scalar
+     * compiler options can disagree; list options concatenate and qualified test settings merge by
+     * their own rule.
+     */
+    private fun raiseOnConflictingValues(
+        module: ToolchainModule,
+        fragments: List<KmpFragment>,
+        sections: List<RankedSection>,
+    ) {
+        val declaring = sections.filterNot(RankedSection::test)
+        if (declaring.size < 2) return
+        val leaves = KmpFragments.settingsLeaves(fragments)
+        fun leavesOf(section: RankedSection) = leaves.getValue(section.qualifier)
+        for (platform in declaring.flatMapTo(mutableSetOf()) { it.platforms }.sorted()) {
+            val applicable = declaring.filter { platform in it.platforms }
+            if (applicable.size < 2) continue
+            for ((option, read) in CONFLICTING_OPTIONS) {
+                val declared = applicable.filter { read(it.contribution.options) != null }
+                if (declared.size < 2) continue
+                val unrefined = declared
+                    .filterNot { section -> declared.any { other -> narrows(leavesOf(other), leavesOf(section)) } }
+                    .groupBy { section -> leavesOf(section) }
+                    .values
+                if (unrefined.any { group -> group.distinctBy { read(it.contribution.options) }.size > 1 }) continue
+                val frontier = unrefined.map { group -> group.first() }
+                for ((index, higher) in frontier.withIndex()) {
+                    for (lower in frontier.subList(0, index)) {
+                        val lowerValue = read(lower.contribution.options)
+                        val higherValue = read(higher.contribution.options)
+                        if (lowerValue == higherValue) continue
+                        throw ConversionException(
+                            "${module.displayName}: '${lower.key}' sets kotlin.$option to '$lowerValue' " +
+                                "and '${higher.key}' sets it to '$higherValue' on platform '$platform'; " +
+                                "neither section refines the other",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** True when [narrower] covers strictly fewer leaves than [broader] and so refines it. */
+    private fun narrows(narrower: Set<String>, broader: Set<String>): Boolean =
+        narrower.size < broader.size && broader.containsAll(narrower)
 
     private fun testSettings(
         module: ToolchainModule,
@@ -382,11 +436,21 @@ internal object QualifiedSettings {
         val rank: Int,
         val test: Boolean,
         val platforms: Set<String>,
+        val key: String,
+        val qualifier: String,
         val contribution: Contribution,
     )
 
     private data class ResolvedContributions(
         val common: Contribution,
         val byPlatform: Map<String, Contribution>,
+    )
+
+    /** Rendered as text so one comparison covers options of different types. */
+    private val CONFLICTING_OPTIONS: List<Pair<String, (CompilerOptions) -> String?>> = listOf(
+        QualifiedOption.LANGUAGE_VERSION to { options -> options.languageVersion },
+        QualifiedOption.API_VERSION to { options -> options.apiVersion },
+        QualifiedOption.ALL_WARNINGS_AS_ERRORS to { options -> options.allWarningsAsErrors?.toString() },
+        QualifiedOption.PROGRESSIVE_MODE to { options -> options.progressiveMode?.toString() },
     )
 }

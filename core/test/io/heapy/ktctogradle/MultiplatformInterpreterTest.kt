@@ -381,14 +381,14 @@ class MultiplatformInterpreterTest {
                   - alpha: [jvm, android]
                 settings@zeta:
                   kotlin:
-                    languageVersion: "2.1"
+                    optIns: [example.Zeta]
                   jvm:
                     test:
                       systemProperties:
                         who: zeta
                 settings@alpha:
                   kotlin:
-                    languageVersion: "2.2"
+                    optIns: [example.Alpha]
                   jvm:
                     test:
                       systemProperties:
@@ -411,14 +411,14 @@ class MultiplatformInterpreterTest {
                   - zeta: [jvm, js]
                 settings@alpha:
                   kotlin:
-                    languageVersion: "2.2"
+                    optIns: [example.Alpha]
                   jvm:
                     test:
                       systemProperties:
                         who: alpha
                 settings@zeta:
                   kotlin:
-                    languageVersion: "2.1"
+                    optIns: [example.Zeta]
                   jvm:
                     test:
                       systemProperties:
@@ -429,28 +429,259 @@ class MultiplatformInterpreterTest {
 
         for (build in listOf(zetaFirst, alphaFirst)) {
             val jvm = build.targets.single { it.name == "jvm" }
-            assertEquals(CompilerOptions(languageVersion = "2.1"), jvm.compilerOptions)
+            assertEquals(
+                CompilerOptions(optIns = listOf("example.Alpha", "example.Zeta")),
+                jvm.compilerOptions,
+            )
             assertEquals(
                 JvmTestSettings(systemProperties = mapOf("who" to "zeta")),
                 (jvm.kind as TargetKind.Jvm).testSettings,
             )
 
             val android = build.targets.single { it.name == "android" }
-            assertEquals(CompilerOptions(languageVersion = "2.2"), android.compilerOptions)
+            assertEquals(CompilerOptions(optIns = listOf("example.Alpha")), android.compilerOptions)
             assertEquals(
                 JvmTestSettings(systemProperties = mapOf("who" to "alpha")),
                 (android.kind as TargetKind.Android).library.testSettings,
             )
 
             assertEquals(
-                CompilerOptions(languageVersion = "2.1"),
+                CompilerOptions(optIns = listOf("example.Zeta")),
                 build.targets.single { it.name == "js" }.compilerOptions,
             )
         }
     }
 
     @Test
-    fun aDeeperFragmentOverridesAShallowerOneItOverlapsEvenWhenTheNameSaysOtherwise() {
+    fun twoOverlappingAliasesThatDisagreeOnOneOptionAreRefused() {
+        assertEquals(
+            "shared: 'settings@alpha' sets kotlin.allWarningsAsErrors to 'false' and 'settings@zeta' " +
+                "sets it to 'true' on platform 'jvm'; neither section refines the other",
+            assertFailsWith<ConversionException> {
+                interpret(
+                    module(
+                        "shared",
+                        """
+                        product:
+                          type: kmp/lib
+                          platforms: [jvm, js, linuxX64]
+                        aliases:
+                          - zeta: [jvm, js]
+                          - alpha: [jvm, linuxX64]
+                        settings@zeta:
+                          kotlin:
+                            allWarningsAsErrors: true
+                        settings@alpha:
+                          kotlin:
+                            allWarningsAsErrors: false
+                        """.trimIndent(),
+                    ),
+                )
+            }.message,
+        )
+    }
+
+    @Test
+    fun anAliasThatDisagreesWithAnOverlappingNaturalFragmentIsRefused() {
+        assertEquals(
+            "shared: 'settings@zdesktop' sets kotlin.languageVersion to '2.1' and 'settings@linux' " +
+                "sets it to '2.2' on platform 'linuxX64'; neither section refines the other",
+            assertFailsWith<ConversionException> {
+                interpret(
+                    module(
+                        "shared",
+                        """
+                        product:
+                          type: kmp/lib
+                          platforms: [jvm, linuxX64, linuxArm64]
+                        aliases:
+                          - zdesktop: [jvm, linuxX64]
+                        settings@zdesktop:
+                          kotlin:
+                            languageVersion: "2.1"
+                        settings@linux:
+                          kotlin:
+                            languageVersion: "2.2"
+                        """.trimIndent(),
+                    ),
+                )
+            }.message,
+        )
+    }
+
+    @Test
+    fun aNarrowerSectionSettlesWhatTwoOverlappingAliasesDisagreeAbout() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, js, linuxX64]
+                aliases:
+                  - zeta: [jvm, js]
+                  - alpha: [jvm, linuxX64]
+                settings@zeta:
+                  kotlin:
+                    allWarningsAsErrors: false
+                settings@alpha:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@jvm:
+                  kotlin:
+                    allWarningsAsErrors: true
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = false),
+            build.targets.single { it.name == "js" }.compilerOptions,
+        )
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "linuxX64" }.compilerOptions,
+        )
+    }
+
+    /**
+     * `box` covers fewer leaves of the complete hierarchy than `linux` does, so the Toolchain reads
+     * it as the narrower section and accepts the module. Which of the two wins is a separate
+     * question the converter answers by fragment depth, and answers differently from the Toolchain;
+     * what this pins is that the pair is not refused.
+     */
+    @Test
+    fun anAliasCoveringFewerLeavesThanANaturalQualifierIsNotRefused() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, linuxX64]
+                aliases:
+                  - box: [linuxX64]
+                settings@linux:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@box:
+                  kotlin:
+                    allWarningsAsErrors: false
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "linuxX64" }.compilerOptions,
+        )
+    }
+
+    /**
+     * Two qualifiers covering the same leaves are the one pair the Toolchain settles by where the
+     * value was written, which the converter cannot see. It therefore refuses nothing for that
+     * option on that platform, rather than comparing a value the Toolchain may already have dropped.
+     * `cross` and `other` disagree as well, so merely dropping the ambiguous pair would still refuse
+     * this module; only abandoning the whole check for `jvm` accepts it.
+     */
+    @Test
+    fun aDisagreementBetweenQualifiersCoveringTheSameLeavesSuppressesTheWholeCheck() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, js, linuxX64, wasmJs]
+                aliases:
+                  - one: [jvm, js]
+                  - two: [jvm, js]
+                  - cross: [jvm, linuxX64]
+                  - other: [jvm, wasmJs]
+                settings@one:
+                  kotlin:
+                    allWarningsAsErrors: false
+                settings@two:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@cross:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@other:
+                  kotlin:
+                    allWarningsAsErrors: false
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+    }
+
+    @Test
+    fun overlappingSectionsThatNameDifferentOptionsAreMerged() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, js, linuxX64]
+                aliases:
+                  - zeta: [jvm, js]
+                  - alpha: [jvm, linuxX64]
+                settings@zeta:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@alpha:
+                  kotlin:
+                    progressiveMode: true
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true, progressiveMode = true),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+    }
+
+    @Test
+    fun overlappingSectionsThatAgreeOnOneOptionAreAccepted() {
+        val build = interpret(
+            module(
+                "shared",
+                """
+                product:
+                  type: kmp/lib
+                  platforms: [jvm, js, linuxX64]
+                aliases:
+                  - zeta: [jvm, js]
+                  - alpha: [jvm, linuxX64]
+                settings@zeta:
+                  kotlin:
+                    allWarningsAsErrors: true
+                settings@alpha:
+                  kotlin:
+                    allWarningsAsErrors: true
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            CompilerOptions(allWarningsAsErrors = true),
+            build.targets.single { it.name == "jvm" }.compilerOptions,
+        )
+    }
+
+    @Test
+    fun aDeeperFragmentAppliesAfterAShallowerOneItOverlapsEvenWhenTheNameSaysOtherwise() {
         val build = interpret(
             module(
                 "shared",
@@ -460,26 +691,26 @@ class MultiplatformInterpreterTest {
                   platforms: [jvm, linuxX64, linuxArm64]
                 aliases:
                   - zdesktop: [jvm, linuxX64]
-                settings@zdesktop:
-                  kotlin:
-                    languageVersion: "2.1"
                 settings@linux:
                   kotlin:
-                    languageVersion: "2.2"
+                    optIns: [example.Linux]
+                settings@zdesktop:
+                  kotlin:
+                    optIns: [example.Desktop]
                 """.trimIndent(),
             ),
         )
 
         assertEquals(
-            CompilerOptions(languageVersion = "2.2"),
+            CompilerOptions(optIns = listOf("example.Desktop", "example.Linux")),
             build.targets.single { it.name == "linuxX64" }.compilerOptions,
         )
         assertEquals(
-            CompilerOptions(languageVersion = "2.2"),
+            CompilerOptions(optIns = listOf("example.Linux")),
             build.targets.single { it.name == "linuxArm64" }.compilerOptions,
         )
         assertEquals(
-            CompilerOptions(languageVersion = "2.1"),
+            CompilerOptions(optIns = listOf("example.Desktop")),
             build.targets.single { it.name == "jvm" }.compilerOptions,
         )
     }
