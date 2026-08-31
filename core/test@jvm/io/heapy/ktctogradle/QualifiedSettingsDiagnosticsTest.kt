@@ -8,13 +8,6 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * A malformed `settings@<qualifier>` section is reported and dropped, never thrown.
- *
- * The `qualified-settings` golden pins three of these messages; this pins the rest, above all the
- * section that is not an object at all. It is the guard on the load stage staying lenient: a binder
- * that validated eagerly would turn any of these into a `ConversionException` and lose the wording.
- */
 class QualifiedSettingsDiagnosticsTest {
     @Test
     fun malformedQualifiedSectionsAreReportedWordForWordAndDropped() {
@@ -63,10 +56,6 @@ class QualifiedSettingsDiagnosticsTest {
         )
     }
 
-    /**
-     * The same leniency one level down: an entry of a `Test` task list or map that is not a scalar
-     * binds to nothing, so it is named by its own index or key and the rest of the entry survives.
-     */
     @Test
     fun nonScalarTestSettingEntriesAreReportedWordForWordAndDropped() {
         val root = Files.createTempDirectory("ktc-to-gradle-test-entries-").resolve("shared")

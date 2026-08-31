@@ -11,23 +11,10 @@ internal data class ToolchainProject(
     val catalogPath: Path?,
 )
 
-/**
- * One module.yaml of the project, as the load stage recorded it.
- *
- * The untyped YAML tree stops here: a module reaches the interpret stage as [model] plus the file
- * system facts the later stages may not go and look up themselves.
- */
+/** Typed module configuration plus filesystem facts captured during load. */
 internal data class ToolchainModule(
     val path: ModulePath,
-    /**
-     * Where the module.yaml sits, as [ProjectLoader] walked to it.
-     *
-     * Already free of symlinks — the loader canonicalizes the start path and never descends into a
-     * symlinked directory — so resolving a `./` or `../` dependency to a module never needs a file
-     * system outside the load stage.
-     */
     val directory: Path,
-    /** The merged module.yaml as typed data. */
     val model: ToolchainModel,
     val layout: ModuleLayout,
 ) {

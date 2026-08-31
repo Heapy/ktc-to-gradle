@@ -5,11 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * The `modules:` globs of project.yaml, matched against module notations such as `libs/shared`.
- *
- * The function is pure, so it is tested here rather than through a project on disk.
- */
 class GlobMatchesTest {
     @Test
     fun aStarMatchesWithinOneSegmentOnly() {
@@ -47,14 +42,12 @@ class GlobMatchesTest {
         assertFalse(globMatches("app[!123]", "app2"))
     }
 
-    /** A dot is a literal in a glob, not the regex wildcard the pattern is compiled into. */
     @Test
     fun aDotIsLiteral() {
         assertTrue(globMatches("my.app", "my.app"))
         assertFalse(globMatches("my.app", "myXapp"))
     }
 
-    /** An unmatched brace or bracket is a literal too, rather than a compilation failure. */
     @Test
     fun anUnclosedBraceOrBracketIsLiteral() {
         assertTrue(globMatches("app{x", "app{x"))

@@ -14,12 +14,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/**
- * The `apply:` graph on its own, without the surrounding project load.
- *
- * These are the failures a user meets while writing templates, so the messages they carry are as
- * much part of the behaviour as the merged configuration is.
- */
 class TemplateGraphTest {
     @Test
     fun aTemplateCycleIsReportedAtTheFileThatClosesIt() {
@@ -46,10 +40,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * Neither template applies the other, so neither wins: the message has to name both files, or
-     * the user has no way to find out where the two values came from.
-     */
     @Test
     fun aScalarConflictAcrossSiblingTemplatesNamesBothSourceFiles() {
         val root = temporaryRoot("ktc-template-both-sources-")
@@ -69,11 +59,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * A YAML key may itself contain a dot, so joining the path with one would print a literal
-     * `my.app.mode` and a three-level nesting as the same text. The segment that carries the dot is
-     * quoted, which is how the module would have had to write it.
-     */
     @Test
     fun aScalarConflictOnALiteralDottedKeyQuotesTheKeyThatCarriesTheDot() {
         assertEquals(
@@ -82,11 +67,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * Quoting is only unambiguous while the quote itself is escaped: a key spelled `"a` over one
-     * spelled `b"` would otherwise print as the quoted single key `a.b`. A bare segment carries no
-     * dot, no quote and no backslash and is never empty, so two paths can never print the same.
-     */
     @Test
     fun aQuoteOrABackslashInAKeyIsEscapedRatherThanClosingTheQuotedSegment() {
         assertEquals(
@@ -99,7 +79,6 @@ class TemplateGraphTest {
         )
     }
 
-    /** A module overrides the templates it applies, so its own scalar is not a conflict. */
     @Test
     fun aModuleScalarOverridesTheTemplateItApplies() {
         val root = temporaryRoot("ktc-template-override-")
@@ -112,10 +91,6 @@ class TemplateGraphTest {
         assertEquals("21", resolve(root).string("settings.jvm.release"))
     }
 
-    /**
-     * A template declares its credentials file next to itself, but the generated script runs from
-     * the module directory, so both spellings are rebased onto the consumer.
-     */
     @Test
     fun credentialFilePathsAreRewrittenRelativeToTheConsumer() {
         val root = temporaryRoot("ktc-template-credentials-graph-")
@@ -154,10 +129,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * The scalar pass rewrites every scalar it collected back into the merged mapping, so a key that
-     * contains a dot must survive that round trip as the one key it is.
-     */
     @Test
     fun aKeyThatContainsADotIsNotGraftedIntoANestedMapping() {
         val root = temporaryRoot("ktc-template-dotted-key-")
@@ -180,7 +151,6 @@ class TemplateGraphTest {
         )
     }
 
-    /** `a` and `a.b` are two sibling keys, so neither may be read as a path through the other. */
     @Test
     fun aScalarKeyIsNotReplacedByASiblingKeyThatExtendsItWithADot() {
         val root = temporaryRoot("ktc-template-dotted-sibling-")
@@ -203,12 +173,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * The literal key `a.b` and the nested path `a` -> `b` are two different declarations.
-     *
-     * They used to collect under the same dotted path, so two templates declaring one each looked
-     * like a conflict, and whichever survived overwrote the other.
-     */
     @Test
     fun aLiteralDottedKeyAndTheNestedPathThatLooksLikeItStaySeparate() {
         val root = temporaryRoot("ktc-template-dotted-vs-nested-")
@@ -236,10 +200,6 @@ class TemplateGraphTest {
         )
     }
 
-    /**
-     * The message two sibling templates produce by disagreeing: [body] is the whole template,
-     * written once per value it has to disagree about.
-     */
     private fun conflictMessage(prefix: String, body: (String) -> String): String {
         val root = temporaryRoot(prefix)
         write(root.resolve("templates/a.module-template.yaml"), body("fast"))
@@ -265,7 +225,6 @@ class TemplateGraphTest {
     }
 
     private companion object {
-        /** The two files [conflictMessage] makes disagree, as the message names them. */
         const val SIBLING_TEMPLATES = "templates/a.module-template.yaml, templates/b.module-template.yaml"
     }
 }

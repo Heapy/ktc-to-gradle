@@ -6,15 +6,7 @@ import okio.FileSystem
 import okio.IOException
 import okio.Path
 
-/**
- * Stage 1: reads a Kotlin Toolchain project off disk into a [ToolchainProject].
- *
- * This is the only stage that touches a [FileSystem]. Everything a later stage could want to look
- * up — which source directories exist, which main class was detected — is recorded here instead.
- *
- * The path the conversion starts from is canonicalized, and the module walk never descends into a
- * symlinked directory, so every module directory recorded here is a real one.
- */
+/** Loads and canonicalizes all filesystem state needed by the pure conversion stages. */
 internal class ProjectLoader(private val fileSystem: FileSystem) {
     private val layoutProbe = ModuleLayoutProbe(fileSystem)
     private val templates = TemplateGraph(fileSystem)
@@ -28,10 +20,7 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         patterns.firstOrNull { "**" in it }?.let {
             throw ConversionException("project.yaml module glob '$it' uses unsupported recursive ** syntax")
         }
-        // Without a project.yaml the Toolchain builds the one module it was pointed at, and findRoot
-        // only reaches such a root through its own module.yaml. So there is nothing to discover: a
-        // nested module.yaml is not part of this Toolchain project, and walking the tree to find one
-        // would only let an unrelated subdirectory fail the conversion.
+        // Without project.yaml, Toolchain builds only the module at the discovered root.
         val selected = if (projectConfig == null) {
             listOf(root / "module.yaml")
         } else {
@@ -43,9 +32,6 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
         if (selected.isEmpty()) {
             throw ConversionException("No modules found in $root: it has no module.yaml, and project.yaml selects none")
         }
-        // A module.yaml that is not a file — a directory carrying that name, or a symlink pointing
-        // nowhere — otherwise reaches okio as a raw I/O failure and surfaces as "unexpected
-        // failure: Is a directory", naming neither the path nor what is wrong with it.
         selected.firstOrNull { !isRegularFile(fileSystem, it) }?.let { moduleFile ->
             throw ConversionException("Module file $moduleFile is not a regular file")
         }
@@ -80,18 +66,11 @@ internal class ProjectLoader(private val fileSystem: FileSystem) {
 internal fun readYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
     parseYaml(fileSystem.read(path) { readUtf8() }, path.toString())
 
-/**
- * A project.yaml exists to name modules and defaults, and a project that has none of either writes
- * an empty file rather than deleting it. `kotlin show modules` on a zero-byte project.yaml beside a
- * root module.yaml lists that module, so an empty document is an empty project here too.
- */
+/** Kotlin Toolchain treats an empty project.yaml as an empty project mapping. */
 private fun readProjectYaml(fileSystem: FileSystem, path: Path): Value.Mapping =
     parseYamlAllowingAnEmptyDocument(fileSystem.read(path) { readUtf8() }, path.toString())
 
-/**
- * Resolves the path before asking, so a `module.yaml` that is a symlink to a real file still counts:
- * okio reports metadata without following links, and such a module converts today.
- */
+/** Follows a module-file symlink before checking regular-file metadata. */
 private fun isRegularFile(fileSystem: FileSystem, path: Path): Boolean =
     try {
         fileSystem.metadata(fileSystem.canonicalize(path)).isRegularFile
@@ -118,12 +97,7 @@ private fun findRoot(fileSystem: FileSystem, start: Path): Path {
     )
 }
 
-/**
- * The upward walk reaches the filesystem root, so it can meet a project.yaml that has nothing to
- * do with the module it started from. Such a project would pull unrelated directories into the
- * conversion and write Gradle files next to it, so it only counts as the root when its module
- * globs actually select the module below.
- */
+/** Accepts an ancestor project only when its globs select the module the upward walk found. */
 private fun selectsModule(fileSystem: FileSystem, projectFile: Path, root: Path, module: Path): Boolean {
     val patterns = runCatching {
         readProjectYaml(fileSystem, projectFile).strings("modules").map(::normalizeModulePattern)
@@ -150,12 +124,7 @@ private fun findModuleFiles(fileSystem: FileSystem, root: Path): List<Path> {
 private fun normalizeModulePattern(pattern: String): String =
     pattern.removePrefix("//").removePrefix("./").trimEnd('/')
 
-/**
- * Matches one `modules:` glob against a module notation such as `libs/shared`.
- *
- * `*` and `?` stop at a path separator, so a pattern only ever selects the depth it was written
- * for; `**` never reaches here, because a recursive glob is rejected before selection starts.
- */
+/** Matches non-recursive project globs; `*` and `?` never cross `/`. */
 internal fun globMatches(pattern: String, path: String): Boolean {
     val regex = buildString {
         append('^')

@@ -27,12 +27,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * What a whole project means, asserted on the Gradle model rather than on generated text.
- *
- * The stage is pure, so every case here builds its [ToolchainProject] by hand: no temp directory
- * and no file system are involved, which is why this suite is common and not JVM-only.
- */
 class ProjectInterpreterTest {
     @Test
     fun aProjectWithNoRootModuleGetsARootThatOnlyHoldsTheInheritedPlugins() {
@@ -115,11 +109,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * Where the catalog sits is a fact about the project, so the model carries the path as loaded.
-     * Whether Gradle has to be told about it is a rendering decision and is pinned by
-     * `render/SettingsRendererTest`.
-     */
     @Test
     fun theVersionCatalogReachesTheModelWhereverTheProjectKeepsIt() {
         val modules = arrayOf(module("app", "product: jvm/lib\n"))
@@ -147,10 +136,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * A build plugin is the one product the rest of the project can be converted without, so it is
-     * left out instead of failing the run: every other module still gets its build script.
-     */
     @Test
     fun aToolchainBuildPluginIsLeftOutAndEveryOtherModuleIsStillConverted() {
         val diagnostics = DiagnosticCollector()
@@ -175,7 +160,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /** The root module is skipped like any other, and the build keeps the root the plugins need. */
     @Test
     fun aToolchainBuildPluginAtTheRootLeavesTheRootShellBehind() {
         val diagnostics = DiagnosticCollector()
@@ -210,13 +194,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * The generated `settings.gradle.kts` cannot include a module that was never rendered, so a
-     * dependency still pointing at one is named rather than left to fail the Gradle build.
-     *
-     * A `bom:` entry counts: it renders as `platform(project(...))` and breaks the build the same
-     * way.
-     */
     @Test
     fun aDependencyOnASkippedModuleIsReported() {
         val diagnostics = DiagnosticCollector()
@@ -249,10 +226,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * The report reads the interpreted build, not the declared sections, so a qualifier this
-     * product never reads contributes no reference and is not reported as one.
-     */
     @Test
     fun aDependencyASkippedModuleOnlyAppearsUnderAnUnreadQualifierIsNotReported() {
         val diagnostics = DiagnosticCollector()
@@ -285,15 +258,6 @@ class ProjectInterpreterTest {
         assertEquals("app: unsupported product 'fortran/app'", failure.message)
     }
 
-    /**
-     * The product refusals are a documented, user-facing contract: someone converting an iOS
-     * application has to be told iOS is out of scope, not that a section of a module the converter
-     * was never going to produce is malformed. So the product is dispatched on before anything else
-     * about the module is read, repositories included.
-     *
-     * The first assertion is what makes the rest non-vacuous: under a supported product the very
-     * same section really does fail the conversion, and with a different message.
-     */
     @Test
     fun anUnsupportedProductIsRefusedBeforeItsRepositoriesAreRead() {
         fun failureOf(product: String) = assertFailsWith<ConversionException> {
@@ -315,7 +279,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /** A skipped product is dispatched on ahead of the repositories too, so nothing raises them. */
     @Test
     fun aSkippedProductIsLeftOutBeforeItsRepositoriesAreRead() {
         val diagnostics = DiagnosticCollector()
@@ -337,10 +300,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * `plugins:` is recorded before the product is even dispatched on, so a module that carries
-     * both still reports the dropped section — and the product refusal then stops the run.
-     */
     @Test
     fun anUnsupportedKeyIsRecordedBeforeTheProductRefusalAndItsRepositories() {
         val diagnostics = DiagnosticCollector()
@@ -360,12 +319,6 @@ class ProjectInterpreterTest {
         assertEquals(listOf(Diagnostic(Diagnostic.Severity.ERROR, DROPPED_PLUGINS)), diagnostics.collected())
     }
 
-    /**
-     * A key nothing in the converter reads is named, wherever in the module it sits.
-     *
-     * It is a warning and not an error: the module converts, and every line the generated build was
-     * ever going to carry is in it. What the user has to know is that the key is not one of them.
-     */
     @Test
     fun everyKeyNothingReadsIsReportedWithItsPath() {
         val diagnostics = DiagnosticCollector()
@@ -408,10 +361,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * A `plugins:` section names build plugins the module compiles without, so the section is
-     * dropped with an error and the module is still converted.
-     */
     @Test
     fun aModuleThatDeclaresPluginsIsStillConverted() {
         val diagnostics = DiagnosticCollector()
@@ -445,10 +394,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * A compiler plugin is declared for the module and not for one of its targets, so it lands on
-     * the module rather than inside the product-specific build.
-     */
     @Test
     fun aCompilerPluginIsReadOntoTheModuleWhateverTheProductIs() {
         val declaration = """
@@ -476,7 +421,6 @@ class ProjectInterpreterTest {
         }
     }
 
-    /** The Toolchain takes an external dependency, so a catalog alias resolves like any other. */
     @Test
     fun aCompilerPluginDependencyMayBeACatalogAlias() {
         val project = interpret(
@@ -501,7 +445,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /** The compiler-plugin path reaches the same accessor check as a declared dependency. */
     @Test
     fun aCompilerPluginCatalogAliasThatCannotBecomeAKotlinAccessorIsRefused() {
         val failure = assertFailsWith<ConversionException> {
@@ -557,7 +500,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /** A type with no platforms of its own is rejected while the product itself is being read. */
     @Test
     fun anUnknownProductTypeWithNoPlatformsIsRejectedAsItIsRead() {
         val failure = assertFailsWith<ConversionException> {
@@ -567,10 +509,6 @@ class ProjectInterpreterTest {
         assertEquals("Unsupported product type 'fortran/app'", failure.message)
     }
 
-    /**
-     * A `plugins:` section is something the author can act on, so it is recorded before the product
-     * type is read: a module whose product then fails the run still reports the dropped section.
-     */
     @Test
     fun anUnsupportedKeyIsRecordedBeforeTheProductTypeIsEvenRead() {
         val diagnostics = DiagnosticCollector()
@@ -632,14 +570,6 @@ class ProjectInterpreterTest {
         assertTrue(project.modules[1].build is MultiplatformBuild)
     }
 
-    /**
-     * `settings.publishing` becomes a [Publication], and every key without a Gradle equivalent is
-     * named rather than dropped.
-     *
-     * The `jvm/lib` half is the whole section carried; the `kmp/lib` half is the two keys that
-     * cannot be: the Kotlin Gradle Plugin names a multiplatform module's artifacts itself, and
-     * Gradle has no Central Portal upload.
-     */
     @Test
     fun theWholePublishingSectionReachesTheModuleAndTheRestIsReported() {
         val diagnostics = DiagnosticCollector()
@@ -695,7 +625,6 @@ class ProjectInterpreterTest {
                         PomLicense(name = "Apache-2.0", url = "https://www.apache.org/licenses/LICENSE-2.0.txt"),
                     ),
                     developers = listOf(PomDeveloper(id = "example", name = "Example Developer")),
-                    // The `scm: <url>` shorthand carries both connection strings.
                     scm = PomScm(
                         url = "https://example.invalid/library.git",
                         connection = "scm:git:https://example.invalid/library.git",
@@ -715,13 +644,6 @@ class ProjectInterpreterTest {
         assertEquals(emptyList(), diagnostics.collected())
     }
 
-    /**
-     * A multiplatform module keeps its base artifact id and reports only what Gradle cannot do.
-     *
-     * `artifactId` is the *base* name upstream: the Toolchain appends the platform to it for every
-     * target but the root one, which is the same shape the Kotlin Gradle Plugin already produces
-     * from the Gradle project name. The Central Portal upload is the key with no Gradle equivalent.
-     */
     @Test
     fun aMultiplatformModuleKeepsThePomAndReportsWhatItCannotPublish() {
         val diagnostics = DiagnosticCollector()
@@ -777,15 +699,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * `mavenCentral: enabled` names every requirement the publication does not meet, one at a time.
-     *
-     * The Toolchain's own publish refuses a module that fails any of them, so a converted build that
-     * dropped the check would hand the developer a Portal rejection instead of a message naming the
-     * key. The loop drops exactly one requirement from a section that satisfies all of them, which
-     * is what makes each assertion say that *this* key is the one being reported: a check keyed on
-     * the wrong field would either name it while it is present or stay silent while it is gone.
-     */
     @Test
     fun mavenCentralNamesEachRequirementThePublicationDoesNotMeet() {
         for ((requirement, _) in CENTRAL_REQUIREMENTS) {
@@ -807,12 +720,6 @@ class ProjectInterpreterTest {
         }
     }
 
-    /**
-     * A publication that meets every requirement is reported for the upload alone.
-     *
-     * The silence is the half that keeps the warning worth reading: a check that fired on a complete
-     * section would train the reader to skip the module that really is missing a license.
-     */
     @Test
     fun aCompleteCentralPublicationIsReportedOnlyForTheMissingUpload() {
         val diagnostics = DiagnosticCollector()
@@ -823,13 +730,6 @@ class ProjectInterpreterTest {
         assertEquals(listOf(CENTRAL_PORTAL_WARNING), diagnostics.collected().map(Diagnostic::message))
     }
 
-    /**
-     * The requirements are read off the POM the converter produces, not off the section as written.
-     *
-     * `pom.description` defaults to the module's own `description`, so a module that names it once
-     * at the top publishes a POM Maven Central accepts, and a check that read `settings.publishing`
-     * directly would report a key the generated build does not need.
-     */
     @Test
     fun theModuleDescriptionSatisfiesThePomDescriptionRequirement() {
         val diagnostics = DiagnosticCollector()
@@ -841,13 +741,6 @@ class ProjectInterpreterTest {
         assertEquals(listOf(CENTRAL_PORTAL_WARNING), diagnostics.collected().map(Diagnostic::message))
     }
 
-    /**
-     * A `kmp/lib` is told about the javadoc jar even when its section is complete.
-     *
-     * It is the one Central requirement no key can add: a `jvm/lib` publication carries the
-     * `withJavadocJar()` the Toolchain adds by default, and the Kotlin Gradle Plugin builds no
-     * javadoc per target, so the multiplatform publication has none whatever the module writes.
-     */
     @Test
     fun aMultiplatformPublicationIsToldAboutTheJavadocJarItCannotBuild() {
         val diagnostics = DiagnosticCollector()
@@ -867,12 +760,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /**
-     * A module that publishes without asking for the Portal is not held to the Portal's rules.
-     *
-     * `mavenCentral` is the switch: a library published to a company repository has no reason to
-     * carry a license block, and reporting one would be noise the reader learns to skip.
-     */
     @Test
     fun theRequirementsAreCheckedOnlyForAModuleThatAsksForMavenCentral() {
         val diagnostics = DiagnosticCollector()
@@ -885,12 +772,6 @@ class ProjectInterpreterTest {
         assertEquals(emptyList(), diagnostics.collected())
     }
 
-    /**
-     * A `jvm/lib` whose `settings.publishing` satisfies every Maven Central requirement.
-     *
-     * [dropped] names the one requirement to leave out, so each case differs from the complete
-     * section in exactly the field under test.
-     */
     private fun centralModule(dropped: String?): String = buildString {
         append("product: jvm/lib\n\nsettings:\n  publishing:\n    enabled: true\n")
         append("    group: example.library\n    version: 1.2.3\n    mavenCentral: enabled\n")
@@ -903,13 +784,6 @@ class ProjectInterpreterTest {
         }
     }
 
-    /**
-     * `enabled` defaults to `false`, so declaring the section is not asking to publish.
-     *
-     * This is the one default in `settings.publishing` that a converter can get wrong in the
-     * expensive direction: a build that publishes a module the project never published ships an
-     * artifact nobody asked for. Neither form produces a publication, plugins, or a diagnostic.
-     */
     @Test
     fun publishingIsOffUnlessTheModuleTurnsItOn() {
         for (declaration in listOf("    enabled: false\n", "")) {
@@ -935,10 +809,6 @@ class ProjectInterpreterTest {
         }
     }
 
-    /**
-     * A publication with no coordinate is one nobody can consume, so it is an error and not a
-     * degraded conversion. The Toolchain refuses the same two keys.
-     */
     @Test
     fun publishingWithoutAGroupOrAVersionIsAnError() {
         val diagnostics = DiagnosticCollector()
@@ -962,7 +832,6 @@ class ProjectInterpreterTest {
         )
     }
 
-    /** The Toolchain publishes libraries; an application has no consumer to publish it for. */
     @Test
     fun publishingAnApplicationIsRefusedAndNamed() {
         for (product in listOf("jvm/app", "android/app")) {
@@ -989,14 +858,6 @@ class ProjectInterpreterTest {
         }
     }
 
-    /**
-     * `test-settings.jvm.release` is reported only by a module with nowhere to put it.
-     *
-     * A Kotlin JVM compilation takes the value; the Android Gradle Plugin offers no handle on the
-     * unit-test compilation alone, and a module with no JVM-backed target has no compilation at all.
-     * Reporting it for a module that carried it would be the worse half of a warning: noise that
-     * teaches the reader to skip the ones that matter.
-     */
     @Test
     fun theTestReleaseIsReportedOnlyWhereNoCompilationCanCarryIt() {
         val testSettings = "\n\ntest-settings:\n  jvm:\n    release: 25\n"
@@ -1064,7 +925,6 @@ class ProjectInterpreterTest {
     private companion object {
         private val ROOT: Path = "/workspace".toPath()
 
-        /** A repository with no `url`, which the binder defers and `Repositories` raises. */
         private const val MALFORMED_REPOSITORIES = "repositories:\n  - id: internal\n"
 
         private const val DROPPED_PLUGINS =
@@ -1081,12 +941,6 @@ class ProjectInterpreterTest {
                 "Gradle Plugin builds no javadoc per target and the 'withJavadocJar()' a jvm/lib gets " +
                 "has no multiplatform equivalent"
 
-        /**
-         * Every Maven Central requirement, next to the YAML that satisfies it.
-         *
-         * The order is the one the diagnostic lists them in, so a case dropping one requirement names
-         * it and a case dropping none says nothing.
-         */
         private val CENTRAL_REQUIREMENTS = listOf(
             "settings.publishing.signArtifacts" to "    signArtifacts: true\n",
             "settings.publishing.publishSources" to "    publishSources: true\n",

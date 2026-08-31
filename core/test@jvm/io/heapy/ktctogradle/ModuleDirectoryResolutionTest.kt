@@ -21,15 +21,6 @@ import kotlin.test.assertEquals
 import kotlin.test.fail
 import okio.Path as OkioPath
 
-/**
- * How a `./` or `../` dependency finds the module it points at.
- *
- * Module directories are compared as written, with nothing canonicalized at resolution time. That
- * is sound because [ProjectLoader] canonicalizes the path the conversion starts from and okio never
- * descends into a symlinked directory, so every recorded directory is already a real one — but it
- * also means a symlink written into the notation itself is not resolved. Both halves are pinned
- * here.
- */
 class ModuleDirectoryResolutionTest {
     @Test
     fun aDotDotDependencyResolvesWhenTheProjectIsReachedThroughASymlink() {
@@ -51,11 +42,6 @@ class ModuleDirectoryResolutionTest {
         )
     }
 
-    /**
-     * A notation that walks through a symlinked directory is not resolved, and the conversion says
-     * so instead of quietly picking the module the link points at. This is the load stage's rule and
-     * it has not changed: the pre-pipeline converter rejected the same input at the same point.
-     */
     @Test
     fun aDotDotDependencyThroughASymlinkedDirectoryIsRejected() {
         val base = Files.createTempDirectory("ktc-to-gradle-notation-symlink-")

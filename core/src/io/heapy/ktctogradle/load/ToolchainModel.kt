@@ -3,63 +3,30 @@ package io.heapy.ktctogradle.load
 import io.heapy.ktctogradle.ConversionException
 
 /**
- * A module.yaml after template merging, as typed data.
- *
- * The model mirrors the YAML; it makes no Gradle decision and applies no default. Everything the
- * converter has to decide — default versions, default platforms, repository ids, plugin choice —
- * belongs to the interpret stage.
- *
- * Binding never fails. Every region that would raise a [ConversionException] today records its
- * message in [errors] and binds to an empty value instead, so a failure keeps surfacing from a stage
- * that reads the region, with the same text. Which failure a module with two independent defects
- * reports first is not guaranteed to match the pre-pipeline converter. See [errors].
+ * Typed module YAML with no Gradle defaults or decisions. Binding records regional failures in
+ * [errors] instead of throwing, so they surface when the corresponding value is consumed.
  */
 internal data class ToolchainModel(
     val product: ProductSpec,
     val layout: Layout,
-    /** The module's own `description:`, which is what a published POM falls back to. */
     val description: String? = null,
     val aliases: Map<String, Set<String>>,
-    /** Declared dependencies by qualifier; `""` holds the unqualified `dependencies:` section. */
+    /** `""` holds the unqualified dependency section. */
     val dependencies: Map<String, List<RawDependency>>,
     val testDependencies: Map<String, List<RawDependency>>,
     val repositories: List<RawRepository>,
     val settings: Settings,
-    /** `settings@<qualifier>` and `test-settings@<qualifier>` sections, in declaration order. */
     val qualifiedSections: List<QualifiedSection>,
-    /** Rejected keys in the order `rejectUnsupported` reports them. */
     val unsupported: List<String>,
     /**
-     * Every key the module wrote that the binder reads nothing out of, as a dotted path, in
-     * declaration order.
-     *
-     * Separate from [unsupported], which is the fixed list of sections the converter refuses by
-     * name. These are the keys nothing asked for in the first place — a misspelled `publishSource`,
-     * a `settings.kotlin` option this converter has no equivalent for — and they reach the user as
-     * warnings rather than stopping the run. See `ModuleSchema.kt` for what counts as read.
+     * Keys the binder never consumes, in declaration order. Unlike fixed [unsupported] sections,
+     * these become warnings; `ModuleSchema.kt` defines the consumed surface.
      */
     val unknownKeys: List<String>,
-    /**
-     * The message of the failure a region defers, keyed by the region that defers it: `product`,
-     * `aliases`, `repositories`, `settings`, `settings.jvm.test`, `settings.kotlin.serialization`,
-     * a dependency section key such as `dependencies` or `test-dependencies@jvm`, or the
-     * [Region.dependencyContent] form of such a key.
-     *
-     * A region that failed is bound as if it were absent, so a consumer must raise its message
-     * before reading it. This is what keeps the binder lenient: `pluginsOf` swallows the failures
-     * of `product` and of `settings.kotlin.serialization`, and `rejectUnsupported` reports
-     * `plugins:` before any of them is consulted.
-     */
+    /** Regional failures; a failed region binds as absent and consumers raise it explicitly. */
     val errors: Map<String, String>,
 )
 
-/**
- * The keys [ToolchainModel.errors] is keyed by, spelled once.
- *
- * A raise site that misspells its region silently swallows a user-facing failure, and the same key
- * is read from as many as three files, so the strings live here rather than as a private const per
- * consumer. A dependency section has no const of its own: its key is the qualifier as written.
- */
 internal object Region {
     const val PRODUCT = "product"
     const val ALIASES = "aliases"
@@ -67,77 +34,34 @@ internal object Region {
     const val SETTINGS = "settings"
     const val SERIALIZATION = "settings.kotlin.serialization"
 
-    /**
-     * The JVM test task's argument list, which every product family with a `Test` task renders.
-     *
-     * Separate from [SETTINGS] because a module that declares no JVM-backed target never reads it,
-     * and a malformed value there must not fail such a conversion.
-     */
+    /** Separate because products without JVM-backed tests must not raise this region. */
     const val JVM_TEST_SETTINGS = "settings.jvm.test"
 
-    /**
-     * Where a dependency section defers what only a reader of that section decides: an unknown scope
-     * shorthand, or a `bom` that is not a coordinate.
-     *
-     * The section's own key holds the failures the load stage gates on instead. The marker is a
-     * *prefix* on purpose — a suffix would still satisfy the `startsWith` test that recognises a
-     * dependency section, and the load stage would go back to failing qualifiers nobody reads.
-     */
+    /** Prefixes reader-only failures so load-stage dependency matching does not raise them. */
     fun dependencyContent(key: String): String = "content:$key"
 }
 
-/** Raises the failure [region] deferred, if it deferred one. */
 internal fun ToolchainModel.raiseDeferred(region: String) {
     errors[region]?.let { message -> throw ConversionException(message) }
 }
 
-/**
- * One `settings@<qualifier>` or `test-settings@<qualifier>` section, as written.
- *
- * The sections keep the order they are declared in, because the diagnostics a malformed one
- * produces are reported in that order and their sequence is part of the converter's output.
- */
+/** A qualified section in declaration order, which is also diagnostic order. */
 internal data class QualifiedSection(
-    /** The key as written; a diagnostic quotes it verbatim. */
     val key: String,
     val qualifier: String,
-    /**
-     * `true` for a `test-settings@` section, whose keys sit one level higher than a `settings@` one's.
-     *
-     * It still binds: the section reaches [Settings.test], the same field the unqualified
-     * `test-settings:` binds to. The flag survives because the two forms of one qualifier are
-     * applied in a fixed order, `test-settings@` last, whichever order the module wrote them in.
-     */
+    /** `test-settings@` contributions sort after `settings@` for the same qualifier. */
     val test: Boolean,
-    /** `null` = the section is not an object, so it carries no settings. */
     val settings: Settings?,
-    /**
-     * The keys of the section the converter cannot carry into the Gradle build.
-     *
-     * Recorded here because a key such as `settings@jvm.foo.bar` has no field to bind to, and the
-     * stage that reports it may not walk the YAML itself.
-     */
+    /** Dropped keys recorded for later diagnostics. */
     val unsupportedKeys: List<UnsupportedKey>,
     /**
-     * The [QualifiedOption] keys the section declares but got wrong, so [settings] binds them to
-     * nothing.
-     *
-     * A malformed key is still a key the section *declared*, and declaring a key is how a narrower
-     * section overrides a broader one. Without this the two are indistinguishable — both bind to
-     * `null` — and a broken `settings@jvm` would silently let `settings@common`'s value through.
-     * A `kotlin` node that is not an object is recorded as every option key at once, because it
-     * replaces the whole node the broader section contributed.
+     * Declared-but-malformed compiler options, kept distinct from absent values so a narrower broken
+     * declaration still suppresses the broader value it replaces.
      */
     val malformedOptions: Set<String>,
 )
 
-/**
- * The `settings@<qualifier>.kotlin` keys that reach a Gradle `compilerOptions { }` block.
- *
- * Named here rather than in the interpreter because the binder decides which of them a section got
- * wrong ([QualifiedSection.malformedOptions]) and the interpreter decides what a wrong one does to
- * the merge, and the two must agree on the spelling.
- */
+/** Shared option keys used by binding and qualified-section merging. */
 internal object QualifiedOption {
     const val LANGUAGE_VERSION = "languageVersion"
     const val API_VERSION = "apiVersion"
@@ -146,7 +70,6 @@ internal object QualifiedOption {
     const val FREE_COMPILER_ARGS = "freeCompilerArgs"
     const val OPT_INS = "optIns"
 
-    /** The node the six live under; a section that gets *it* wrong loses all six. */
     const val KOTLIN = "kotlin"
 
     val ALL = setOf(
@@ -159,24 +82,11 @@ internal object QualifiedOption {
     )
 }
 
-/** A key of a qualified section that was dropped, and the wording the diagnostic uses to say so. */
 internal data class UnsupportedKey(
-    /**
-     * Leaf path inside the section, such as `jvm.release` or `kotlin.unknown`.
-     *
-     * Display text only. A YAML key may itself contain a dot, so the path of a literal
-     * `kotlin.languageVersion` key and that of `languageVersion` under `kotlin` read the same, and
-     * reading structure back out of it would confuse the two: [options] carries that structure.
-     */
+    /** Display-only leaf path; [options] carries structure because YAML keys may contain dots. */
     val path: String,
     val reason: String,
-    /**
-     * The [QualifiedOption] keys this key stands for, named by the walk that found it.
-     *
-     * Empty when the dropped key is about no compiler option at all, which is what lets
-     * [QualifiedSection.malformedOptions] tell a section that got an option wrong from one that
-     * merely spelled a dropped key like one.
-     */
+    /** Compiler options represented by this dropped key; empty for unrelated keys. */
     val options: Set<String> = emptySet(),
 ) {
     companion object {
@@ -188,14 +98,6 @@ internal enum class Layout { AMPER, MAVEN_LIKE }
 
 internal data class ProductSpec(val type: String, val platforms: List<String>)
 
-/**
- * The `product:` types the Toolchain format defines, spelled once.
- *
- * Three `when` blocks branch on them — the default platforms of a type here in the load stage, the
- * build to interpret in `ProjectInterpreter`, and the plugins to apply in `PluginResolution` — and
- * a type missing from one of them falls into that block's `else`. Sharing the strings does not make
- * a new type reach all three, but it does keep a typo from silently routing a module to `else`.
- */
 internal object ProductType {
     const val JVM_APP = "jvm/app"
     const val JVM_LIB = "jvm/lib"
@@ -210,24 +112,20 @@ internal object ProductType {
     const val MACOS_APP = "macos/app"
     const val WINDOWS_APP = "windows/app"
 
-    /** The types a Kotlin Multiplatform build is generated for, whatever platforms they name. */
     val MULTIPLATFORM = setOf(KMP_LIB, JS_APP, WASM_JS_APP, WASM_WASI_APP, LINUX_APP, MACOS_APP, WINDOWS_APP)
 }
 
 internal data class RawDependency(
     val notation: String,
-    /** `all`, `compile-only` or `runtime-only`, as written. */
     val scope: String = "all",
     val exported: Boolean = false,
     val bom: Boolean = false,
 )
 
 internal data class RawRepository(
-    /** `null` when the repository was written as a bare URL and has no id of its own. */
     val id: String?,
     val url: String,
     val resolve: Boolean = true,
-    /** `publish: true` names the repository `kotlin publish <id>` uploads to. */
     val publish: Boolean = false,
     val credentials: RawCredentials? = null,
 )
@@ -246,7 +144,6 @@ internal data class Settings(
     val junit: String? = null,
     val ktor: KtorSettings? = null,
     val publishing: PublishingSettings? = null,
-    /** The sibling `test-settings:` section, which only ever carries `jvm` keys. */
     val test: TestSettings? = null,
 ) {
     companion object {
@@ -266,12 +163,6 @@ internal data class KotlinSettings(
     val compilerPlugins: List<CompilerPluginSpec> = emptyList(),
 )
 
-/**
- * One `settings.kotlin.compilerPlugins` entry: a third-party Kotlin compiler plugin.
- *
- * [dependency] is the Maven coordinate the plugin is loaded from, and [id] is the plugin id its
- * [options] are addressed by. The Toolchain form has no fourth key.
- */
 internal data class CompilerPluginSpec(
     val id: String,
     val dependency: String,
@@ -279,29 +170,18 @@ internal data class CompilerPluginSpec(
 )
 
 internal data class JvmSettings(
-    /** `settings.jvm.jdk.version`, which is nested and not a `jdkVersion` key. */
     val jdkVersion: String? = null,
     val release: String? = null,
     val mainClass: String? = null,
     val testFreeJvmArgs: List<String> = emptyList(),
     val testSystemProperties: Map<String, String> = emptyMap(),
     val testExtraEnvironment: Map<String, String> = emptyMap(),
-    /**
-     * `settings.jvm.test.junitPlatformVersion`, bound only so the interpret stage can say it was
-     * dropped.
-     *
-     * The Kotlin Toolchain runs its JVM tests through `junit-platform-console-standalone` and this
-     * key picks the release it downloads. A Gradle `Test` task has no such knob: it runs whatever
-     * launcher and engines the test runtime classpath resolves to, and pinning that from here would
-     * mean forcing `org.junit:junit-bom`, which drags the module's whole JUnit family to the same
-     * release. Nothing reads this field except the diagnostic that names it.
-     */
+    /** Bound only so the interpreter can report that Gradle cannot honor it. */
     val testJunitPlatformVersion: String? = null,
 )
 
 internal data class AndroidSettings(
     val namespace: String? = null,
-    /** Accepts both `compileSdk: 37` and the nested `compileSdk.apiLevel: 37` form. */
     val compileSdk: String? = null,
     val minSdk: String? = null,
     val targetSdk: String? = null,
@@ -312,32 +192,18 @@ internal data class AndroidSettings(
 
 internal data class NativeSettings(val entryPoint: String? = null)
 
-/** `enabled` is separate from presence: `ktor: enabled` and `ktor: { enabled: false }` both parse. */
 internal data class KtorSettings(val enabled: Boolean? = null, val version: String? = null)
 
-/** `null` version means the section named no version and the interpret stage picks the default. */
 internal data class SerializationSpec(val version: String? = null, val format: String? = null)
 
 internal data class TestSettings(
     val freeJvmArgs: List<String> = emptyList(),
     val systemProperties: Map<String, String> = emptyMap(),
     val extraEnvironment: Map<String, String> = emptyMap(),
-    /**
-     * The bytecode level the test compilation targets.
-     *
-     * Separate from `settings.jvm.release`, because a module may compile its tests against a newer
-     * JDK API than the bytecode it publishes: the test classes are never published, so nothing ties
-     * them to the same level.
-     */
+    /** Separate from the published release so tests may compile against newer JDK APIs. */
     val release: String? = null,
 )
 
-/**
- * `settings.publishing`, the section that makes a module publishable.
- *
- * [enabled] is separate from presence, as it is for `ktor`: a module can declare the whole section
- * and turn it off. The rest is the Maven coordinate, the two artifact switches, and the POM.
- */
 internal data class PublishingSettings(
     val enabled: Boolean? = null,
     val group: String? = null,
@@ -351,7 +217,6 @@ internal data class PublishingSettings(
     val pom: PomSpec? = null,
 )
 
-/** `mavenCentral: enabled` and `mavenCentral: { enabled: true, publishingMode: manual }` both parse. */
 internal data class MavenCentralSpec(
     val enabled: Boolean? = null,
     val publishingMode: String? = null,
@@ -377,10 +242,7 @@ internal data class PomDeveloper(
     val organizationUrl: String? = null,
 )
 
-/**
- * `scm: <url>` is a shorthand the Toolchain expands: both connection strings default to
- * `scm:git:<url>`, and the object form overrides either of them.
- */
+/** Scalar `scm` expands both connection strings to `scm:git:<url>`. */
 internal data class PomScm(
     val url: String? = null,
     val connection: String? = null,

@@ -114,14 +114,6 @@ class ConversionIntegrationTest {
         }
     }
 
-    /**
-     * `settings.publishing` reaches the generated build, and what has no Gradle equivalent is named.
-     *
-     * The converted project publishes to a repository inside its own build directory, so the chain
-     * is asserted from the artifacts rather than from the script: the POM Gradle wrote is the only
-     * proof that every field of `settings.publishing.pom` survived, and the published file names are
-     * the only proof that `artifactId` reached a multiplatform module's per-target publications.
-     */
     @Test
     fun aPublishingModuleStillPublishesAfterConversion() {
         val destination = convertedPublishingFixture()
@@ -163,14 +155,6 @@ class ConversionIntegrationTest {
         }
     }
 
-    /**
-     * `signArtifacts: true` with no key in the environment fails the publish rather than publishing
-     * unsigned, which is what the Kotlin Toolchain does.
-     *
-     * The `signing { }` block guards only the key lookup, so the `sign` call is reached either way
-     * and Gradle refuses the task for want of a signatory. A build that quietly shipped unsigned
-     * artifacts after the module asked for signatures is the failure this pins shut.
-     */
     @Test
     fun signArtifactsWithoutAKeyFailsThePublishInsteadOfPublishingUnsigned() {
         val destination = convertedPublishingFixture()
@@ -225,10 +209,6 @@ class ConversionIntegrationTest {
         return GradleRun(process.waitFor(), text)
     }
 
-    /**
-     * A `jvm/amper-plugin` module used to abort the whole run, so a project carrying one got no
-     * files at all. It is now left out and named, and the rest of the project still builds.
-     */
     @Test
     fun aProjectWithAPluginModuleConvertsAndBuildsWithoutIt() {
         val source = projectRoot().resolve("integration-tests/fixtures/plugin-module")
@@ -293,19 +273,6 @@ class ConversionIntegrationTest {
         assertEquals(0, process.waitFor(), "Generated credential repository DSL failed:\n$output")
     }
 
-    /**
-     * `settings.jvm.release` has to reach the main compilation as a `--release`, not only as a
-     * bytecode level.
-     *
-     * A JDK 25 toolchain told to emit class-file 65 still resolves the whole JDK 25 API unless the
-     * compiler is given `-Xjdk-release`, so a module could call an API that is not there at run time
-     * and publish an artifact labelled Java 21 that fails on a real Java 21. The only source here
-     * reads a JDK 24 API, so the build has to refuse it — and refuse it for that reason and not
-     * another, which is what the second assertion is for.
-     *
-     * The module names no `test-settings.jvm.release`, so this is the module-wide spelling of the
-     * flag; the `test-release` fixture covers the per-compilation one.
-     */
     @Test
     fun aMainSourceReadingAnApiNewerThanItsReleaseFailsToCompile() {
         val destination = Files.createTempDirectory("ktc-to-gradle-main-release-")
@@ -355,12 +322,6 @@ class ConversionIntegrationTest {
         assertClassFileVersion(classFile, expectedMajorVersion)
     }
 
-    /**
-     * `settings.jvm.release: 21` is class-file 65, and the fixture pins it below the toolchain JDK.
-     *
-     * The `androidLibrary` target used to ignore the setting and fall back to whatever the Android
-     * Gradle Plugin defaulted to, so one module published two different bytecode levels.
-     */
     private fun assertTargetsAgreeOnBytecodeLevel(directory: Path) {
         val classes = directory.resolve("build/classes/kotlin")
         val fixture = "io/heapy/ktctogradle/fixture"
@@ -376,10 +337,6 @@ class ConversionIntegrationTest {
         assertEquals(expectedMajorVersion, majorVersion, "Unexpected JVM class-file version in $classFile")
     }
 
-    /**
-     * Android unit tests run from androidHostTest. A test left in androidTest compiles and
-     * the build still passes, so assert the report exists instead of trusting the exit code.
-     */
     private fun assertAndroidUnitTestsRan(directory: Path) {
         assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.AndroidOnlyTest")
         // Annotated with Jupiter rather than kotlin.test, so it is discovered only when the task
@@ -387,12 +344,6 @@ class ConversionIntegrationTest {
         assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.JupiterOnlyTest")
     }
 
-    /**
-     * The JUnit report of one test class, read where the named task writes it.
-     *
-     * The counts are what make this an oracle rather than a file check: a suite the runner never
-     * discovered still leaves no report, and a report with `tests="0"` is the same silence.
-     */
     private fun assertUnitTestsRan(directory: Path, task: String, testClass: String) {
         val report = directory.resolve("build/test-results/$task/TEST-$testClass.xml")
         assertTrue(Files.isRegularFile(report), "$report was never written, so those unit tests never ran")

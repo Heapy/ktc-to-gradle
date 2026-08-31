@@ -11,17 +11,9 @@ import io.heapy.ktctogradle.model.Dependency
 import io.heapy.ktctogradle.model.DependencyTarget
 import io.heapy.ktctogradle.model.Scope
 
-/**
- * Turns declared dependency notations into resolved [Dependency] targets.
- *
- * The notation rules live here only: the load stage validates local references through the same
- * [ModuleIndex] instead of parsing notations a second time with rules of its own.
- */
 internal object Dependencies {
-    /** One segment of a Gradle version catalog accessor: a Kotlin identifier that needs no backticks. */
     private val ACCESSOR_SEGMENT = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
-    /** The Kotlin hard keywords, which a catalog accessor segment has to be backticked to spell. */
     private val KOTLIN_KEYWORDS = setOf(
         "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in",
         "interface", "is", "null", "object", "package", "return", "super", "this", "throw",
@@ -29,14 +21,8 @@ internal object Dependencies {
     )
 
     /**
-     * The dependencies of one module, reading [qualifiers] in order with `""` standing for the
-     * unqualified section.
-     *
-     * A section the binder could not read raises its deferred message here. The load stage has
-     * already raised the *shape* failures for every declared section, so for those this is the
-     * second gate rather than the only one; an unknown scope shorthand and a malformed `bom`
-     * coordinate are only ever raised here, which is why declaring one under a qualifier this
-     * product never reads has never failed a conversion.
+     * Reads [qualifiers] in order (`""` is unqualified). Shape failures are validated during load;
+     * content failures surface only when a product actually reads the section.
      */
     fun of(
         index: ModuleIndex,
@@ -62,7 +48,6 @@ internal object Dependencies {
         bom = raw.bom,
     )
 
-    /** Anything but a narrowing scope lands on the default configuration. */
     private fun scopeOf(scope: String): Scope = when (scope) {
         "compile-only" -> Scope.COMPILE_ONLY
         "runtime-only" -> Scope.RUNTIME_ONLY
@@ -84,23 +69,9 @@ internal object Dependencies {
     }
 
     /**
-     * A `$libs.` reference, spelled as the Gradle accessor it becomes.
-     *
-     * The key is passed through rather than translated, because the Toolchain already resolves it
-     * against the accessor path Gradle generates and not against the raw `libs.versions.toml` alias.
-     * Measured on 0.12.0 with `kotlin show modules`: the alias `junit-jupiter-api` is read as
-     * `$libs.junit.jupiter.api` and refused as `$libs.junit-jupiter-api`, `my_lib` is read as
-     * `$libs.my.lib`, and `ktorClient` is read as `$libs.ktorClient` and refused as
-     * `$libs.ktor.client`. The two spellings coincide, so there is nothing to translate.
-     *
-     * What is checked is that the key can be spelled as Kotlin at all. The renderer emits it as a
-     * bare expression, so `$libs.1bad` used to produce `implementation(libs.1bad)` — a build script
-     * that does not parse, reported as a successful conversion. Every shape refused here is one the
-     * Toolchain refuses too, so this is parity rather than a new rule.
-     *
-     * Existence is deliberately not checked: the converter locates `libs.versions.toml` but never
-     * reads its entries, and an unknown key that is well formed fails at Gradle configuration time
-     * with an unresolved reference that already names the accessor and the line.
+     * Preserves Kotlin Toolchain's resolved accessor spelling and rejects shapes that are invalid
+     * Kotlin expressions. Existence is left to Gradle because the converter does not read catalog
+     * entries.
      */
     internal fun catalogTarget(module: ToolchainModule, notation: String): DependencyTarget {
         val segments = notation.removePrefix("\$libs.").split(".")
@@ -120,14 +91,7 @@ internal object Dependencies {
         )
     }
 
-    /**
-     * One entry of the Toolchain's built-in `$kotlin.` catalog.
-     *
-     * The three test aliases are the ones the catalog defines, and each names a different artifact:
-     * `test.junit` is the JUnit 4 adapter and `test.junit5` the JUnit 5 one. Nothing else is
-     * accepted, because an alias the Toolchain rejects must not convert to a working build that
-     * pulls the wrong test framework in.
-     */
+    /** Resolves only aliases defined by Kotlin Toolchain's built-in `$kotlin.` catalog. */
     private fun kotlinCatalogTarget(module: ToolchainModule, key: String): DependencyTarget = when (key) {
         "reflect" -> DependencyTarget.KotlinBuiltin("reflect")
         "test" -> DependencyTarget.KotlinBuiltin("test")

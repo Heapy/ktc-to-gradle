@@ -9,29 +9,15 @@ import okio.ByteString
 import okio.FileSystem
 import okio.Path
 
-/**
- * Stage 4: puts the rendered build on disk.
- *
- * The only stage that writes anything, and the only one that has an opinion about what is already
- * there: a file whose content did not change is left alone so its timestamp survives, and a file
- * this converter did not write is never silently replaced.
- */
+/** Writes changed generated files while refusing to replace foreign content. */
 internal class FileWriter(private val fileSystem: FileSystem) {
-    /**
-     * Writes what changed and returns those files, relative to [root].
-     *
-     * [dryRun] still runs every check, so `--dry-run` reports exactly the files a real run would
-     * write and refuses exactly the ones a real run would refuse.
-     */
+    /** [dryRun] performs the same collision checks and reports the same changed paths without writing. */
     fun write(
         root: Path,
         files: List<GeneratedFile>,
         force: Boolean,
         dryRun: Boolean,
     ): List<Path> {
-        // Read once per path: the changed check and the collision check both need the old content.
-        // The companion of a binary file is read too, because that is where its ownership is
-        // recorded, and it is not always one of the files being written.
         val paths = files.map(GeneratedFile::path) + files.mapNotNull(::companionOf)
         val onDisk = paths.distinct().associateWith { path ->
             if (fileSystem.exists(path)) read(path) else null
@@ -49,8 +35,7 @@ internal class FileWriter(private val fileSystem: FileSystem) {
                 file.path.parent?.let(fileSystem::createDirectories)
                 fileSystem.write(file.path) { write(file.content.bytes) }
             }
-            // Set every run: a wrapper script that was already up to date can still have lost its
-            // executable bit on the way into the checkout.
+            // Restore executable permission even when wrapper bytes are unchanged.
             makeExecutable(root / "gradlew")
         }
         return changed.map { it.path.relativeTo(root) }
@@ -58,14 +43,7 @@ internal class FileWriter(private val fileSystem: FileSystem) {
 
     private fun read(path: Path): ByteString = fileSystem.read(path) { readByteString() }
 
-    /**
-     * Whether the file on disk is one this converter wrote, and may therefore be replaced.
-     *
-     * `null` means there is nothing on disk to overwrite. A binary file carries no marker of its
-     * own, so it answers with the file it named: `gradle-wrapper.jar` belongs to whoever wrote the
-     * `gradle-wrapper.properties` beside it, and a companion that is not on disk cannot vouch for
-     * anything.
-     */
+    /** Binary ownership follows its named companion; a missing companion cannot establish ownership. */
     private fun isGenerated(file: GeneratedFile, onDisk: Map<Path, ByteString?>): Boolean? = when (file.content) {
         is FileContent.Text -> onDisk[file.path]?.let(::carriesMarker)
         is FileContent.Binary ->
@@ -77,13 +55,6 @@ internal class FileWriter(private val fileSystem: FileSystem) {
             }
     }
 
-    /**
-     * The file a binary one named as the record of its ownership, resolved beside it.
-     *
-     * `FileContent.Binary` names its companion by bare file name by convention, so in practice the
-     * answer is the sibling `Converter` intended. Resolution is what makes that so, not the type:
-     * an absolute name, or one carrying `..`, would still resolve out of this directory.
-     */
     private fun companionOf(file: GeneratedFile): Path? =
         (file.content as? FileContent.Binary)?.let { binary -> file.path.parent?.div(binary.ownershipFollows) }
 

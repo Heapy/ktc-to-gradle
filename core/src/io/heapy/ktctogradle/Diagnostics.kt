@@ -2,12 +2,7 @@ package io.heapy.ktctogradle
 
 import io.heapy.ktctogradle.model.GeneratedFile
 
-/**
- * A failure that stops the conversion.
- *
- * [diagnostics] carries what the run had already collected when it failed. The stage that raises a
- * failure has no collector to hand, so it is attached one level up, where the collector lives.
- */
+/** A terminal failure plus diagnostics already collected by the abandoned stage. */
 class ConversionException(
     message: String,
     val diagnostics: List<Diagnostic> = emptyList(),
@@ -31,21 +26,11 @@ internal data class GenerationResult(
     val diagnostics: List<Diagnostic>,
 )
 
-/**
- * Collects the diagnostics of a single conversion run.
- *
- * One collector belongs to one run and is passed down the call graph, so nothing that outlives a
- * run holds diagnostics and two runs can never see each other's.
- */
+/** Per-conversion state; collectors are never shared across runs. */
 internal class DiagnosticCollector {
     private val entries = mutableListOf<Diagnostic>()
 
-    /**
-     * Records something the conversion could not do.
-     *
-     * An error does not stop the run: the files that could be produced are still written, and the
-     * CLI exits non-zero so a partial conversion is never reported as a success.
-     */
+    /** Records a non-terminal failure; partial output is written but the CLI exits non-zero. */
     fun error(message: String) {
         entries += Diagnostic(Diagnostic.Severity.ERROR, message)
     }
@@ -58,6 +43,5 @@ internal class DiagnosticCollector {
         entries += Diagnostic(Diagnostic.Severity.INFO, message)
     }
 
-    /** Everything collected so far, in the order it was reported, as a snapshot later calls cannot change. */
     fun collected(): List<Diagnostic> = entries.toList()
 }

@@ -9,15 +9,8 @@ import io.heapy.ktctogradle.model.GradlePlugin
 import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.model.PluginFamily
 
-/**
- * Which Gradle plugins a module applies, and at which version the whole build loads each of them.
- *
- * Gradle loads a plugin once for every module, and the Kotlin plugins only work together when their
- * versions match, so a version is chosen per [PluginFamily] for the project and not per module. The
- * Android Gradle Plugin carries the same rule across modules.
- */
+/** Resolves one project-wide version per Gradle plugin family. */
 internal object PluginResolution {
-    /** One version per plugin family, keyed by plugin id. */
     fun resolveVersions(models: List<ToolchainModel>, diagnostics: DiagnosticCollector): Map<String, String> {
         val requests = models.flatMap(::requestsOf)
         val resolved = mutableMapOf<String, String>()
@@ -38,12 +31,6 @@ internal object PluginResolution {
         return resolved
     }
 
-    /**
-     * The `plugins { }` lines of one module, in declaration order.
-     *
-     * Only a root build script prints versions ([declareVersions]); a subproject inherits them.
-     * A [GradlePlugin.Builtin] never carries one either way.
-     */
     fun declarationsFor(
         model: ToolchainModel,
         versions: Map<String, String>,
@@ -62,11 +49,6 @@ internal object PluginResolution {
         }
     }
 
-    /**
-     * The plugins only subprojects use, declared once in the root with `apply false`.
-     *
-     * A plugin the root applies itself is left out: it is already declared with a version there.
-     */
     fun inheritedDeclarations(
         root: ToolchainModel?,
         subprojects: List<ToolchainModel>,
@@ -82,11 +64,7 @@ internal object PluginResolution {
             .map { request -> PluginDecl(request.plugin, versions[request.plugin.id] ?: request.version, apply = false) }
     }
 
-    /**
-     * Orders version strings the way a release train runs: numbers first, and a stable release
-     * ahead of every pre-release that carries the same numbers. Equal versions fall back to the
-     * text so the choice does not depend on the order the modules were read in.
-     */
+    /** Orders numeric releases before qualifiers, with stable releases ahead of matching prereleases. */
     val versionOrder: Comparator<String> = Comparator { left, right ->
         val a = numericVersionParts(left)
         val b = numericVersionParts(right)
@@ -106,13 +84,7 @@ internal object PluginResolution {
         if (result != 0) result else left.compareTo(right)
     }
 
-    /**
-     * The plugins [model] applies, including the unversioned Gradle ones, in declaration order.
-     *
-     * A module whose `product` or serialization section failed to bind contributes what it can and
-     * raises nothing: version resolution runs over every module of the project, so a failure has to
-     * keep surfacing from the stage that renders the module.
-     */
+    /** Does not raise deferred model failures during project-wide version resolution. */
     fun pluginsOf(model: ToolchainModel): List<GradlePlugin> {
         if (Region.PRODUCT in model.errors) return emptyList()
         val plugins = mutableListOf<GradlePlugin>()
@@ -134,14 +106,7 @@ internal object PluginResolution {
         return plugins
     }
 
-    /**
-     * The versioned plugins of [model].
-     *
-     * [PluginRequest.explicit] describes the request and not the plugin, which is why it stops here
-     * and never reaches [PluginDecl]: an Android module warns that `settings.kotlin.version` does
-     * not select its Kotlin compiler, so that pin must not become the version the rest of the build
-     * is generated with.
-     */
+    /** An Android Kotlin pin is not explicit because AGP, not the setting, selects its compiler. */
     private fun requestsOf(model: ToolchainModel): List<PluginRequest> {
         val pinned = model.settings.kotlin?.version
         val kotlinVersion = pinned ?: Versions.KOTLIN

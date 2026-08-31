@@ -2,21 +2,8 @@ package io.heapy.ktctogradle.load
 
 import io.heapy.ktctogradle.ConversionException
 
-/**
- * Turns a merged module.yaml into a [ToolchainModel].
- *
- * The binder is deliberately lenient: it never throws. A region the YAML gets wrong is bound as if
- * it were absent and its [ConversionException] message is recorded in [ToolchainModel.errors], so
- * the failure still reaches the user from the stage that reads the region. That matters because
- * `pluginsOf` swallows the `product` and serialization failures, and `rejectUnsupported` reports
- * `plugins:` before either is consulted; an eagerly-throwing binder would change both the messages
- * and their order.
- */
+/** Binds leniently, recording regional failures for the stage that consumes each value. */
 internal object YamlBinder {
-    /**
-     * [displayName] is the module name the deferred messages quote: a malformed `dependencies:` in
-     * module `app` is reported against `app.dependencies`.
-     */
     fun bind(config: Value.Mapping, displayName: String): ToolchainModel {
         val errors = mutableMapOf<String, String>()
         return ToolchainModel(
@@ -50,16 +37,11 @@ internal object YamlBinder {
     ): T = try {
         bind()
     } catch (error: ConversionException) {
-        // First failure wins: a region fed by more than one key reports the key read first, which is
-        // the one the pre-pipeline renderer reached first.
+        // A region reports its first failure.
         errors.getOrPut(region) { error.message.orEmpty() }
         fallback
     }
 
-    /**
-     * [deferred] where the caller may have no error map, which is the case for a qualified section:
-     * it binds leniently and raises nothing, so there is nothing to defer.
-     */
     private inline fun <T> deferring(
         errors: MutableMap<String, String>?,
         region: String,
@@ -98,20 +80,9 @@ internal object YamlBinder {
     }
 
     /**
-     * The `<prefix>` section plus every `<prefix>@<qualifier>` section, keyed by qualifier with `""`
-     * standing for the unqualified one. Each section defers its own failure, because a module can
-     * name a bad dependency under one qualifier and a good one under another.
-     *
-     * A section is read twice, because its two classes of failure reach the user from two different
-     * stages. The *shape* of a section — that it is a list of strings or one-coordinate objects — is
-     * what the load stage gates on, for every declared section; whether an entry names a known scope
-     * shorthand or a well-formed `bom` coordinate is only ever decided when a section is actually
-     * read, so it defers under [Region.dependencyContent] instead and never fails a qualifier this
-     * product ignores. When the content pass fails, the section still binds to the notations the
-     * shape pass found, so the load stage can resolve their local references either way.
-     *
-     * A key that merely starts with the prefix — `dependencies-dev` — is bound under itself as the
-     * qualifier: no product reads such a qualifier, but the load stage still checks the section.
+     * Binds each prefixed dependency section independently. Shape failures are load-stage regions;
+     * scope and BOM failures use [Region.dependencyContent] so ignored qualifiers do not fail.
+     * Prefix matching intentionally includes keys such as `dependencies-dev`.
      */
     private fun bindDependencies(
         config: Value.Mapping,
@@ -150,13 +121,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * The coordinate an entry names, checking only what the load stage checks.
-     *
-     * A `bom` entry names the coordinate `bom` here, not the coordinate it holds: the load stage has
-     * never resolved a bom's notation, so an unknown module under a `bom:` is left to the stage that
-     * reads it.
-     */
+    /** A BOM's nested notation remains reader-only and is not resolved during load. */
     private fun dependencyNotation(value: Value): String = when (value) {
         is Value.Scalar -> SCOPE_SUFFIX.matchEntire(value.text)?.groupValues?.get(1) ?: value.text
         is Value.Mapping -> value.entries.keys.singleOrNull()
@@ -206,7 +171,6 @@ internal object YamlBinder {
     private fun bindRepositories(config: Value.Mapping): List<RawRepository> =
         config.value("repositories").asSequence("repositories").mapIndexed { index, value ->
             when (value) {
-                // A bare URL carries no id of its own; naming it is the interpret stage's job.
                 is Value.Scalar -> RawRepository(id = null, url = value.text)
                 is Value.Mapping -> RawRepository(
                     id = value.string("id"),
@@ -229,14 +193,8 @@ internal object YamlBinder {
         }
 
     /**
-     * A qualified section that is not an object, or whose values are malformed, is reported as a
-     * [io.heapy.ktctogradle.Diagnostic] and dropped by the stage that knows the module's platforms.
-     * The binder therefore binds such a section as empty and records no error, but it does record
-     * which keys the section got wrong, in declaration order, because that stage may not walk the
-     * YAML itself and a key such as `settings@jvm.foo.bar` has no field of its own to bind to.
-     *
-     * A `test-settings@` section binds under [Settings.test], exactly as the unqualified
-     * `test-settings:` does, so the two forms of the same three keys read the same afterwards.
+     * Qualified sections never defer failures: they bind what they can and record dropped keys for
+     * platform-aware diagnostics. `test-settings@` binds under [Settings.test].
      */
     private fun bindQualifiedSections(config: Value.Mapping): List<QualifiedSection> = buildList {
         for ((key, value) in config.entries) {
@@ -265,20 +223,13 @@ internal object YamlBinder {
                         }
                     },
                     unsupportedKeys = unsupportedKeys,
-                    // A test-settings@ section contributes no compiler option, so a key it got wrong
-                    // suppresses none either: it must not clear what a broader settings@ declared.
                     malformedOptions = if (test) emptySet() else malformedOptions(unsupportedKeys),
                 ),
             )
         }
     }
 
-    /**
-     * Every key of a qualified section the converter cannot carry into the Gradle build.
-     *
-     * Only `kotlin` has a Gradle equivalent per target, and only six of its keys; everything else is
-     * named by its leaf path so the diagnostic can point at the exact key that was dropped.
-     */
+    /** Names every unsupported qualified key by its leaf path. */
     private fun unsupportedKeys(settings: Value.Mapping): List<UnsupportedKey> = buildList {
         for ((section, value) in settings.entries) {
             if (section == "jvm") {
@@ -313,12 +264,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * `settings@<qualifier>.jvm`, of which only the `test` node reaches a Gradle task.
-     *
-     * A `jvm` that is not an object keeps the whole-node wording the walk gives every other section,
-     * because there is then no key underneath to point at.
-     */
+    /** Only the `test` child of a qualified `jvm` node reaches Gradle. */
     private fun unsupportedJvmKeys(node: Value): List<UnsupportedKey> {
         val jvm = node as? Value.Mapping
             ?: return leafPaths("jvm", node).map { UnsupportedKey(it, UnsupportedKey.UNSUPPORTED) }
@@ -333,12 +279,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * A `test-settings@<qualifier>` section, which carries the same three keys one level higher.
-     *
-     * `test-settings.jvm.release` is not among them: it reaches a *compilation* rather than a `Test`
-     * task, and a qualified one has no per-target spelling yet, so it is reported and dropped.
-     */
+    /** Qualified test settings support task options but not per-target compilation release. */
     private fun unsupportedTestSectionKeys(settings: Value.Mapping): List<UnsupportedKey> = buildList {
         for ((section, value) in settings.entries) {
             if (section == "jvm") {
@@ -349,14 +290,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * The three keys a Gradle `Test` task takes, reported by shape rather than by name.
-     *
-     * A malformed one binds to nothing just as an absent one does, so it has to be named here or it
-     * vanishes without a word. That holds one level down too: a list whose element or a map whose
-     * value is not a scalar binds to nothing either, so the element is named by its own index or key
-     * rather than the whole section being blamed for one entry.
-     */
+    /** Reports malformed task options at the offending list index or map key. */
     private fun testSettingKeys(prefix: String, node: Value): List<UnsupportedKey> {
         val test = node as? Value.Mapping ?: return listOf(UnsupportedKey(prefix, "must be an object"))
         return buildList {
@@ -388,28 +322,11 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * Which compiler options a section declared and got wrong, read off the same walk that reported
-     * them.
-     *
-     * The walk names the option each key stands for, so this only collects them. Deriving it from
-     * [UnsupportedKey.path] instead would read a literal `kotlin.languageVersion` key — one key of
-     * the section, dropped like any other — as the module getting `languageVersion` wrong, and a
-     * broader section's real value would be suppressed by a key that never contributed one.
-     *
-     * A dropped key that has no compiler option behind it — `settings@jvm.jvm.release`, an unknown
-     * `kotlin.foo` — is not listed: it overrides nothing because it contributes nothing either way.
-     */
+    /** Uses structural option metadata, not dotted display paths, to track malformed declarations. */
     private fun malformedOptions(keys: List<UnsupportedKey>): Set<String> =
         keys.flatMapTo(mutableSetOf(), UnsupportedKey::options)
 
-    /**
-     * Every scalar, list or empty node under [prefix], as the dotted path that reaches it.
-     *
-     * An empty object has no leaf under it, so it stands for itself. Recursing into it instead
-     * would return no path at all, and a key the module wrote would be dropped without a word —
-     * which is the one outcome this walk exists to prevent.
-     */
+    /** Treats an empty object as its own leaf so a written key cannot disappear from diagnostics. */
     private fun leafPaths(prefix: String, value: Value): List<String> =
         if (value is Value.Mapping && value.entries.isNotEmpty()) {
             value.entries.flatMap { (key, child) -> leafPaths("$prefix.$key", child) }
@@ -444,8 +361,6 @@ internal object YamlBinder {
                     jdkVersion = present.integer("jvm.jdk.version", "settings.", lenient, atLeast = JDK_FLOOR),
                     release = present.integer("jvm.release", "settings.", lenient),
                     mainClass = present.string("jvm.mainClass"),
-                    // A malformed argument list defers under its own region, so it is raised by the
-                    // interpreter that reads the test settings and not by an unrelated section.
                     testFreeJvmArgs = deferring(errors, Region.JVM_TEST_SETTINGS, emptyList()) {
                         present.stringList("jvm.test.freeJvmArgs", "settings.", lenient)
                     },
@@ -461,9 +376,7 @@ internal object YamlBinder {
             android = present.value("android")?.let {
                 AndroidSettings(
                     namespace = present.string("android.namespace"),
-                    // The bare level and the nested `compileSdk: { apiLevel: }` form bind to one
-                    // field, so which of the two the module wrote is decided before it is read: an
-                    // object is the nested form and not a level that failed to be an integer.
+                    // Select the scalar or nested spelling before integer validation.
                     compileSdk = if (present.value("android.compileSdk") is Value.Mapping) {
                         present.integer("android.compileSdk.apiLevel", "settings.", lenient, atLeast = ANDROID_FLOOR)
                     } else {
@@ -502,12 +415,6 @@ internal object YamlBinder {
         )
     }
 
-    /**
-     * `settings.publishing`, read whole.
-     *
-     * Nothing here defers: the section carries no value the converter has to reject, so a key it
-     * cannot use is reported by the interpret stage rather than failing the load.
-     */
     private fun bindPublishing(node: Value?, lenient: Boolean): PublishingSettings? {
         val mapping = node as? Value.Mapping ?: return null
         return PublishingSettings(
@@ -529,7 +436,6 @@ internal object YamlBinder {
             enabled = node.boolean("enabled"),
             publishingMode = node.string("publishingMode"),
         )
-        // The scalar form is the switch alone: `mavenCentral: enabled`.
         else -> MavenCentralSpec(enabled = node.scalarOrNull().let { it == "enabled" || it == "true" })
     }
 
@@ -572,13 +478,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * `scm` is either the object or the URL alone.
-     *
-     * The Toolchain derives both connection strings from that URL as `scm:git:<url>`, so the
-     * shorthand is expanded here rather than in the interpret stage: it is a spelling of the same
-     * section and not a decision the converter makes.
-     */
+    /** Expands Toolchain's scalar SCM shorthand while binding its syntax. */
     private fun bindScm(node: Value?): PomScm? = when (node) {
         null -> null
         is Value.Mapping -> PomScm(
@@ -591,13 +491,6 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * `settings.kotlin.compilerPlugins`, a list of third-party Kotlin compiler plugins.
-     *
-     * The Toolchain form has exactly three keys, so nothing here is dropped: `id` and `dependency`
-     * are required, and `options` is a map of strings. A qualified section binds leniently and takes
-     * the entries it can read, because it raises nothing.
-     */
     private fun bindCompilerPlugins(node: Value?, lenient: Boolean): List<CompilerPluginSpec> {
         if (node == null) return emptyList()
         val items = (node as? Value.Sequence)?.items
@@ -620,12 +513,7 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * A compiler plugin's `options`, which the compiler takes as a flat map of strings.
-     *
-     * Anything else is refused rather than coerced: an option silently bound to `""` reaches the
-     * compiler as a real setting, and the plugin behaves differently for a reason nothing names.
-     */
+    /** Refuses non-string plugin options instead of coercing them to behavior-changing empty values. */
     private fun compilerPluginOptions(node: Value?, path: String, lenient: Boolean): Map<String, String> {
         if (node == null) return emptyMap()
         val mapping = node as? Value.Mapping
@@ -665,10 +553,6 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * A list of scalars. In a qualified section a malformed list is dropped instead of reported;
-     * elsewhere it raises, quoting the path from the module root, hence [prefix].
-     */
     private fun Value.Mapping.stringList(path: String, prefix: String, lenient: Boolean): List<String> = if (lenient) {
         (value(path) as? Value.Sequence)?.items?.mapNotNull(Value::scalarOrNull).orEmpty()
     } else {
@@ -678,32 +562,15 @@ internal object YamlBinder {
     }
 
     /**
-     * A setting the Toolchain schema types as an integer, bound as the literal Kotlin spells it.
-     *
-     * The Gradle DSL takes these as bare integer literals, so anything else would be interpolated
-     * into a build script that does not parse, and the converter would report success for a project
-     * whose first `./gradlew` run fails on a syntax error. The Toolchain answers the same input with
-     * "Expected: integer"; this says the same thing at the same point, and names the key.
-     *
-     * The value is re-spelled rather than passed through, because the two languages accept different
-     * texts for the same number: the Toolchain reads `036` as `36`, and Kotlin rejects a leading zero
-     * outright. Re-spelling is what the Toolchain prints back, so it is also what the module meant.
-     *
-     * A qualified section drops what it cannot read rather than raising, hence [lenient].
-     *
-     * [atLeast] is the floor the Toolchain enforces on the setting, for the settings that have one.
-     * Being an integer is not yet being a usable one: the converter used to emit `jvmToolchain(0)`
-     * and report success for a build Gradle then refuses to configure. The floors are read off the
-     * Toolchain rather than off Gradle, because that is the authority on what the module may say —
-     * see [JDK_FLOOR] and [ANDROID_FLOOR].
+     * Validates integer literals before unquoted Gradle emission and normalizes spellings such as
+     * `036` to `36`. [atLeast] applies Toolchain's schema floor; [lenient] drops invalid qualified
+     * values instead of raising.
      */
     private fun Value.Mapping.integer(path: String, prefix: String, lenient: Boolean, atLeast: Int? = null): String? {
         val node = value(path)
         if (node == null || node is Value.Null) return null
         val text = node.scalarOrNull()
         text?.toIntOrNull()?.let { number ->
-            // The floor is checked against the number and not the text, so `020` is 20 here as it is
-            // to the Toolchain, and the message states it the unquoted way the Toolchain states it.
             if (atLeast != null && number < atLeast) {
                 if (lenient) return null
                 throw ConversionException("$prefix$path must be at least $atLeast, but was $number")
@@ -711,23 +578,11 @@ internal object YamlBinder {
             return number.toString()
         }
         if (lenient) return null
-        // A list or an object is reported without quoting a value, because there is no scalar the
-        // module wrote to quote back at it.
         val actual = if (text == null) "" else ", but was '$text'"
         throw ConversionException("$prefix$path must be an integer$actual")
     }
 
-    /**
-     * A map of scalars, read by the same rule as [stringList] one level down.
-     *
-     * A value that is not a scalar used to bind to `""`, so `systemProperty("mode", "")` reached the
-     * `Test` task as a real setting the module never wrote. It is refused instead: an entry the
-     * Toolchain types as a string and the module spelled as an object is a mistake, not an empty
-     * value. A YAML null is refused for the same reason the list refuses `[~]`.
-     *
-     * In a qualified section the entry is dropped rather than raised, hence [lenient]; the walk in
-     * [testSettingKeys] is what names it there.
-     */
+    /** Refuses non-scalar map values; qualified sections drop and report them through their key walk. */
     private fun Value.Mapping.stringMap(path: String, prefix: String, lenient: Boolean): Map<String, String> {
         val mapping = value(path) as? Value.Mapping ?: return emptyMap()
         return buildMap {
@@ -739,22 +594,8 @@ internal object YamlBinder {
         }
     }
 
-    /**
-     * The oldest JDK `settings.jvm.jdk.version` may name.
-     *
-     * Measured on Toolchain 0.12.0: every level below it is answered with "Unsupported JDK version
-     * <n>. Should be at least 17." while the project model is read. There is a ceiling too, but it
-     * is a property of the Kotlin compiler the module pins — "supports JDK up to 26" for 2.4.10 —
-     * rather than of the schema, so it is not restated here.
-     */
     private const val JDK_FLOOR = 17
 
-    /**
-     * The oldest Android API level `compileSdk`, `minSdk` and `targetSdk` may name.
-     *
-     * Measured on Toolchain 0.12.0, which answers each of the three with "Android version <n> is
-     * too old (should be at least 21)".
-     */
     private const val ANDROID_FLOOR = 21
 
     private const val SETTINGS_PREFIX = "settings@"
@@ -763,10 +604,6 @@ internal object YamlBinder {
 
     private val SCOPE_SUFFIX = Regex("^(.*):\\s+(all|compile-only|runtime-only|exported)$")
 
-    /**
-     * The top-level keys the converter refuses. `ProjectInterpreter` phrases these differently from
-     * the `settings.` paths below, so it reads this list rather than restating it.
-     */
     internal val UNSUPPORTED_KEYS = listOf("plugins", "mavenPlugins")
 
     private val UNSUPPORTED_SETTINGS = listOf(

@@ -23,12 +23,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
-/**
- * What a multiplatform module.yaml means, asserted as data instead of as generated text.
- *
- * The first case is a whole [MultiplatformBuild] compared by equality, so a field this stage stops
- * filling in fails the comparison instead of quietly leaving the generated script.
- */
 class MultiplatformInterpreterTest {
     @Test
     fun aBrowserApplicationBecomesOneTargetAndItsWebHierarchy() {
@@ -95,12 +89,6 @@ class MultiplatformInterpreterTest {
         assertEquals("25", jvm.jvmToolchain)
     }
 
-    /**
-     * Both JVM-flavoured targets compile against a JDK, so both need the toolchain pin.
-     *
-     * The android target also carries a `-Xjdk-release`, and the JDK Gradle happens to run on may
-     * not be able to supply that release at all.
-     */
     @Test
     fun theTwoJvmFlavouredTargetsShareTheToolchainAndTheRelease() {
         val declaration = "settings:\n  jvm:\n    jdk:\n      version: 25\n    release: 21\n" +
@@ -127,12 +115,6 @@ class MultiplatformInterpreterTest {
         assertNull(nativeOnly.jvmToolchain, "Nothing on a native-only module compiles against a JDK")
     }
 
-    /**
-     * `settings.junit` reaches the build, and `commonTest` keeps the plain Kotlin test library.
-     *
-     * That artifact resolves per platform, so it is the JVM-backed test tasks — and only them —
-     * that have a framework to choose. The renderer decides how to say so.
-     */
     @Test
     fun theTestFrameworkReachesTheBuildAndCommonTestKeepsTheKotlinTestLibrary() {
         fun buildOf(junit: String) = interpret(
@@ -152,13 +134,6 @@ class MultiplatformInterpreterTest {
         }
     }
 
-    /**
-     * The JUnit adapter is named on the JVM-backed test source sets, and only on those.
-     *
-     * `commonTest` cannot name one, because it also compiles for native. The generated
-     * `gradle.properties` stops the Kotlin Gradle Plugin from guessing the adapter from the `Test`
-     * task, so a module that does not say which one it wants would otherwise get none.
-     */
     @Test
     fun theJvmBackedTestSourceSetsNameTheJunitAdapterAndTheOthersDoNot() {
         fun buildOf(junit: String) = interpret(
@@ -183,8 +158,6 @@ class MultiplatformInterpreterTest {
                 dependenciesOf("  junit: junit-4\n", sourceSet),
                 "for $sourceSet",
             )
-            // `none` adds no adapter and takes the launcher instead: the module brings its own engine
-            // and the JUnit platform still has to be started for it.
             assertEquals(
                 listOf(
                     Dependency(
@@ -202,13 +175,6 @@ class MultiplatformInterpreterTest {
         }
     }
 
-    /**
-     * The `jvm()` target carries the test release; no other target has a JVM compilation to put on.
-     *
-     * A target's `compilerOptions` reach every compilation it has, so the test one inherits the main
-     * release and the renderer has to restate its own. Keeping both on [TargetKind.Jvm] is what lets
-     * it do that without looking the module up again.
-     */
     @Test
     fun theJvmTargetCarriesTheTestReleaseNextToTheMainOne() {
         val build = interpret(
@@ -239,12 +205,6 @@ class MultiplatformInterpreterTest {
         assertEquals(TargetKind.Native, build.targets.single { it.name == "linuxX64" }.kind)
     }
 
-    /**
-     * The `androidLibrary` target carries it too, and it has a JVM compilation of its own.
-     *
-     * A module on `[jvm, android]` compiles its tests twice. Carrying the release on one target and
-     * not the other would compile half of them against the wrong JDK API and say nothing about it.
-     */
     @Test
     fun theAndroidTargetCarriesTheTestReleaseAsWell() {
         val build = interpret(
@@ -275,7 +235,6 @@ class MultiplatformInterpreterTest {
         assertEquals("25", android.library.testRelease)
     }
 
-    /** A target inherits the module-wide options, so only the section that names it may add to them. */
     @Test
     fun aQualifiedSectionReachesItsOwnTargetAndNoOther() {
         val build = interpret(
@@ -301,11 +260,6 @@ class MultiplatformInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, build.qualifiedCompilerOptions)
     }
 
-    /**
-     * Two sections reaching the same leaf: the narrower one wins, including when what it declares is
-     * malformed. `settings@iosArm64` says the `apple` options do not apply to that target, so the
-     * target gets none — while its sibling, which the broken section never names, keeps them.
-     */
     @Test
     fun aMalformedNarrowerSectionClearsTheBroaderOneForItsOwnTargetOnly() {
         val build = interpret(
@@ -335,7 +289,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /** `settings@common` covers every platform, so it belongs to the module and not to a target. */
     @Test
     fun theCommonQualifierLandsOnTheModuleWideOptions() {
         val build = interpret(
@@ -357,7 +310,6 @@ class MultiplatformInterpreterTest {
         for (target in build.targets) assertEquals(CompilerOptions.EMPTY, target.compilerOptions, target.name)
     }
 
-    /** A narrower section is applied last, so it overrides the broader one covering the same leaf. */
     @Test
     fun aNarrowerQualifierOverridesABroaderOneCoveringTheSameLeaf() {
         val build = interpret(
@@ -384,13 +336,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * The leaf overrides the alias that names only it, because the alias is now above the leaf.
-     *
-     * `QualifiedSettings` ranks a section by where its fragment sits in the hierarchy, so placing a
-     * single-platform alias above its leaf decides this too: `settings@jvm` is the narrower of the
-     * two and wins, the way `settings@iosArm64` wins over `settings@ios`.
-     */
     @Test
     fun aPlatformQualifierOverridesTheAliasThatNamesOnlyThatPlatform() {
         val build = interpret(
@@ -419,17 +364,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * Two aliases that overlap without either containing the other and come out at the same
-     * depth are decided by name.
-     *
-     * Neither is the other's ancestor and nothing else in the module contains either, so the two
-     * come out at the same depth, where `KmpFragments` sorts by name and `QualifiedSettings` turns
-     * that order into precedence: `settings@zeta` wins over `settings@alpha` on the `jvm` leaf both
-     * cover, and the module cannot change that by declaring the aliases the other way round. The
-     * name only settles a tie at one depth — see the sibling test for the pair that depth decides —
-     * and only on a shared leaf: `android` still reads `alpha` and `js` still reads `zeta`.
-     */
     @Test
     fun twoOverlappingAliasesAreDecidedByNameRatherThanByDeclarationOrder() {
         val zetaFirst = interpret(
@@ -515,16 +449,6 @@ class MultiplatformInterpreterTest {
         }
     }
 
-    /**
-     * Depth settles an incomparable overlap before the name is even consulted.
-     *
-     * `linux` covers `[linuxX64, linuxArm64]` and the alias covers `[jvm, linuxX64]`: they overlap
-     * on `linuxX64` with neither containing the other, and `"linux"` sorts first, so name order
-     * alone would hand that leaf to the alias. It does not get it. `linux` waits for `native` while
-     * the alias hangs straight off `common`, so `linux` is emitted later and overrides — which is
-     * why the rule cannot be stated as "the name decides an incomparable pair". `jvm`, which the
-     * alias reaches alone, is untouched by any of it.
-     */
     @Test
     fun aDeeperFragmentOverridesAShallowerOneItOverlapsEvenWhenTheNameSaysOtherwise() {
         val build = interpret(
@@ -560,10 +484,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * A qualified section the converter cannot carry is reported key by key and dropped, never
-     * raised: the module still converts, and the user is told exactly what did not survive.
-     */
     @Test
     fun everyQualifiedKeyWithNoGradleEquivalentIsReportedAndDropped() {
         val diagnostics = DiagnosticCollector()
@@ -602,10 +522,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * The Android Gradle Plugin calls the unit-test source set of a multiplatform module
-     * `androidHostTest`; `androidTest` is its on-device suite, so tests placed there never run.
-     */
     @Test
     fun theAndroidUnitTestSourceSetIsNamedAndroidHostTest() {
         val build = interpret(
@@ -634,7 +550,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /** Only the directories a module actually has are declared, so Gradle is never given a missing one. */
     @Test
     fun onlyTheSourceDirectoriesThatExistReachTheSourceSets() {
         val build = interpret(
@@ -677,8 +592,6 @@ class MultiplatformInterpreterTest {
             listOf(Dependency(DependencyTarget.Maven("org.example:native-only:1.0"))),
             build.sourceSets.single { it.name == "nativeMain" }.dependencies,
         )
-        // The JUnit adapter the JVM-backed set gets anyway comes first: the module's own qualified
-        // dependencies follow it, in the order it declared them.
         assertEquals(
             listOf(
                 Dependency(DependencyTarget.KotlinBuiltin("test-junit5")),
@@ -698,7 +611,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /** A section the binder could not read raises its message here, at the point that reads it. */
     @Test
     fun aMalformedSettingsSectionRaisesItsDeferredMessage() {
         assertEquals(
@@ -714,10 +626,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * An alias qualifier names a set of platforms, so the section it labels reaches every target in
-     * that set — the Android one included — and no target outside it.
-     */
     @Test
     fun anAliasQualifiedSectionReachesEveryTargetItCovers() {
         val build = interpret(
@@ -750,7 +658,6 @@ class MultiplatformInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, build.targets.single { it.name == "linuxX64" }.compilerOptions)
     }
 
-    /** `settings.jvm.test` now reaches the module's `Test` tasks, so a malformed value is raised here. */
     @Test
     fun aMalformedJvmTestArgumentListFailsAMultiplatformModule() {
         assertEquals(
@@ -774,7 +681,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /** A module with no JVM-backed target applies nothing, so a value it got wrong must not fail it. */
     @Test
     fun aMalformedJvmTestArgumentListDoesNotFailAModuleWithoutAJvmBackedTarget() {
         val shared = module(
@@ -793,7 +699,6 @@ class MultiplatformInterpreterTest {
         assertEquals(JvmTestSettings.EMPTY, interpret(shared).testSettings)
     }
 
-    /** The JVM test settings of a module with no JVM-backed target reach no task, so they are reported. */
     @Test
     fun jvmTestSettingsWithoutAJvmBackedTargetAreReported() {
         val diagnostics = DiagnosticCollector()
@@ -827,7 +732,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /** `test-settings:` overrides `settings.jvm.test` key by key, and the rest of the base survives. */
     @Test
     fun jvmTestSettingsMergeTheTestSpecificSectionOverTheBaseOne() {
         val shared = module(
@@ -863,13 +767,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * An alias naming exactly one platform is still a fragment between `common` and that platform.
-     *
-     * It covers no more leaves than the platform's own source set does, so nothing but the leaf can
-     * depend on it: were it left beside the leaf instead of above it, `src@server` and
-     * `dependencies@server` would reach no compilation at all.
-     */
     @Test
     fun anAliasNamingOnePlatformBecomesThatPlatformsParent() {
         val build = interpret(
@@ -949,12 +846,6 @@ class MultiplatformInterpreterTest {
         dependencies = emptyList(),
     )
 
-    /**
-     * A platform-qualified JVM test setting reaches one target's `Test` task and not the others.
-     *
-     * The module-wide keys stay on the build, because they reach every JVM-backed target; only what
-     * a qualifier narrowed rides on the target, where the renderer has a task name to address.
-     */
     @Test
     fun aQualifiedJvmTestSettingReachesOneTargetOnly() {
         val build = interpret(
@@ -995,12 +886,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * An alias is a qualifier like any other, so it reaches every platform it covers.
-     *
-     * `settings@common` is the one qualifier that does not: it covers every platform, so it joins
-     * the module-wide block instead of being repeated on each target.
-     */
     @Test
     fun anAliasQualifierReachesEveryPlatformItCovers() {
         val build = interpret(
@@ -1035,12 +920,6 @@ class MultiplatformInterpreterTest {
         )
     }
 
-    /**
-     * A qualifier that names only platforms with no `Test` task has nowhere to put the settings.
-     *
-     * Reported rather than lost, which is the rule the module-wide keys already follow on a module
-     * with no JVM-backed target at all.
-     */
     @Test
     fun aQualifiedJvmTestSettingThatReachesNoTestTaskIsReportedAndDropped() {
         val diagnostics = DiagnosticCollector()

@@ -69,10 +69,6 @@ class ProjectRootTest {
         assertEquals(listOf("libs/one", "libs/two"), load(outer).modules.map { it.path.notation }.sorted())
     }
 
-    /**
-     * A recursive glob is refused rather than silently treated as a single-segment one, because a
-     * project that means `**` would otherwise convert a different set of modules than it asked for.
-     */
     @Test
     fun aRecursiveModuleGlobIsRejected() {
         val outer = Files.createTempDirectory("ktc-to-gradle-recursive-")
@@ -101,11 +97,6 @@ class ProjectRootTest {
         )
     }
 
-    /**
-     * An empty `modules:` list is the plainest way to reach the failure, and the message has to name
-     * the root and both places a module was looked for: the user cannot act on "selected by
-     * project.yaml" alone.
-     */
     @Test
     fun aProjectYamlListingNoModulesNamesTheRootItLookedIn() {
         val outer = Files.createTempDirectory("ktc-to-gradle-no-modules-")
@@ -119,10 +110,6 @@ class ProjectRootTest {
         )
     }
 
-    /**
-     * A directory named module.yaml used to reach okio as a bare "Is a directory", which escaped the
-     * conversion as an unexpected failure naming no path at all.
-     */
     @Test
     fun aModuleYamlThatIsNotARegularFileIsRejectedByName() {
         val outer = Files.createTempDirectory("ktc-to-gradle-module-dir-")
@@ -136,7 +123,6 @@ class ProjectRootTest {
         )
     }
 
-    /** A symlinked module.yaml resolves to a real file, so the regular-file check must not reject it. */
     @Test
     fun aSymlinkedModuleYamlStillLoads() {
         val outer = Files.createTempDirectory("ktc-to-gradle-module-link-")
@@ -146,13 +132,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), load(outer).modules.map { it.path.notation })
     }
 
-    /**
-     * With no project.yaml the Toolchain builds the single module it was pointed at, which
-     * `./kotlin show modules` confirms lists only the root one.
-     *
-     * A nested module.yaml under it is a sample or a fixture, so pulling it in would make
-     * `./gradlew build` compile code the Toolchain build never saw.
-     */
     @Test
     fun withoutAProjectYamlOnlyTheRootModuleIsLoaded() {
         val outer = Files.createTempDirectory("ktc-to-gradle-no-project-")
@@ -165,7 +144,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), project.modules.map { it.path.notation })
     }
 
-    /** Started inside the nested module, that module is the project, not the one above it. */
     @Test
     fun withoutAProjectYamlANestedModuleConvertsAsItsOwnProject() {
         val outer = Files.createTempDirectory("ktc-to-gradle-nested-start-")
@@ -180,10 +158,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), project.modules.map { it.path.notation })
     }
 
-    /**
-     * The project-less load reads the one module.yaml it already knows about instead of walking
-     * for others, so an unrelated subdirectory cannot fail a conversion it is not part of.
-     */
     @Test
     fun withoutAProjectYamlNoDirectoryBelowTheModuleIsListed() {
         val outer = Files.createTempDirectory("ktc-to-gradle-no-walk-")
@@ -203,10 +177,6 @@ class ProjectRootTest {
         assertEquals(emptyList(), listed.filter { it != root })
     }
 
-    /**
-     * `./kotlin show modules` on a zero-byte project.yaml beside a root module.yaml lists that root
-     * module, so an empty document is an empty project mapping and not a parse failure.
-     */
     @Test
     fun anEmptyProjectYamlLoadsTheRootModule() {
         val outer = Files.createTempDirectory("ktc-to-gradle-empty-doc-")
@@ -221,7 +191,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), project.modules.map { it.path.notation })
     }
 
-    /** A comment-only document carries no mapping either, and means the same empty project. */
     @Test
     fun aCommentOnlyProjectYamlLoadsTheRootModule() {
         val outer = Files.createTempDirectory("ktc-to-gradle-comment-doc-")
@@ -231,10 +200,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), load(outer).modules.map { it.path.notation })
     }
 
-    /**
-     * An empty ancestor project lists no modules, so it does not contain the module the conversion
-     * started from; the Toolchain falls back to that module, and so does the root walk.
-     */
     @Test
     fun anEmptyAncestorProjectYamlDoesNotBecomeTheRoot() {
         val outer = Files.createTempDirectory("ktc-to-gradle-empty-ancestor-")
@@ -248,10 +213,6 @@ class ProjectRootTest {
         assertEquals(listOf(""), project.modules.map { it.path.notation })
     }
 
-    /**
-     * A document that spells out `null` is not an empty one: `./kotlin show modules` answers it with
-     * "`null` value is unexpected here", so the emptiness allowance must not stretch to cover it.
-     */
     @Test
     fun aNullProjectYamlStillFails() {
         val outer = Files.createTempDirectory("ktc-to-gradle-null-doc-")
@@ -263,7 +224,6 @@ class ProjectRootTest {
         assertTrue(error.message!!.startsWith("Expected an object at "), error.message)
     }
 
-    /** An unreadable project.yaml is a failure, not an absent one: it must not be silently skipped. */
     @Test
     fun anUnparseableProjectYamlStillFails() {
         val outer = Files.createTempDirectory("ktc-to-gradle-broken-doc-")

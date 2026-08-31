@@ -25,12 +25,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * What an `android/app` module.yaml means, asserted as data instead of as generated text.
- *
- * The interpreter is pure, so the first case is a whole [AndroidBuild] compared by equality: a
- * field this stage stops filling in fails the comparison instead of quietly leaving the output.
- */
 class AndroidInterpreterTest {
     @Test
     fun anApplicationWithNoSettingsGetsTheConverterDefaults() {
@@ -54,12 +48,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * The same rule as on a `jvm/lib`: only `settings.junit: none` names the platform launcher.
-     *
-     * The Android Gradle Plugin runs its unit tests on Gradle's JUnit 4 runner unless the converted
-     * build asks for the platform, and asking for it without a launcher fails the task outright.
-     */
     @Test
     fun onlyJunitNoneNamesThePlatformLauncher() {
         fun testDependenciesOf(junit: String) =
@@ -119,7 +107,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /** Kotlin Toolchain accepts an object there, and its `apiLevel` is the level the scalar means. */
     @Test
     fun theNestedCompileSdkFormIsReadLikeTheScalarOne() {
         val nested = module(
@@ -158,10 +145,6 @@ class AndroidInterpreterTest {
         assertEquals("example.android", interpret(app).applicationId)
     }
 
-    /**
-     * The Android Gradle Plugin ships its own Kotlin, so a pinned version cannot take effect and
-     * the module is told so rather than being generated as if it had.
-     */
     @Test
     fun aPinnedKotlinVersionIsReportedAsIneffective() {
         val diagnostics = DiagnosticCollector()
@@ -181,7 +164,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /** The Kotlin plugin would fight the one the Android Gradle Plugin already applies. */
     @Test
     fun anAndroidApplicationNeverAppliesTheKotlinPlugin() {
         val app = module("app", "product: android/app\nsettings:\n  kotlin:\n    version: 2.4.10\n")
@@ -240,7 +222,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /** A section the binder could not read raises its message here, at the point that reads it. */
     @Test
     fun aMalformedSettingsSectionRaisesItsDeferredMessage() {
         val app = module("app", "product: android/app\nsettings:\n  kotlin:\n    optIns: nope\n")
@@ -287,12 +268,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * The android target of a `kmp/lib` reads the bytecode level the `jvm()` target reads.
-     *
-     * A module that publishes both must publish them at the same class-file version, and the
-     * Android Gradle Plugin picks its own default when nothing says otherwise.
-     */
     @Test
     fun aLibraryTargetTakesTheSameJvmReleaseAsTheJvmTarget() {
         fun releaseOf(jvmSettings: String) = AndroidInterpreter.libraryTarget(
@@ -310,7 +285,6 @@ class AndroidInterpreterTest {
         assertEquals(Defaults.JVM_JDK, releaseOf(""))
     }
 
-    /** A package segment is a Kotlin identifier, which a directory name is under no obligation to be. */
     @Test
     fun aDerivedNamespaceSanitisesEverySegmentIntoAnIdentifier() {
         assertEquals(
@@ -341,12 +315,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * `compileSdk` also has a nested `apiLevel` form, and a library target reads it.
-     *
-     * A deliberate departure from the pre-pipeline converter, which honoured the nested form only
-     * for `android/app` and silently fell back to the default for a `kmp/lib` android target.
-     */
     @Test
     fun aLibraryTargetReadsTheNestedCompileSdkForm() {
         val library = module(
@@ -369,10 +337,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * `compileSdk` is emitted unquoted, so a level that is not an integer would be emitted as a
-     * build script that does not parse. The failure is raised at conversion time and names the key.
-     */
     @Test
     fun aCompileSdkThatIsNotAnIntegerIsReported() {
         val app = module(
@@ -392,7 +356,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /** `settings.jvm.test` now reaches the unit-test task, so a malformed value is raised here. */
     @Test
     fun aMalformedJvmTestArgumentListFailsAnAndroidModule() {
         val app = module("app", "product: android/app\nsettings:\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
@@ -403,7 +366,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /** `test-settings:` overrides `settings.jvm.test` key by key, and the rest of the base survives. */
     @Test
     fun jvmTestSettingsMergeTheTestSpecificSectionOverTheBaseOne() {
         val app = module(
@@ -437,12 +399,6 @@ class AndroidInterpreterTest {
         )
     }
 
-    /**
-     * An `android/app` has one unit-test task, so a qualified section reaches the same one.
-     *
-     * It is read last, because declaring a key under a qualifier is how a module overrides what it
-     * said for every platform at once.
-     */
     @Test
     fun aQualifiedJvmTestSettingJoinsTheOneUnitTestTaskOfAnApplication() {
         val build = interpret(

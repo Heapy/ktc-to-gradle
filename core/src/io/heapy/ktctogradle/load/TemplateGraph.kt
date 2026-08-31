@@ -5,22 +5,10 @@ import okio.FileSystem
 import okio.Path
 
 /**
- * Resolves the `apply:` graph of a module.yaml into the single configuration it stands for.
- *
- * A template may apply further templates, and the same template may be reached along more than one
- * path, so the graph is walked depth first with the applied nodes visited before the node that
- * applies them: a module overrides its templates, and a template overrides the ones it applies.
- * Sequences concatenate in that order, which is why a diamond contributes its shared template once.
- *
- * Scalars are treated separately from that merge. Two templates that neither applies the other and
- * that give the same path different scalars are a conflict rather than a last-one-wins, so scalar
- * declarations are collected with the node that made them and compared afterwards.
+ * Resolves `apply` depth-first, dependencies before consumers and shared templates once. Sequences
+ * concatenate in that order; conflicting scalar values from unrelated templates are rejected.
  */
 internal class TemplateGraph(private val fileSystem: FileSystem) {
-    /**
-     * The merged configuration of [moduleFile], with [root] used only to phrase the messages and to
-     * resolve `//`-prefixed references.
-     */
     fun effectiveConfig(root: Path, moduleFile: Path): Value.Mapping {
         val cache = mutableMapOf<Path, ConfigNode>()
         val graphRoot = loadConfigGraph(root, moduleFile, moduleFile.parent!!, cache, mutableSetOf())
@@ -85,12 +73,7 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
         return ConfigNode(canonical, config.without("apply"), applied).also { cache[canonical] = it }
     }
 
-    /**
-     * Rewrites every repository credentials file to a path relative to the module that applies it.
-     *
-     * A template declares the file next to itself, but the generated script runs from the module
-     * directory, so the path only survives the merge if it is rebased onto the consumer.
-     */
+    /** Rebases template-relative credential files onto the consuming module. */
     private fun normalizeRepositoryCredentialPaths(
         config: Value.Mapping,
         root: Path,
@@ -119,10 +102,7 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
         return Value.Mapping(config.entries + ("repositories" to Value.Sequence(normalized)))
     }
 
-    /**
-     * [prefix] is the key path as a list of segments and never as a dotted string: a YAML key may
-     * itself contain a dot, and joining the path would make that key indistinguishable from nesting.
-     */
+    /** Keeps key paths segmented because a YAML key may itself contain a dot. */
     private fun collectScalarDeclarations(
         value: Value,
         node: ConfigNode,
@@ -139,15 +119,7 @@ internal class TemplateGraph(private val fileSystem: FileSystem) {
         }
     }
 
-    /**
-     * The key path as the module would have had to write it, for a message to quote.
-     *
-     * The segments are joined with a dot, so a segment that contains one is quoted: without that a
-     * literal `my.app.mode` key and a three-level nesting print the same text, and the message would
-     * point at a key the module never wrote. The quote and the backslash are escaped, and an empty
-     * key is quoted too, for the same reason the dot is: a bare segment then contains none of the
-     * three and is never empty, so no two paths can reach the same text.
-     */
+    /** Quotes dotted, empty, or escaped segments so diagnostic paths remain unambiguous. */
     private fun displayPath(path: List<String>): String =
         path.joinToString(".") { segment ->
             if (segment.isEmpty() || segment.any { it == '.' || it == '"' || it == '\\' }) {

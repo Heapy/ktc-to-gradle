@@ -15,9 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/** Which repositories a module ends up resolving from, asserted on the model and not on the DSL. */
 class RepositoriesTest {
-    /** Gradle resolves a repository once, so a repeated id must not be emitted twice. */
     @Test
     fun aRepositoryDeclaredTwiceKeepsOnlyItsLastDeclaration() {
         val model = model(
@@ -41,7 +39,6 @@ class RepositoriesTest {
         )
     }
 
-    /** A URL that differs from a default only by its trailing slash is still that default. */
     @Test
     fun aDefaultRepositoryRepeatedWithATrailingSlashIsNotEmittedTwice() {
         val model = model("product: jvm/lib\nrepositories:\n  - $MAVEN_CENTRAL/\n")
@@ -55,7 +52,6 @@ class RepositoriesTest {
         )
     }
 
-    /** The binder defers a malformed section; the stage that reads it is the one that raises it. */
     @Test
     fun aMalformedRepositoriesSectionRaisesItsDeferredMessage() {
         val model = model("product: jvm/lib\nrepositories:\n  - id: internal\n")
@@ -71,11 +67,6 @@ class RepositoriesTest {
         )
     }
 
-    /**
-     * `pluginManagement` is settled once for the whole build, so what one module resolves from has
-     * to reach it whatever its siblings declare — otherwise plugin resolution still asks the public
-     * repository a mirror exists to replace, or loses the mirror entirely.
-     */
     @Test
     fun everyRepositoryAnyModuleResolvesFromReachesPluginResolution() {
         val mirror = Repository("mavenCentral", "https://mirror.example/maven")
@@ -91,11 +82,6 @@ class RepositoriesTest {
         )
     }
 
-    /**
-     * Two modules mapping one id to different URLs keep both. Gradle renames the second repository
-     * rather than rejecting it, and dropping either would make a plugin only that module can reach
-     * unresolvable — a choice nothing in the Toolchain model justifies making silently.
-     */
     @Test
     fun oneIdMappedToTwoUrlsKeepsBoth() {
         val first = Repository("internal", "https://repo.example/first")
@@ -110,7 +96,6 @@ class RepositoriesTest {
         )
     }
 
-    /** A repository two modules both resolve from is one repository, not two identical ones. */
     @Test
     fun aRepositoryDeclaredByTwoModulesIsOfferedOnce() {
         val mirror = Repository("mavenCentral", "https://mirror.example/maven")
@@ -124,10 +109,6 @@ class RepositoriesTest {
         )
     }
 
-    /**
-     * The fold adds nothing of its own: a repository reaches plugin resolution because a module
-     * resolves from it, so one that every module turned off stays out.
-     */
     @Test
     fun onlyWhatAModuleResolvesFromReachesPluginResolution() {
         val mirror = Repository("mavenCentral", "https://mirror.example/maven")
@@ -138,10 +119,6 @@ class RepositoriesTest {
         )
     }
 
-    /**
-     * `file(...)` resolves against the module in `build.gradle.kts` and against the root in
-     * `settings.gradle.kts`, so the same declaration means two different paths.
-     */
     @Test
     fun aCredentialsFileIsRebasedOntoTheRootOfTheBuild() {
         val credentials = RepositoryCredentials("secrets.properties", "user", "password")
@@ -153,7 +130,6 @@ class RepositoriesTest {
         )
     }
 
-    /** The root module already writes the path the settings file needs, so it is left alone. */
     @Test
     fun aCredentialsFileDeclaredByTheRootModuleIsLeftAsItStands() {
         val credentials = RepositoryCredentials("secrets.properties", "user", "password")

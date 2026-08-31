@@ -11,23 +11,13 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.fail
 
-/**
- * Golden-file support for the whole-output snapshot suite.
- *
- * Baselines are read from and written to the source tree rather than the test runtime classpath,
- * because the update switch has to be able to rewrite them.
- */
+/** Uses source-tree baselines so update mode can rewrite them. */
 internal object Snapshots {
     const val UPDATE_ENV = "UPDATE_SNAPSHOTS"
     const val UPDATE_PROPERTY = "ktc.updateSnapshots"
     const val UPDATE_MARKER = ".update-snapshots"
 
-    /**
-     * The repository checkout this test runs from.
-     *
-     * The Toolchain runner does not guarantee a working directory, so the code source location of
-     * the test classes is tried as well; both sit inside the checkout.
-     */
+    /** Falls back to test code-source location because the runner does not guarantee a working directory. */
     fun repositoryRoot(): Path {
         val candidates = listOfNotNull(
             System.getProperty("user.dir")?.let(Paths::get),
@@ -45,23 +35,12 @@ internal object Snapshots {
 
     fun goldenRoot(): Path = repositoryRoot().resolve("core").resolve("testResources@jvm").resolve("golden")
 
-    /** Input trees of the five cases shared with the integration fixtures. */
     fun fixtureRoot(): Path = repositoryRoot().resolve("integration-tests").resolve("fixtures")
 
-    /**
-     * True when the baselines are to be rewritten instead of compared.
-     *
-     * Three mechanisms are accepted so that a runner which drops environment variables or system
-     * properties on the way to the forked test JVM still leaves a usable escape hatch.
-     */
+    /** Supports three triggers because runners may drop environment variables or JVM properties. */
     fun updateSnapshots(): Boolean = activeUpdateTrigger() != null
 
-    /**
-     * Which of the three switches asked for a rewrite, or `null` when none did.
-     *
-     * Named rather than reduced to a boolean because a leftover marker file inside the golden tree
-     * is otherwise undiagnosable: the suite would simply stop comparing.
-     */
+    /** Names the active trigger so a stale marker file is diagnosable. */
     fun activeUpdateTrigger(): String? = when {
         isEnabled(System.getenv(UPDATE_ENV)) -> "the $UPDATE_ENV environment variable"
         isEnabled(System.getProperty(UPDATE_PROPERTY)) -> "the -D$UPDATE_PROPERTY system property"
@@ -76,16 +55,7 @@ internal object Snapshots {
         runCatching { Paths.get(Snapshots::class.java.protectionDomain.codeSource.location.toURI()) }.getOrNull()
 }
 
-/**
- * Compares one generated file against its baseline in `core/testResources@jvm/golden/<case>/expected/`.
- *
- * Content is compared verbatim: `gradlew.bat` legitimately ends its lines with CRLF, so nothing is
- * normalised on the way in or out.
- *
- * Text and bytes take different paths only so a failure stays readable. `gradle-wrapper.jar` has no
- * line structure to diff, so a mismatch reports what changed about the bytes instead of printing
- * them.
- */
+/** Compares bytes verbatim, using readable text diffs and binary summaries without normalizing CRLF. */
 internal fun assertSnapshot(case: String, fileName: String, actual: FileContent) {
     when (actual) {
         is FileContent.Text -> assertSnapshot(case, fileName, actual.value)

@@ -10,13 +10,6 @@ import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
 import io.heapy.ktctogradle.model.JvmTestSettings
 
-/**
- * Turns an `android/app` module, and the `android` target of a multiplatform module, into the
- * Gradle build they stand for.
- *
- * The Android Gradle Plugin brings its own Kotlin compiler, so `settings.kotlin.version` decides
- * nothing here and saying so is the module's only Android-specific diagnostic.
- */
 internal object AndroidInterpreter {
     fun interpret(index: ModuleIndex, module: ToolchainModule, diagnostics: DiagnosticCollector): AndroidBuild {
         val model = module.model
@@ -40,18 +33,15 @@ internal object AndroidInterpreter {
         JvmInterpreter.warnAboutJunitPlatformVersion(module, diagnostics)
         val testDependencies = Dependencies.of(index, module, test = true, qualifiers = QUALIFIERS) +
             JvmInterpreter.platformLauncher(testFramework)
-        // Read last: the module's own pinned-Kotlin-version warning keeps its place ahead of the
-        // dropped-key ones a qualified section reports.
+        // Read last to keep the pinned-version warning ahead of qualified-section diagnostics.
         val qualified = QualifiedSettings.singlePlatform(module, "android", diagnostics)
         return AndroidBuild(
             namespace = namespace,
-            // An application id the module leaves out is the namespace, which is what the Toolchain
-            // installs the application under.
+            // Kotlin Toolchain defaults an omitted application id to the namespace.
             applicationId = android?.applicationId ?: namespace,
             compileSdk = compileSdk,
             minSdk = android?.minSdk ?: Defaults.ANDROID_MIN_SDK,
-            // Building against an SDK the application then refuses to target is never what a module
-            // meant, so the target level follows the compile level rather than a constant.
+            // Kotlin Toolchain defaults the target SDK to the compile SDK.
             targetSdk = android?.targetSdk ?: compileSdk,
             versionCode = android?.versionCode ?: Defaults.ANDROID_VERSION_CODE,
             versionName = android?.versionName ?: Defaults.ANDROID_VERSION_NAME,
@@ -61,13 +51,10 @@ internal object AndroidInterpreter {
             dependencies = dependencies,
             testDependencies = testDependencies,
             testFramework = testFramework,
-            // One `Test` task, so a section that names the module's only platform reaches the same
-            // task the module-wide keys do, and overrides them by being read last.
             testSettings = JvmInterpreter.testSettings(model) + qualified.testSettings,
         )
     }
 
-    /** The `androidLibrary { }` target of a multiplatform module that declares the `android` platform. */
     fun libraryTarget(
         module: ToolchainModule,
         testSettings: JvmTestSettings,
@@ -89,10 +76,7 @@ internal object AndroidInterpreter {
         )
     }
 
-    /**
-     * The Toolchain synthesizes an internal package when a module leaves the namespace out,
-     * but the Android Gradle Plugin insists on a real one, so derive a stable package here.
-     */
+    /** Derives a stable package because AGP requires a namespace while Kotlin Toolchain does not. */
     fun derivedNamespace(module: ToolchainModule): String {
         val segments = module.path.segments.ifEmpty { listOf(module.displayName) }
         val packageSegments = segments.map { segment ->
@@ -102,6 +86,5 @@ internal object AndroidInterpreter {
         return (Defaults.ANDROID_NAMESPACE_PREFIX + packageSegments).joinToString(".")
     }
 
-    /** The unqualified section and the `@android` one, in the order the Toolchain applies them. */
     private val QUALIFIERS = listOf("", "android")
 }

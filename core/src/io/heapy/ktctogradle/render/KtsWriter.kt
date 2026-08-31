@@ -1,9 +1,6 @@
 package io.heapy.ktctogradle.render
 
-/**
- * Emits Gradle Kotlin DSL text and owns the indentation, so a renderer never passes an indent
- * string around.
- */
+/** Emits Gradle Kotlin DSL while owning indentation. */
 internal class KtsWriter {
     private val builder = StringBuilder()
     private var level = 0
@@ -39,7 +36,6 @@ internal fun quote(value: String): String = buildString {
             '\\' -> append("\\\\")
             '"' -> append("\\\"")
             '$' -> append("\\$")
-            // A raw line break would end the literal, and a raw tab is unreadable in the output.
             '\n' -> append("\\n")
             '\r' -> append("\\r")
             '\t' -> append("\\t")

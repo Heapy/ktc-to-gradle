@@ -12,12 +12,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * The conversion carries no diagnostics between runs.
- *
- * Diagnostics are collected per run rather than held on the converter, so two runs in the same
- * process must report each project on its own.
- */
 class DiagnosticIsolationTest {
     @Test
     fun oneRunDoesNotCarryDiagnosticsIntoTheNext() {

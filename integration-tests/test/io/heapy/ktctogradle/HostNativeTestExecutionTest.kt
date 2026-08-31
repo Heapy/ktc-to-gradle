@@ -10,11 +10,6 @@ import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * The kmp-library fixture declares linuxX64, so only a Linux host executes its native tests.
- * On macOS this test re-points the fixture at the host native target, which keeps commonTest
- * assertions honest for every developer instead of only for CI.
- */
 class HostNativeTestExecutionTest {
     @Test
     fun commonTestsPassOnTheHostNativeTarget() {

@@ -5,54 +5,20 @@ import io.heapy.ktctogradle.load.Region
 import io.heapy.ktctogradle.load.ToolchainModel
 import io.heapy.ktctogradle.load.raiseDeferred
 
-/**
- * One source-set fragment of a multiplatform module, before it is split into a main and a test one.
- *
- * [platforms] is what makes a fragment comparable to another: a fragment is a parent of a second
- * one when it covers more leaf platforms, or — for a declared alias naming exactly one platform —
- * the same single leaf. That is how an alias finds its place in the default hierarchy without the
- * module having to say so.
- */
+/** A source-set fragment before it is split into main and test source sets. */
 internal data class KmpFragment(
     val name: String,
     val platforms: Set<String>,
-    /** `true` = part of Kotlin's default platform hierarchy rather than a declared alias. */
     val natural: Boolean,
     val parents: List<String> = emptyList(),
 )
 
-/**
- * The fragment hierarchy of a multiplatform module.
- *
- * Kotlin gives every platform a chain of natural ancestors (`linuxX64` -> `linux` -> `native` ->
- * `common`), and a module may add aliases of its own. Both kinds live in one hierarchy here, so a
- * source set only ever declares its direct parents and the ordering guarantees they already exist.
- */
+/** Combines Kotlin's default platform hierarchy with module-defined aliases. */
 internal object KmpFragments {
     /**
-     * Every fragment of the module, parents before children.
-     *
-     * The order is a topological one, with the fragments of one level sorted by name, so the same
-     * module always produces the same source-set order.
-     *
-     * It is also the precedence `QualifiedSettings` gives the `settings@<qualifier>` sections: a
-     * fragment later in this list overrides an earlier one on every leaf the two share. For a
-     * fragment and its ancestor that is the rule the Toolchain states — the narrower section wins.
-     * Two fragments that overlap without either containing the other are neither's ancestor, and
-     * then depth decides first and the name only after it. A fragment is emitted once every one of
-     * its parents is, so a third fragment containing one of the pair can push that one further down
-     * the list, and the deeper of the two is the one that wins. On `[jvm, linuxX64, linuxArm64]`
-     * with an alias `zdesktop: [jvm, linuxX64]` the two overlap on `linuxX64`, and `settings@linux`
-     * wins that leaf because `linux` waits for `native` while the alias hangs straight off `common`
-     * — the name would have said the opposite. Only between two fragments that come out at the same
-     * depth does the name settle it, comparing UTF-16 code units: with `zeta: [jvm, js]` and
-     * `alpha: [jvm, android]` and nothing above either, `settings@zeta` wins the shared `jvm` leaf
-     * whichever order the module declared the two aliases in.
-     *
-     * Both sections make a demand of one Gradle target and only one of them can be emitted, so
-     * something has to decide. This is the decision that keeps the output stable when the module is
-     * reordered, and is chosen for that rather than for meaning anything — an unrelated third
-     * fragment can flip the winner, which is how arbitrary the tie really is.
+     * Returns a stable topological order with parents before children and same-level ties sorted by
+     * name. `QualifiedSettings` also uses this order as precedence, so narrower sections win;
+     * incomparable overlaps are settled by depth and then name.
      */
     fun of(model: ToolchainModel, displayName: String): List<KmpFragment> {
         model.raiseDeferred(Region.ALIASES)
@@ -115,16 +81,10 @@ internal object KmpFragments {
         return ordered
     }
 
-    /**
-     * The qualifiers a single-platform product accepts, broadest first.
-     *
-     * A `jvm/app` has no fragment hierarchy of its own, but it still reads `settings@common` and
-     * `settings@jvm`, and it reads them in the same order a multiplatform module would.
-     */
+    /** Qualifiers accepted by a single-platform product, broadest first. */
     fun singlePlatform(platform: String): List<Pair<String, Set<String>>> =
         listOf(COMMON to setOf(platform), platform to setOf(platform))
 
-    /** Whether [ancestor] is reached by following [descendant]'s natural parent chain upwards. */
     private fun isNaturalAncestor(ancestor: String, descendant: String): Boolean {
         var current = NATURAL_PLATFORM_PARENTS[descendant]
         while (current != null) {
@@ -135,18 +95,8 @@ internal object KmpFragments {
     }
 
     /**
-     * Whether [candidate] is a parent of [fragment], directly or through others.
-     *
-     * `common` is above everything, a natural fragment is above its natural descendants, and any
-     * fragment covering strictly more platforms is above the ones it contains — which is what
-     * places an alias inside the default hierarchy.
-     *
-     * Size alone leaves an alias naming exactly one platform with nothing under it, because the
-     * leaf it names covers exactly as much as it does. Such an alias goes above that leaf instead,
-     * which is the only placement where the sources and dependencies it qualifies reach a
-     * compilation. It is deliberately the only equal-size case: an alias covering the same
-     * platforms as a grouping fragment such as `native` must not re-nest the natural hierarchy,
-     * and one covering every declared platform must not end up mutually broader with `common`.
+     * A single-platform alias is the only equal-size parent: it must sit above its leaf for its
+     * sources to reach a compilation, without re-nesting natural grouping fragments.
      */
     private fun isBroader(candidate: KmpFragment, fragment: KmpFragment): Boolean {
         if (candidate.name == COMMON && fragment.name != COMMON) return true
@@ -156,13 +106,11 @@ internal object KmpFragments {
         return !candidate.natural && isLeafPlatform(fragment)
     }
 
-    /** Whether [fragment] is a declared platform's own fragment, the bottom of the hierarchy. */
     private fun isLeafPlatform(fragment: KmpFragment): Boolean =
         fragment.natural && fragment.platforms.singleOrNull() == fragment.name
 
     const val COMMON = "common"
 
-    /** Kotlin's default platform hierarchy, as a child-to-parent map. */
     private val NATURAL_PLATFORM_PARENTS = mapOf(
         "jvm" to "common",
         "android" to "common",
@@ -200,7 +148,7 @@ internal object KmpFragments {
         "androidNativeX64" to "androidNative",
     )
 
-    /** The platforms Kotlin/Native compiles to a binary, which is what gives them their target DSL. */
+    /** Platforms that use the Kotlin/Native target DSL. */
     val NATIVE_TARGETS = setOf(
         "linuxX64", "linuxArm64", "macosX64", "macosArm64", "mingwX64", "iosX64", "iosArm64",
         "iosSimulatorArm64", "watchosArm32", "watchosArm64", "watchosDeviceArm64",

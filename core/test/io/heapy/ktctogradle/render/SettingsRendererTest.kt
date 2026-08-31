@@ -11,14 +11,6 @@ import okio.Path.Companion.toPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * Where a version catalog has to be declared, which is the one decision `settings.gradle.kts`
- * makes on its own.
- *
- * The golden baselines pin the file a project with a root catalog gets, but they cannot state that
- * a catalog under `gradle/` has to change nothing at all — no baseline can show the absence of a
- * block it never contained. That is what this suite says.
- */
 class SettingsRendererTest {
     @Test
     fun aCatalogNextToTheSettingsFileIsDeclared() {
@@ -55,12 +47,6 @@ class SettingsRendererTest {
         )
     }
 
-    /**
-     * Gradle compiles `pluginManagement { }` on its own, ahead of the rest of the settings file and
-     * without its import list, so a settings script that imports `java.util.Properties` and then
-     * writes `Properties()` inside the block fails to compile with an unresolved reference. Nothing
-     * about the emitted bytes says why the name has to be written out in full, so it is said here.
-     */
     @Test
     fun credentialsInPluginManagementNameTheirTypeInFull() {
         assertEquals(

@@ -17,10 +17,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * Plugin resolution is a pure `List<ToolchainModel> -> versions` function, so every case here is a
- * hand-built model and an `assertEquals`. No filesystem, no YAML.
- */
 class PluginResolutionTest {
     @Test
     fun higherNumericPartWins() {
@@ -62,7 +58,6 @@ class PluginResolutionTest {
         assertEquals(emptyList(), diagnostics.collected())
     }
 
-    /** The pin decides the version, and the module that would have taken the default is told so. */
     @Test
     fun anExplicitPinWinsOverTheDefaultEvenWhenItIsLower() {
         val diagnostics = DiagnosticCollector()

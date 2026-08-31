@@ -10,19 +10,12 @@ import io.heapy.ktctogradle.model.RepositoryCredentials
 import io.heapy.ktctogradle.model.RepositoryShorthand
 import okio.Path
 
-/**
- * Which repositories a module resolves its dependencies from.
- *
- * Kotlin Toolchain implies Maven Central and Google unless a module names them itself, and a module
- * may turn a repository off rather than replace it, so the effective list is a decision and not a
- * copy of the YAML.
- */
+/** Applies Kotlin Toolchain's implied repositories and explicit disable/override semantics. */
 internal object Repositories {
     fun of(model: ToolchainModel): List<Repository> {
         model.raiseDeferred(Region.REPOSITORIES)
         val configured = model.repositories.map { raw -> raw to identify(raw) }
-        // Ids are settled before the resolve filter, so disabling a default by its URL still keeps
-        // the implied one from coming back.
+        // Identify before filtering so disabling a default does not let the implied copy return.
         val configuredIds = configured.mapTo(mutableSetOf()) { (_, id) -> id }
         val defaults = listOf(
             Repository(
@@ -45,23 +38,9 @@ internal object Repositories {
     }
 
     /**
-     * Where Gradle resolves the build's plugins from.
-     *
-     * A repository is declared per module, but `pluginManagement` is settled once for the whole
-     * build, so this is the union of what the modules resolve from, in visit order. Without it a
-     * project that mirrors Maven Central still reaches `plugins.gradle.org` and `maven.google.com`
-     * while Gradle evaluates the settings file, which is before any correctly mirrored dependency
-     * matters.
-     *
-     * Repeats are dropped by value rather than by id, so nothing a module declared is lost: two
-     * modules mapping one id to different URLs both reach plugin resolution, and Gradle gives the
-     * second repository a unique name of its own. Dropping one of them instead would make a plugin
-     * only that module can reach unresolvable, and the model says nothing about which should win.
-     * The consequence is that a project where one module mirrors Maven Central and another does not
-     * offers both — which is what those two modules asked for.
-     *
-     * A credentials file is written relative to the module that consumes it and
-     * `settings.gradle.kts` resolves `file(...)` against the root, so the path is rebased here.
+     * Unions module repositories for `pluginManagement`, deduplicating by full value rather than id
+     * so conflicting id-to-URL mappings are not silently discarded. Credential paths are rebased
+     * from each module to the root settings file.
      */
     fun forPlugins(root: Path, modules: List<GradleModule>): List<Repository> = modules
         .flatMap { module -> module.repositories.map { rebaseCredentials(root, module, it) } }
@@ -69,8 +48,7 @@ internal object Repositories {
 
     private fun rebaseCredentials(root: Path, module: GradleModule, repository: Repository): Repository {
         val credentials = repository.credentials ?: return repository
-        // okio splits a path into separator-free segments, so the result is `/`-joined on every
-        // host: a settings file generated on Windows stays readable by a build running anywhere.
+        // Join okio segments explicitly so generated paths always use `/`.
         val prefix = module.directory.relativeTo(root).segments.filter { it != "." }
         if (prefix.isEmpty()) return repository
         return repository.copy(
@@ -78,24 +56,12 @@ internal object Repositories {
         )
     }
 
-    /**
-     * Whether the generated script has to import `java.util.Properties`.
-     *
-     * Declared repositories are counted, not resolved ones: a repository that is only published to
-     * still needs its credentials read.
-     */
+    /** Counts declared repositories because publish-only credentials still need the import. */
     fun requiresCredentialsImport(model: ToolchainModel): Boolean {
         model.raiseDeferred(Region.REPOSITORIES)
         return model.repositories.any { it.credentials != null }
     }
 
-    /**
-     * Where a module publishes to, which is not where it resolves from.
-     *
-     * `of` supplies Maven Central and Google when a module names none, and neither is somewhere a
-     * build may upload to, so this list is the module's own `publish: true` declarations and has no
-     * default to fall back to.
-     */
     fun forPublishing(model: ToolchainModel): List<Repository> {
         model.raiseDeferred(Region.REPOSITORIES)
         return model.repositories.filter { it.publish }.map { raw -> repository(raw, identify(raw)) }
@@ -104,10 +70,6 @@ internal object Repositories {
     private fun identify(raw: RawRepository): String =
         raw.id ?: defaultRepositoryId(raw.url) ?: raw.url
 
-    /**
-     * A repository written as a plain URL has no id of its own, so a module that repeats a default
-     * repository would otherwise be treated as a separate one and emitted next to it.
-     */
     private fun defaultRepositoryId(url: String): String? = when (url.trimEnd('/')) {
         Defaults.MAVEN_CENTRAL_URL -> MAVEN_CENTRAL_ID
         Defaults.GOOGLE_MAVEN_URL -> MAVEN_GOOGLE_ID
@@ -136,11 +98,9 @@ internal object Repositories {
         )
     }
 
-    /** The ids Kotlin Toolchain gives the repositories it implies; a module names them to turn one off. */
     private const val MAVEN_CENTRAL_ID = "mavenCentral"
 
     private const val MAVEN_GOOGLE_ID = "mavenGoogle"
 
-    /** Written in the `url` position rather than as an id, which is how the Toolchain spells it. */
     private const val MAVEN_LOCAL_ID = "mavenLocal"
 }

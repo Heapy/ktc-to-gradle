@@ -9,12 +9,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/**
- * The fragment hierarchy of a multiplatform module, asserted as data.
- *
- * The generated source sets are emitted in exactly this order and declare exactly these parents, so
- * a whole-list `assertEquals` is what pins the hierarchy rather than a spot check on one fragment.
- */
 class KmpFragmentsTest {
     @Test
     fun aDeclaredPlatformBringsItsWholeNaturalAncestry() {
@@ -30,10 +24,6 @@ class KmpFragmentsTest {
         )
     }
 
-    /**
-     * An alias is placed by the platforms it covers, so it needs no parent of its own: `desktop`
-     * hangs off `common`, and the leaves it covers gain it as a second parent.
-     */
     @Test
     fun anAliasFindsItsPlaceByThePlatformsItCovers() {
         val fragments = fragments(
@@ -54,13 +44,6 @@ class KmpFragmentsTest {
         assertEquals(listOf("native", "posix"), fragments.getValue("apple").parents)
     }
 
-    /**
-     * An alias naming exactly one platform sits between that platform and its natural parent.
-     *
-     * It covers no more leaves than the platform's own fragment, so the size comparison alone would
-     * leave it beside the leaf with nothing depending on it. A native leaf keeps its natural chain
-     * and gains the alias as a second parent; the grouping fragments above it are untouched.
-     */
     @Test
     fun anAliasNamingOnePlatformIsThatPlatformsParent() {
         val jvmAlias = fragments("[jvm, linuxX64]", "aliases:\n  - server: [jvm]\n").associateBy(KmpFragment::name)
@@ -82,13 +65,6 @@ class KmpFragmentsTest {
         assertEquals(listOf("native"), nativeAlias.getValue("linux").parents)
     }
 
-    /**
-     * An alias covering every declared platform stays under `common` rather than beside it.
-     *
-     * `common` is above everything by name, so an alias that covers exactly as much must not be
-     * made broader than `common` in turn: the two would then be mutually broader, each would drop
-     * the other from the leaves' direct parents, and the leaves would be left with no parent.
-     */
     @Test
     fun anAliasCoveringEveryDeclaredPlatformStaysUnderCommon() {
         assertEquals(
@@ -104,10 +80,6 @@ class KmpFragmentsTest {
         )
     }
 
-    /**
-     * The order is topological — every parent precedes its children — and total: fragments that
-     * become available together are sorted by name, so the same module never reorders its output.
-     */
     @Test
     fun theOrderIsTopologicalAndTotal() {
         val aliases = "aliases:\n  - desktop: [jvm, linuxX64]\n  - posix: [linuxX64, macosArm64]\n"
@@ -151,7 +123,6 @@ class KmpFragmentsTest {
         )
     }
 
-    /** The binder defers a malformed `aliases:` section, so its message is raised here. */
     @Test
     fun aMalformedAliasesSectionRaisesItsDeferredMessage() {
         assertEquals(
@@ -160,7 +131,6 @@ class KmpFragmentsTest {
         )
     }
 
-    /** A single-platform product has no hierarchy, but it still reads both of its qualifiers. */
     @Test
     fun aSinglePlatformProductAcceptsCommonAndItsOwnQualifier() {
         assertEquals(

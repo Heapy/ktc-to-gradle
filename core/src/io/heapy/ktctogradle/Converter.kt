@@ -14,20 +14,7 @@ import io.heapy.ktctogradle.write.FileWriter
 import okio.FileSystem
 import okio.Path
 
-/**
- * Runs the conversion as four stages: load, interpret, render, write.
- *
- * The file system reaches only the first and the last of them; interpreting and rendering are pure
- * functions of what the load stage recorded.
- */
 class Converter(private val fileSystem: FileSystem = systemFileSystem) {
-    /**
-     * Renders the whole build without touching the destination tree.
-     *
-     * The golden-snapshot suite drives the converter through this, so that a case is converted the
-     * way a real run converts it — through the same [fileSystem] — and only the write stage is left
-     * out.
-     */
     internal fun generateFiles(start: Path): GenerationResult =
         generateBuild(ProjectLoader(fileSystem).load(start))
 
@@ -43,13 +30,6 @@ class Converter(private val fileSystem: FileSystem = systemFileSystem) {
     }
 }
 
-/**
- * Stages 2 and 3: interprets a loaded project and renders every file of the Gradle build.
- *
- * Kept apart from [Converter] because neither stage may touch a file system: this function is
- * handed no `FileSystem`, so a renderer that wanted one would have to reach for the platform
- * default by hand instead of using what it was passed.
- */
 internal fun generateBuild(project: ToolchainProject): GenerationResult {
     val diagnostics = DiagnosticCollector()
     // A failure discards the collector with the stage that owned it, so what was already reported
@@ -63,13 +43,6 @@ internal fun generateBuild(project: ToolchainProject): GenerationResult {
     return GenerationResult(renderProject(gradle), diagnostics.collected())
 }
 
-/**
- * Every file the build consists of, in the order a conversion reports them.
- *
- * Settings first, then one script per module in project order, then the wrapper and its
- * properties. A caller diffing two runs reads the list top to bottom, and the golden baselines
- * compare it as written.
- */
 private fun renderProject(project: GradleProject): List<GeneratedFile> = buildList {
     add(GeneratedFile(project.root / "settings.gradle.kts", FileContent.Text(renderSettings(project))))
     for (module in project.modules) {
@@ -79,19 +52,9 @@ private fun renderProject(project: GradleProject): List<GeneratedFile> = buildLi
     add(GeneratedFile(project.root / "gradlew.bat", FileContent.Text(GradleWrapperAssets.windowsLauncher())))
     val wrapperDirectory = project.root / "gradle" / "wrapper"
     add(GeneratedFile(wrapperDirectory / "gradle-wrapper.properties", FileContent.Text(StaticAssets.wrapperProperties())))
-    // The jar is the wrapper: the two scripts do nothing but run it. It carries no ownership
-    // marker of its own, so it points at the properties file beside it instead.
-    //
-    // That is the closest approximation of the marker contract a file which cannot self-report
-    // allows, and it is weaker than the contract a text file gets: a text file is vouched for by
-    // its own bytes, so replacing it wholesale removes the marker and protects it, while a jar is
-    // vouched for out-of-band and a replaced one is still claimed by the untouched properties
-    // beside it. A user who swaps in a corporate-signed or CVE-patched jar therefore loses it on
-    // the next run. Recording our own hash in gradle-wrapper.properties would close that gap and
-    // is refused on purpose: the wrapper files are Gradle's, not ours, and a converter that
-    // refused any jar it did not write could no longer heal a truncated or stale one — a worse
-    // failure mode for far more users. The asymmetry is paid in the README instead, where the
-    // rule is stated for the user who needs to know it.
+    // A binary cannot carry the ownership marker, so the jar follows the adjacent properties file.
+    // This intentionally replaces a manually swapped jar while that companion remains generated;
+    // README.md documents the user-visible consequence.
     add(
         GeneratedFile(
             wrapperDirectory / "gradle-wrapper.jar",

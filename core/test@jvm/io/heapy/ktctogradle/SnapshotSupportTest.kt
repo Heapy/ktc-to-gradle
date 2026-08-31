@@ -11,7 +11,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Self-checks for the golden harness: a snapshot net that cannot fail proves nothing. */
 class SnapshotSupportTest {
     @Test
     fun theRepositoryRootHoldsTheProjectFile() {
@@ -21,11 +20,6 @@ class SnapshotSupportTest {
         assertTrue(root.resolve("core").resolve("module.yaml").exists(), "$root does not look like this repository")
     }
 
-    /**
-     * The safety net can switch itself off: three separate triggers put the suite into rewrite mode,
-     * and a rewriting run deletes each `expected/` directory before regenerating it. Nothing else in
-     * the suite would notice, so this is the test that does.
-     */
     @Test
     fun aNormalRunComparesTheBaselinesInsteadOfRewritingThem() {
         val trigger = Snapshots.activeUpdateTrigger()
@@ -79,7 +73,6 @@ class SnapshotSupportTest {
         assertEquals("fresh\n", goldenRoot.resolve("case/expected/build.gradle.kts").readText())
     }
 
-    /** `gradlew.bat` is generated with CRLF endings, so the harness must not normalise them away. */
     @Test
     fun carriageReturnsAreASnapshotDifference() {
         val goldenRoot = Files.createTempDirectory("ktc-to-gradle-snapshot-crlf-")

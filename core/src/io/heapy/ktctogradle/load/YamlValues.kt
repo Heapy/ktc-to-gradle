@@ -25,14 +25,7 @@ internal fun parseYaml(text: String, source: String): Value.Mapping {
     return node.toValue().asMapping(source)
 }
 
-/**
- * Parses a document that is allowed to carry nothing, and reads that as an empty mapping.
- *
- * kaml refuses a document with no content node — a zero-byte or comment-only file — outright, while
- * the Toolchain reads every top-level value it cannot find as absent and carries on. Every other
- * malformed document still fails, and so does a document that spells out `null`: the Toolchain
- * rejects that one too.
- */
+/** Treats zero-byte and comment-only documents as empty mappings, matching Kotlin Toolchain. */
 internal fun parseYamlAllowingAnEmptyDocument(text: String, source: String): Value.Mapping {
     val node = try {
         Yaml.default.parseToYamlNode(text)
@@ -104,4 +97,3 @@ internal fun mergeValues(lower: Value, higher: Value): Value = when {
     lower is Value.Sequence && higher is Value.Sequence -> Value.Sequence(lower.items + higher.items)
     else -> higher
 }
-

@@ -32,11 +32,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * The binder is a pure `String -> ToolchainModel` function, so every case here is a whole-model or
- * whole-section `assertEquals`. Its defining property is that it never throws: a region the YAML
- * gets wrong is bound as absent and its message is deferred into [ToolchainModel.errors].
- */
 class YamlBinderTest {
     @Test
     fun bindsTheScalarProductForm() {
@@ -66,7 +61,6 @@ class YamlBinderTest {
         assertEquals(listOf("mingwX64"), bind("product: windows/app").product.platforms)
     }
 
-    /** A third form is neither a string nor an object, and fails exactly as `product()` fails today. */
     @Test
     fun defersTheFailureOfAProductThatIsNeitherStringNorObject() {
         val model = bind("product: [jvm/app]")
@@ -147,11 +141,6 @@ class YamlBinderTest {
         assertEquals(emptyList(), model.dependencies.getValue(""))
     }
 
-    /**
-     * A scope is only judged by the stage that reads the section, so its failure defers under the
-     * content key and not under the section key the load stage gates on. The section still binds to
-     * the notation it named, which is what lets the load stage resolve a local reference either way.
-     */
     @Test
     fun defersTheFailureOfAnUnknownDependencyScopeUnderTheContentKey() {
         val model = bind("product: jvm/lib\ndependencies:\n  - org.example:one:1.0: sometimes\n")
@@ -164,7 +153,6 @@ class YamlBinderTest {
         assertEquals(listOf(RawDependency("org.example:one:1.0")), model.dependencies.getValue(""))
     }
 
-    /** One bad section must not take the others down, so each dependency key defers on its own. */
     @Test
     fun defersDependencyFailuresPerQualifiedSection() {
         val model = bind(
@@ -273,13 +261,6 @@ class YamlBinderTest {
         )
     }
 
-    /**
-     * `settings.publishing`, in the shape a real published module writes it.
-     *
-     * The two shorthands are the point of the case: `mavenCentral` is a switch or an object, and
-     * `scm` is the URL alone or the object. The Toolchain expands the URL form into both connection
-     * strings, so that expansion belongs to the spelling of the section and is done here.
-     */
     @Test
     fun bindsThePublishingSectionIncludingBothShorthands() {
         val nested = bind(
@@ -383,10 +364,6 @@ class YamlBinderTest {
         assertNull(bind("product: jvm/lib\nsettings:\n  kotlin:\n    version: 2.4.10\n").settings.publishing)
     }
 
-    /**
-     * `settings.jvm.test.junitPlatformVersion`, which is bound so the interpret stage can drop it
-     * out loud rather than silently.
-     */
     @Test
     fun bindsTheJunitPlatformVersion() {
         assertEquals(
@@ -399,7 +376,6 @@ class YamlBinderTest {
         )
     }
 
-    /** `test-settings.jvm.release`, which is bound apart from `settings.jvm.release`. */
     @Test
     fun bindsTheTestSettingsRelease() {
         assertEquals(
@@ -656,7 +632,6 @@ class YamlBinderTest {
         assertNull(model.settings.kotlin)
     }
 
-    /** An option bound to `""` would reach the compiler as a real setting, so it is refused instead. */
     @Test
     fun defersTheFailureOfCompilerPluginOptionsThatAreNotStrings() {
         val notAMap = bind(
@@ -734,8 +709,6 @@ class YamlBinderTest {
             KotlinSettings(allWarningsAsErrors = false, progressiveMode = true),
             model.qualifiedSections.section("settings@linuxX64").settings?.kotlin,
         )
-        // A `test-settings@` section carries no compiler option, so `kotlin` there is a dropped key
-        // and not a value that overrides the broader `settings@` one by being restated.
         assertEquals(
             QualifiedSection(
                 key = "test-settings@jvm",
@@ -749,12 +722,6 @@ class YamlBinderTest {
         )
     }
 
-    /**
-     * The three keys a Gradle `Test` task takes, in both of the spellings a qualifier has.
-     *
-     * They bind to the same two fields the unqualified `settings.jvm.test` and `test-settings:`
-     * bind to, which is what lets the interpret stage read a section by the rule it already has.
-     */
     @Test
     fun bindsTheJvmTestKeysOfBothQualifiedSpellings() {
         val model = bind(
@@ -800,13 +767,6 @@ class YamlBinderTest {
         assertEquals(emptyList(), model.qualifiedSections.section("test-settings@android").unsupportedKeys)
     }
 
-    /**
-     * A dropped key written as an empty object is still a key the module wrote.
-     *
-     * The walk names the leaf it reaches, and an empty mapping has no leaf under it, so it has to
-     * stand for itself: without that the key binds to nothing and is reported as nothing, which is
-     * the one outcome the walk exists to prevent.
-     */
     @Test
     fun reportsADroppedKeyThatWasWrittenAsAnEmptyObject() {
         val model = bind(
@@ -833,10 +793,6 @@ class YamlBinderTest {
         )
     }
 
-    /**
-     * A malformed one of those three binds to nothing, exactly as an absent one does, so the shape
-     * it got wrong is named rather than left to disappear.
-     */
     @Test
     fun namesTheShapeAMalformedJvmTestKeyGotWrong() {
         val model = bind(
@@ -872,10 +828,6 @@ class YamlBinderTest {
         )
     }
 
-    /**
-     * The shape being right is not the whole check: an element of the list or a value of the map has
-     * to be a scalar too, or it reaches the `Test` task as an argument nobody wrote.
-     */
     @Test
     fun reportsANonScalarElementOfAnUnqualifiedJvmTestList() {
         val model = bind(
@@ -917,10 +869,6 @@ class YamlBinderTest {
         assertEquals(emptyList(), model.settings.test?.freeJvmArgs)
     }
 
-    /**
-     * A nested value used to bind to `""`, which reaches Gradle as `systemProperty("mode", "")` — a
-     * setting the module never wrote, and one nothing else would have named.
-     */
     @Test
     fun reportsANonScalarValueOfAnUnqualifiedJvmTestMap() {
         val model = bind(
@@ -962,10 +910,6 @@ class YamlBinderTest {
         assertEquals(emptyMap(), model.settings.test?.extraEnvironment)
     }
 
-    /**
-     * A qualified section raises nothing, so the same two failures are named by the walk that
-     * reports its dropped keys, one entry at a time: the rest of the list or map still binds.
-     */
     @Test
     fun namesTheNonScalarEntriesAQualifiedJvmTestKeyCarries() {
         val model = bind(
@@ -1013,12 +957,6 @@ class YamlBinderTest {
         assertEquals(emptyMap(), model.errors)
     }
 
-    /**
-     * A malformed qualified section is warned about and dropped by the stage that knows which
-     * platforms the module has — the wording of those diagnostics is pinned by the
-     * `qualified-settings` golden case. Binding must therefore stay silent about it: no exception
-     * and no deferred error, only an absent section.
-     */
     @Test
     fun dropsMalformedQualifiedSectionsWithoutFailingOrDeferring() {
         val model = bind(
@@ -1043,11 +981,6 @@ class YamlBinderTest {
         assertEquals(emptyMap(), model.errors)
     }
 
-    /**
-     * A key of a qualified section has no field to bind to unless the model knows it, so the binder
-     * records the ones it had to drop. The stage that reports them may not walk the YAML itself, and
-     * the wording and the order of those diagnostics are pinned by the `qualified-settings` golden.
-     */
     @Test
     fun recordsEveryDroppedKeyOfAQualifiedSectionInDeclarationOrder() {
         val model = bind(
@@ -1089,15 +1022,11 @@ class YamlBinderTest {
             listOf(UnsupportedKey("kotlin", "must be an object", QualifiedOption.ALL)),
             model.qualifiedSections.section("settings@linuxX64").unsupportedKeys,
         )
-        // `test-settings.jvm.release` reaches a compilation rather than a `Test` task, and a
-        // qualified one has no per-target spelling, so it stays a dropped key.
         assertEquals(
             listOf(UnsupportedKey("jvm.release", UnsupportedKey.UNSUPPORTED)),
             model.qualifiedSections.section("test-settings@jvm").unsupportedKeys,
         )
 
-        // Only the dropped keys that stand for a compiler option override a broader section; a
-        // `kotlin` node that is not an object stands for all six of them at once.
         assertEquals(
             setOf("languageVersion", "allWarningsAsErrors", "freeCompilerArgs"),
             model.qualifiedSections.section("settings@jvm").malformedOptions,
@@ -1109,12 +1038,6 @@ class YamlBinderTest {
         assertEquals(emptySet(), model.qualifiedSections.section("test-settings@jvm").malformedOptions)
     }
 
-    /**
-     * A YAML key may itself contain a dot, so a literal `kotlin.languageVersion` is one key of the
-     * section and not the `languageVersion` under `kotlin`. It is dropped like any other key the
-     * converter has no field for, and dropping it must not pass for declaring the option: the
-     * broader section's value is the one the module wrote and the only one left.
-     */
     @Test
     fun aLiteralDottedKeyIsDroppedWithoutSuppressingTheOptionItSpellsOut() {
         val model = bind(
@@ -1181,7 +1104,6 @@ class YamlBinderTest {
         )
     }
 
-    /** A bare `plugins:` key parses to null, and is still a declared key that must be rejected. */
     @Test
     fun recordsAnUnsupportedKeyThatCarriesNoValue() {
         assertEquals(listOf("plugins"), bind("product: jvm/lib\nplugins:\n").unsupported)
@@ -1224,7 +1146,6 @@ class YamlBinderTest {
         )
     }
 
-    /** The module misspelled one key, so the report names that key and not every leaf beneath it. */
     @Test
     fun recordsAnUnreadKeyWithoutDescendingIntoIt() {
         val model = bind(
@@ -1239,14 +1160,6 @@ class YamlBinderTest {
         assertEquals(listOf("setings"), model.unknownKeys)
     }
 
-    /**
-     * The sections another part of the converter already accounts for, none of which may be reported
-     * a second time here.
-     *
-     * `dependencies-dev` is among them because `bindDependencies` matches on the prefix alone and
-     * binds such a key as a qualifier of its own; a qualified `settings@` section carries its own
-     * walk; and `plugins:` is refused by name.
-     */
     @Test
     fun readsNothingUnreadOutOfAModuleThatDeclaresEverySectionTheBinderTakes() {
         val model = bind(
@@ -1392,7 +1305,6 @@ class YamlBinderTest {
         )
     }
 
-    /** Whatever the YAML says, binding is total: nothing here may escape as an exception. */
     @Test
     fun neverThrows() {
         val broken = listOf(
@@ -1411,11 +1323,6 @@ class YamlBinderTest {
         }
     }
 
-    /**
-     * The Gradle DSL takes these as bare integer literals, so a value that is not one would be
-     * interpolated into a build script that does not parse. The Toolchain answers `21.0.2` with
-     * "Expected: integer", and so does this.
-     */
     @Test
     fun defersTheFailureOfAJdkVersionThatIsNotAnInteger() {
         val model = bind(
@@ -1445,7 +1352,6 @@ class YamlBinderTest {
         assertEquals("settings.android.compileSdk must be an integer, but was 'android-36'", model.errors["settings"])
     }
 
-    /** The nested form binds to the same field, so its leaf is validated and its parent is not. */
     @Test
     fun defersTheFailureOfANestedCompileSdkApiLevelThatIsNotAnInteger() {
         val model = bind(
@@ -1464,10 +1370,6 @@ class YamlBinderTest {
         )
     }
 
-    /**
-     * The Toolchain reads `036` as `36` and prints it back that way; Kotlin rejects a leading zero
-     * with "Leading zeros are not allowed in integer literals", so the value has to be re-spelled.
-     */
     @Test
     fun bindsANumericSettingAsTheLiteralKotlinSpells() {
         val model = bind(
@@ -1484,10 +1386,6 @@ class YamlBinderTest {
         assertEquals("7", model.settings.android?.versionCode)
     }
 
-    /**
-     * A list is not a missing value: the Toolchain answers it with
-     * "Expected `integer`, but got `sequence []`", so it must not be read as absent and defaulted.
-     */
     @Test
     fun defersTheFailureOfANumericSettingThatIsNotAScalar() {
         val model = bind(
@@ -1502,11 +1400,6 @@ class YamlBinderTest {
         assertEquals("settings.android.minSdk must be an integer", model.errors["settings"])
     }
 
-    /**
-     * An integer is not yet a usable one. The Toolchain refuses `jdk.version: 0` while it reads the
-     * project model — "Unsupported JDK version 0. Should be at least 17." — and Gradle refuses the
-     * `jvmToolchain(0)` it used to convert to, so the floor is stated where the value is read.
-     */
     @Test
     fun defersTheFailureOfAJdkVersionBelowTheSupportedFloor() {
         val model = bind(
@@ -1522,7 +1415,6 @@ class YamlBinderTest {
         assertEquals("settings.jvm.jdk.version must be at least 17, but was 11", model.errors["settings"])
     }
 
-    /** 17 is the floor itself, measured against the Toolchain, so it binds. */
     @Test
     fun bindsTheLowestSupportedJdkVersion() {
         val model = bind(
@@ -1538,10 +1430,6 @@ class YamlBinderTest {
         assertEquals("17", model.settings.jvm?.jdkVersion)
     }
 
-    /**
-     * The Toolchain answers every Android level below 21 with "Android version 20 is too old
-     * (should be at least 21)", whichever of the three keys carried it.
-     */
     @Test
     fun defersTheFailureOfACompileSdkBelowTheSupportedFloor() {
         val model = bind(
@@ -1556,7 +1444,6 @@ class YamlBinderTest {
         assertEquals("settings.android.compileSdk must be at least 21, but was 20", model.errors["settings"])
     }
 
-    /** The nested form binds to the same field, so its leaf carries the same floor. */
     @Test
     fun defersTheFailureOfANestedCompileSdkApiLevelBelowTheSupportedFloor() {
         val model = bind(
@@ -1603,7 +1490,6 @@ class YamlBinderTest {
         assertEquals("settings.android.targetSdk must be at least 21, but was 0", model.errors["settings"])
     }
 
-    /** 21 is the floor itself, measured against the Toolchain, so it binds. */
     @Test
     fun bindsTheLowestSupportedAndroidLevel() {
         val model = bind(
@@ -1622,13 +1508,6 @@ class YamlBinderTest {
         assertEquals("21", model.settings.android?.targetSdk)
     }
 
-    /**
-     * `settings.jvm.release` and `settings.android.versionCode` carry no floor, because the
-     * Toolchain gives them none: measured on 0.12.0, `./kotlin show settings` reads `release: 0`
-     * and `versionCode: -1` without complaint. `release: 0` does fail the Toolchain's own build
-     * with "Unknown -Xjdk-release value: 0", but that set is a property of the Kotlin compiler
-     * version rather than of the schema, the same way the JDK ceiling is.
-     */
     @Test
     fun bindsAReleaseAndAVersionCodeThatTheToolchainAccepts() {
         val model = bind(

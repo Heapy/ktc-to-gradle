@@ -89,10 +89,6 @@ class ModuleLayoutProbeTest {
         assertEquals(emptySet<String>(), probe(module()).existingSourceDirs)
     }
 
-    /**
-     * The probe sorts what it lists, so the main class it reports is the same one whatever order the
-     * file system hands the directories back in.
-     */
     @Test
     fun theDetectedMainClassDoesNotDependOnTheDirectoryListingOrder() {
         val module = module(
@@ -109,15 +105,6 @@ class ModuleLayoutProbeTest {
         }
     }
 
-    /**
-     * The probe reads the first `main.kt` it walks into and stops there. A second one further
-     * down the same source root is not a fallback, even when the first turns out to declare no
-     * `fun main` — but the next source root still is.
-     *
-     * Stated as a test because the walk stops at the first match instead of collecting every `.kt`
-     * path, so nothing about the code shape says the search is deliberately shallow rather than
-     * accidentally so.
-     */
     @Test
     fun aFirstMainKtWithoutAMainFunctionDoesNotFallBackWithinTheSameSourceRoot() {
         assertEquals(
@@ -141,14 +128,6 @@ class ModuleLayoutProbeTest {
         )
     }
 
-    /**
-     * The walk stops at the first `main.kt` instead of collecting every `.kt` path first.
-     *
-     * Asserted through a file system that refuses to list anything after the match rather than
-     * through a timing: a run that still walked the rest of the tree fails here, and the assertion
-     * says so on every machine. It also pins the one boundary the early exit moved — a directory
-     * that cannot be read is now only reached when nothing before it matched.
-     */
     @Test
     fun theWalkStopsAtTheFirstMainKt() {
         val module = module(

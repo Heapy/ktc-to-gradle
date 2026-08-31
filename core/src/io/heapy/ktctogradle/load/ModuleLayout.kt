@@ -3,16 +3,9 @@ package io.heapy.ktctogradle.load
 import okio.FileSystem
 import okio.Path
 
-/**
- * The filesystem facts a module contributes to the generated build.
- *
- * Probing happens once, in the load stage, so that interpretation and rendering never touch a
- * [FileSystem]: they read these fields as plain data instead.
- */
+/** Filesystem facts captured during load for use by pure later stages. */
 internal data class ModuleLayout(
-    /** Names of the source directories that exist directly under the module, e.g. `src`, `src@jvm`. */
     val existingSourceDirs: Set<String>,
-    /** Fully qualified name of the class generated from `src/main.kt` or `src@jvm/main.kt`. */
     val detectedMainClass: String?,
 )
 
@@ -40,21 +33,7 @@ internal class ModuleLayoutProbe(private val fileSystem: FileSystem) {
         return null
     }
 
-    /**
-     * The first `main.kt` under [directory], depth first.
-     *
-     * The walk stops at it rather than collecting every `.kt` path to pick one out afterwards: a
-     * module with a few thousand sources otherwise stats and keeps all of them on every run to use
-     * a single entry.
-     *
-     * Each directory is still visited in name order, which is what makes the answer independent of
-     * the order the file system happens to list a directory in.
-     *
-     * Stopping early moves one boundary, deliberately: a directory the walk can no longer read is
-     * only reached when nothing before it matched. A module whose `main.kt` sorts first now
-     * converts even when some unrelated directory further down became unreadable, where collecting
-     * everything first would have failed the run.
-     */
+    /** Stops at the first name-sorted depth-first match to avoid scanning every source file. */
     private fun firstMainKt(directory: Path): Path? {
         for (child in fileSystem.list(directory).sortedBy(Path::name)) {
             if (fileSystem.metadata(child).isDirectory) {

@@ -22,12 +22,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/**
- * What a `jvm/lib` or `jvm/app` module.yaml means, asserted as data instead of as generated text.
- *
- * The interpreter is pure, so every case here is a whole [JvmBuild] compared by equality: a field
- * this stage stops filling in fails the comparison instead of quietly disappearing from the output.
- */
 class JvmInterpreterTest {
     @Test
     fun aLibraryWithNoSettingsGetsTheConverterDefaults() {
@@ -131,12 +125,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `settings.junit: none` takes the JUnit platform launcher, and the other two do not.
-     *
-     * `kotlin-test-junit5` and `kotlin-test-junit` bring their own runner. `none` adds no adapter at
-     * all, so the launcher Gradle needs before it will run `useJUnitPlatform()` is named directly.
-     */
     @Test
     fun onlyJunitNoneNamesThePlatformLauncher() {
         assertEquals(emptyList(), interpret(junit("junit-5")).testDependencies)
@@ -152,14 +140,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `settings.junit: none` is converted with one named deviation, and the deviation is reported.
-     *
-     * The Kotlin Toolchain runs its tests through `junit-platform-console-standalone`, which carries
-     * the Jupiter and Vintage engines, so `none` upstream still runs a module that only compiles
-     * against `junit-jupiter-api`. Gradle gives a `Test` task nothing the module did not put on its
-     * own runtime classpath, so that module runs no tests after conversion.
-     */
     @Test
     fun junitNoneReportsTheEngineTheToolchainSuppliesAndGradleDoesNot() {
         val expected = "app: settings.junit: none keeps the JUnit platform but adds no engine, and the " +
@@ -182,14 +162,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `settings.jvm.test.junitPlatformVersion` reaches no Gradle task, and is named rather than lost.
-     *
-     * The Kotlin Toolchain downloads `junit-platform-console-standalone` at that release and runs
-     * its JVM tests with it. A Gradle `Test` task runs whatever the test runtime classpath resolves
-     * to, and pinning that would mean forcing `org.junit:junit-bom` onto the module's whole JUnit
-     * family. So the key is dropped, and a module that pinned it is told so.
-     */
     @Test
     fun theJunitPlatformVersionIsReportedAsDropped() {
         val quiet = DiagnosticCollector()
@@ -223,13 +195,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `test-settings.jvm.release` reaches the build on its own, separately from the main release.
-     *
-     * The test classes are never published, so nothing ties them to the level the module ships. A
-     * module that compiles its tests against a newer JDK API than it publishes is the case this
-     * exists for, and the two values have to stay apart all the way to the renderer.
-     */
     @Test
     fun theTestReleaseIsCarriedSeparatelyFromTheMainOne() {
         val build = interpret(
@@ -335,7 +300,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** A flag that is off says nothing, so a target is free to inherit and then override it. */
     @Test
     fun aFlagTurnedOffIsLeftUnsetRatherThanSetToFalse() {
         val app = module(
@@ -379,12 +343,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * The `${'$'}kotlin.` aliases that become a `kotlin("...")` dependency, and the artifact each names.
-     *
-     * `test.junit` is the JUnit 4 adapter and `test.junit5` the JUnit 5 one; the catalog of Toolchain
-     * 0.12 defines those two and `test` and nothing else under `kotlin.test`.
-     */
     @Test
     fun catalogAccessorsAndKotlinBuiltInsBecomeTheirOwnTargets() {
         val app = module(
@@ -419,13 +377,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `${'$'}kotlin.test.common` is not in the catalog, and the Toolchain answers it with
-     * "No catalog value for the key `kotlin.test.common`".
-     *
-     * The converter used to accept it as `kotlin("test")`, which made a build the Toolchain refuses
-     * to read convert without a word.
-     */
     @Test
     fun aKotlinCatalogAliasTheToolchainDoesNotDefineIsRejected() {
         val app = module("app", "product: jvm/lib\ntest-dependencies:\n  - ${'$'}kotlin.test.common\n")
@@ -436,10 +387,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `jvmToolchain(...)` takes a bare integer, so a jdk version that is not one would be emitted as
-     * a build script that does not parse. The failure is raised at conversion time and names the key.
-     */
     @Test
     fun aJdkVersionThatIsNotAnIntegerIsReported() {
         val app = module(
@@ -459,17 +406,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * Every `${'$'}libs.` shape the Toolchain reads, spelled as the Gradle accessor it becomes.
-     *
-     * The Toolchain resolves the key against the accessor path Gradle generates rather than against
-     * the raw `libs.versions.toml` alias, so the two spellings coincide and the key is passed
-     * through. Measured on 0.12.0 with `kotlin show modules`: `junit-jupiter-api` is read as
-     * `${'$'}libs.junit.jupiter.api`, `my_lib` as `${'$'}libs.my.lib`, and `ktorClient` as `${'$'}libs.ktorClient`;
-     * the dashed and underscored spellings of the same aliases are each answered with
-     * "No catalog value for the key". So `-` and `_` are alias separators that never reach an
-     * accessor segment, and a segment is one word, in whatever case the alias spelled it.
-     */
     @Test
     fun everyCatalogAccessorShapeTheToolchainReadsIsPassedThrough() {
         val app = module(
@@ -495,12 +431,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * A dashed alias nests into a segment that is a Kotlin keyword, and the Toolchain accepts it:
-     * `aws-object-store` is read as `${'$'}libs.aws.object.store`. Emitted bare it produced
-     * `implementation(libs.aws.object.store)`, which Gradle 9.7.1 answers with
-     * "Expecting a class body"; backticked it configures and resolves the alias.
-     */
     @Test
     fun aCatalogAccessorSegmentThatIsAKotlinKeywordIsBackticked() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - ${'$'}libs.aws.object.store\n")
@@ -511,14 +441,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * A key that cannot be spelled as a Kotlin accessor used to be emitted as one: `${'$'}libs.1bad`
-     * produced `implementation(libs.1bad)` and a conversion that reported success, while the failure
-     * only surfaced on the first `./gradlew` run with nothing pointing back at the notation.
-     *
-     * Existence is not checked — the converter never reads `libs.versions.toml` — so only the shape
-     * is. Each of these is refused by the Toolchain too.
-     */
     @Test
     fun aCatalogKeyThatCannotBecomeAKotlinAccessorIsReported() {
         for (notation in listOf("${'$'}libs.1bad", "${'$'}libs.", "${'$'}libs.junit-jupiter-api", "${'$'}libs.a..b", "${'$'}libs.bad key")) {
@@ -608,7 +530,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** A section the binder could not read raises its message here, at the point that reads it. */
     @Test
     fun aMalformedDependencySectionRaisesItsDeferredMessage() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - org.example:one:1.0: sometimes\n")
@@ -642,10 +563,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * The pinned version reaches every serialization artifact at once: the implied core, the runtime
-     * of the declared format, and the `$kotlin.serialization.` accessor a dependency spells out.
-     */
     @Test
     fun aPinnedSerializationVersionReachesEveryArtifactItContributes() {
         val app = module(
@@ -675,7 +592,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** The accessor is only spellable when the module turned serialization on; it is not implied. */
     @Test
     fun aSerializationAccessorWithoutTheSettingIsRejected() {
         val app = module(
@@ -689,7 +605,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** A format kotlinx-serialization does not publish has no coordinate to guess at. */
     @Test
     fun anUnknownSerializationAliasIsRejected() {
         val app = module(
@@ -712,7 +627,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** Serialization without a format gets its core runtime and no guess at which format to add. */
     @Test
     fun serializationWithoutAFormatContributesOnlyItsCore() {
         val app = module("app", "product: jvm/lib\nsettings:\n  kotlin:\n    serialization: enabled\n")
@@ -723,7 +637,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** A single-platform product has one platform qualifier, and `settings@jvm` is carried by it. */
     @Test
     fun theQualifiedJvmSettingsSectionReachesTheModuleOptions() {
         val app = module(
@@ -740,13 +653,6 @@ class JvmInterpreterTest {
         assertEquals(CompilerOptions(allWarningsAsErrors = true), interpret(app).qualifiedCompilerOptions)
     }
 
-    /**
-     * A narrower section that declares an option and gets it wrong still overrides the broader one.
-     *
-     * Declaring a key is what overriding is, and a value the converter cannot read is still a
-     * declaration: `settings@jvm` says the module-wide `settings@common` language version does not
-     * apply to the JVM, and nothing it says afterwards brings that version back.
-     */
     @Test
     fun aMalformedKotlinNodeSuppressesTheBroaderSectionInsteadOfInheritingIt() {
         val app = module(
@@ -766,7 +672,6 @@ class JvmInterpreterTest {
         assertEquals(CompilerOptions.EMPTY, interpret(app).qualifiedCompilerOptions)
     }
 
-    /** The same for one key of an otherwise readable section: a list that is not a list clears it. */
     @Test
     fun aMalformedFreeCompilerArgListSuppressesTheBroaderOne() {
         val app = module(
@@ -785,14 +690,9 @@ class JvmInterpreterTest {
             """.trimIndent(),
         )
 
-        // progressiveMode is untouched by the malformed key, so only the arguments are cleared.
         assertEquals(CompilerOptions(progressiveMode = true), interpret(app).qualifiedCompilerOptions)
     }
 
-    /**
-     * The reach of the dependency checks, from the reading end: a `jvm/app` reads `dependencies` and
-     * `dependencies@jvm` only, so a scope it cannot spell under `@js` is nobody's business.
-     */
     @Test
     fun anUnknownScopeUnderAQualifierTheProductNeverReadsIsIgnored() {
         val app = module("app", "product: jvm/app\ndependencies@js:\n  - com.example:lib:1.0: bogus\n")
@@ -811,7 +711,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /** A `bom` names no module to the load stage, so the module it holds is resolved here. */
     @Test
     fun anUnknownModuleUnderABomIsReportedByTheStageThatReadsIt() {
         val app = module("app", "product: jvm/lib\ndependencies:\n  - bom: ./missing\n")
@@ -846,12 +745,6 @@ class JvmInterpreterTest {
     private fun junit(value: String): ToolchainModule =
         module("app", "product: jvm/lib\nsettings:\n  junit: $value\n")
 
-    /**
-     * A `jvm/lib` has exactly one `Test` task, so a qualified section reaches the same one.
-     *
-     * It is still read last, because declaring a key under a qualifier is how a module overrides
-     * what it said for every platform at once.
-     */
     @Test
     fun aQualifiedJvmTestSettingJoinsTheOneTestTaskOfAJvmModule() {
         val build = interpret(
@@ -886,12 +779,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * `test-settings@q` is applied on top of `settings@q` even when the module wrote it first.
-     *
-     * The unqualified pair has that order fixed by the two fields it binds to; the qualified pair is
-     * two sections of one map, so the order is a decision the merge has to make on its own.
-     */
     @Test
     fun aQualifiedTestSettingsSectionIsAppliedLastWhicheverOrderItWasWrittenIn() {
         val build = interpret(
@@ -918,17 +805,6 @@ class JvmInterpreterTest {
         )
     }
 
-    /**
-     * A narrower section that gets a test key wrong keeps the broader value, and only says so.
-     *
-     * The two halves of one qualified section answer this differently on purpose, and not because
-     * of how their values combine: [aMalformedFreeCompilerArgListSuppressesTheBroaderOne] clears a
-     * broader list that a well-formed narrower one would only have added to. What differs is reach
-     * — a compiler marker erases the options the section named, out of a vocabulary the converter
-     * defines, while a `systemProperties` that is not an object names none of the entries
-     * [aQualifiedJvmTestSettingJoinsTheOneTestTaskOfAJvmModule] merges one at a time.
-     * `QualifiedSettings.merge` carries the reason.
-     */
     @Test
     fun aMalformedQualifiedTestKeyKeepsTheBroaderValueInsteadOfClearingIt() {
         val diagnostics = DiagnosticCollector()

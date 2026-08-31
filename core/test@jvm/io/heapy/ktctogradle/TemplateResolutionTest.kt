@@ -43,10 +43,6 @@ class TemplateResolutionTest {
         )
     }
 
-    /**
-     * A template declares its credentials file next to itself, but the generated script runs from the
-     * module directory, so the path is rewritten relative to the module that applies the template.
-     */
     @Test
     fun aTemplateCredentialsFileIsRewrittenRelativeToTheModuleThatAppliesIt() {
         val root = Files.createTempDirectory("ktc-template-credentials-")

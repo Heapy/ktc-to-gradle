@@ -10,13 +10,7 @@ internal data class SerializationSettings(
     val format: String? = null,
 )
 
-/**
- * `settings.kotlin.serialization`, with the default version applied.
- *
- * The binder defers a malformed section instead of throwing, so the failure is raised here, at the
- * point that reads the section: a module whose serialization settings are wrong has to fail while
- * its own build is being interpreted and not while some other module's is.
- */
+/** Applies serialization defaults and raises its deferred failure only when the module is interpreted. */
 internal object Serialization {
     fun of(model: ToolchainModel): SerializationSettings? {
         model.raiseDeferred(Region.SERIALIZATION)
@@ -24,12 +18,7 @@ internal object Serialization {
         return SerializationSettings(spec.version ?: Defaults.SERIALIZATION, spec.format)
     }
 
-    /**
-     * Whether the module enables serialization, with a malformed section read as "it does not".
-     *
-     * Plugin resolution runs for every module of the project, including ones the render stage never
-     * reaches, so it must not raise a module's failure on its behalf. [of] raises; this does not.
-     */
+    /** Non-raising query used during project-wide plugin resolution. */
     fun isEnabled(model: ToolchainModel): Boolean =
         Region.SERIALIZATION !in model.errors && of(model) != null
 

@@ -18,12 +18,6 @@ import io.heapy.ktctogradle.model.PluginDecl
 import io.heapy.ktctogradle.model.Scope
 import io.heapy.ktctogradle.model.TargetKind
 
-/**
- * Spells a module out as `build.gradle.kts`.
- *
- * The renderer decides nothing: every default and every choice already reached it as model data, so
- * this is the one `when` that has to stay exhaustive when a product family is added.
- */
 internal fun renderModule(module: GradleModule): String = when (val build = module.build) {
     null -> renderRootShell(module)
     is JvmBuild -> renderJvmModule(module, build)
@@ -31,22 +25,12 @@ internal fun renderModule(module: GradleModule): String = when (val build = modu
     is MultiplatformBuild -> renderMultiplatformModule(module, build)
 }
 
-/**
- * The root of a project that has no module of its own.
- *
- * `base` gives the root the lifecycle tasks a build is expected to answer to; everything else it
- * declares is a plugin its subprojects apply.
- */
+/** `base` supplies lifecycle tasks for a root that builds no module itself. */
 private fun renderRootShell(module: GradleModule): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendPluginBlock(module.plugins)
 }.build()
 
-/**
- * [JvmBuild.qualifiedCompilerOptions] stays apart from the module-wide ones because it is emitted
- * after them rather than merged into them, which is how a qualified section overrides what it
- * restates.
- */
 private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendCredentialsImport(module.requiresCredentialsImport)
@@ -61,9 +45,7 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
             build.compilerOptions,
             build.qualifiedCompilerOptions,
             module.compilerPlugins,
-            // Module-wide reaches every compilation the module has, which is what it asked for when
-            // it named no separate test release. With one, the flag moves onto `compileKotlin` so
-            // the test compilation is not handed two of them.
+            // A distinct test release requires the main -Xjdk-release to move to compileKotlin.
             jdkRelease = build.release.takeIf { build.testRelease == null },
         )
     }
@@ -72,11 +54,9 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
         line("sourceCompatibility = JavaVersion.toVersion(${quote(build.release)})")
         line("targetCompatibility = JavaVersion.toVersion(${quote(build.release)})")
         module.publication?.let { publication ->
-            // Maven Central refuses a publication without a sources jar, and the Toolchain builds it
-            // from the same switch, so it is declared here rather than as a task of its own.
+            // Mirrors Toolchain's publication artifact switches.
             if (publication.publishSources) line("withSourcesJar()")
-            // The Toolchain adds an empty javadoc jar to every publication, because Maven Central
-            // refuses one without it and Kotlin has no javadoc to generate.
+            // Toolchain adds the empty javadoc jar required by Maven Central.
             line("withJavadocJar()")
         }
     }
@@ -119,12 +99,6 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
     }
 }.build()
 
-/**
- * Spells an `android/app` module out as `build.gradle.kts`.
- *
- * The Android Gradle Plugin owns the source layout of the module, so the source-set directories are
- * fixed text rather than model data.
- */
 private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendCredentialsImport(module.requiresCredentialsImport)
@@ -155,10 +129,7 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
             line("kotlin.srcDirs(\"test\", \"test@android\")")
             line("resources.srcDirs(\"testResources\", \"testResources@android\")")
         }
-        // The Android Gradle Plugin runs unit tests on JUnit 4 unless it is told otherwise, so a
-        // suite that needs the JUnit platform compiles and is then never discovered. The same block
-        // carries the JVM test settings, because `unitTests.all` is the only handle AGP offers on
-        // the unit-test task.
+        // AGP defaults to JUnit 4; unitTests.all is also its handle for task settings.
         if (build.testFramework.runsOnTheJUnitPlatform || !build.testSettings.isEmpty) {
             block("testOptions") {
                 block("unitTests.all") {
@@ -181,12 +152,6 @@ private fun renderAndroidModule(module: GradleModule, build: AndroidBuild): Stri
     }
 }.build()
 
-/**
- * Spells a multiplatform module out as `build.gradle.kts`.
- *
- * Source sets are emitted in the order the interpret stage put them in, which has every parent
- * before its children: `dependsOn(getByName(...))` resolves a name that must already exist.
- */
 private fun renderMultiplatformModule(module: GradleModule, build: MultiplatformBuild): String = KtsWriter().apply {
     line(StaticAssets.header())
     appendCredentialsImport(module.requiresCredentialsImport)
@@ -198,9 +163,7 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     block("kotlin") {
         for (target in build.targets) appendTarget(target)
         build.jvmToolchain?.let { line("jvmToolchain($it)") }
-        // The Kotlin Gradle Plugin publishes a sources jar per target unless it is told not to,
-        // while `publishSources` defaults to off, so the multiplatform half of the switch is the
-        // `false` case and not the `true` one.
+        // KGP defaults source jars on, opposite Toolchain's publishing default.
         module.publication?.takeIf { !it.publishSources }?.let { line("withSourcesJar(publish = false)") }
         appendCompilerOptions(build.compilerOptions, build.qualifiedCompilerOptions, module.compilerPlugins)
         block("sourceSets") {
@@ -209,8 +172,6 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     }
     if (module.compilerPlugins.isNotEmpty()) {
         blank()
-        // A multiplatform module declares its dependencies per source set, so the plugin classpath
-        // is the one thing it needs a module-wide `dependencies { }` block for.
         block("dependencies") {
             appendCompilerPluginClasspath(
                 module.compilerPlugins,
@@ -218,9 +179,7 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
             )
         }
     }
-    // Every JVM-backed target of the module runs its tests through a Gradle `Test` task, and each
-    // of them keeps Gradle's JUnit 4 runner unless told otherwise. There is no per-target DSL that
-    // covers both `jvm()` and `androidLibrary`, so they are configured together.
+    // Configure both JVM and Android host tests through their shared Gradle Test type.
     val junitPlatform = build.testFramework.runsOnTheJUnitPlatform
     if ((junitPlatform || !build.testSettings.isEmpty) && build.targets.any { it.kind.runsOnAJdk }) {
         blank()
@@ -229,8 +188,7 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
             appendJvmTestSettings(build.testSettings)
         }
     }
-    // After the module-wide block, because Gradle runs the two configuration actions in the order
-    // the script registers them and the narrower one has to be able to override the broader one.
+    // Register target-specific actions last so they override module-wide settings.
     for (target in build.targets) appendTargetTestSettings(target)
     module.publication?.let {
         appendPublishing(it)
@@ -238,14 +196,7 @@ private fun renderMultiplatformModule(module: GradleModule, build: Multiplatform
     }
 }.build()
 
-/**
- * What one target alone was told to give its `Test` task.
- *
- * Reached by task name rather than through a target DSL, because neither JVM-backed target offers
- * one: `jvm()` exposes its test run and `androidLibrary` does not, and the Android Gradle Plugin
- * registers `testAndroidHostTest` too late for `tasks.named` to find it while the script runs.
- * Matching a lazy collection asks the question when the task exists instead.
- */
+/** Uses a lazy task collection because AGP registers `testAndroidHostTest` after script evaluation. */
 private fun KtsWriter.appendTargetTestSettings(target: KmpTarget) {
     val (task, settings) = target.testTask() ?: return
     if (settings.isEmpty) return
@@ -255,11 +206,9 @@ private fun KtsWriter.appendTargetTestSettings(target: KmpTarget) {
     }
 }
 
-/** The `Test` task a JVM-backed target runs on, and what the module asked to give it. */
 private fun KmpTarget.testTask(): Pair<String, JvmTestSettings>? = when (val kind = kind) {
     is TargetKind.Jvm -> "${name}Test" to kind.testSettings
-    // The Android Gradle Plugin names the task after the `hostTest` compilation of the target, which
-    // is the `androidHostTest` source set the fragments already spell out.
+    // AGP names the task after the hostTest compilation.
     is TargetKind.Android ->
         "test${name.replaceFirstChar(Char::uppercaseChar)}HostTest" to kind.library.testSettings
     TargetKind.Js,
@@ -270,19 +219,8 @@ private fun KmpTarget.testTask(): Pair<String, JvmTestSettings>? = when (val kin
 }
 
 /**
- * What a `jvm/lib` or `jvm/app` does with `settings.jvm.release` beyond the bytecode level.
- *
- * `jvmTarget` and `sourceCompatibility`/`targetCompatibility` say what version the class files claim
- * to be, and nothing more: a JDK 25 toolchain compiling for release 21 still resolves the whole JDK
- * 25 API, so a module can call an API that is missing at run time and publish an artifact labelled
- * Java 21 that fails on a real Java 21. `-Xjdk-release` and `options.release` are what close that,
- * and Gradle's own toolchain documentation recommends them for the same reason.
- *
- * The Kotlin half is written module-wide by the caller when the module named no test release, which
- * is the shorter spelling and covers the test compilation too. With a test release it moves here,
- * onto `compileKotlin` alone: a module-wide flag reaches the test compilation as well, and the
- * compiler then reports '-Xjdk-release' passed multiple times on every build. The `jvmTarget` the
- * module-wide block sets still reaches both compilations, so only the flag has to move.
+ * Adds API-level enforcement beyond class-file targets. With a distinct test release, Kotlin's
+ * main `-Xjdk-release` is scoped to `compileKotlin` to avoid passing two release flags to tests.
  */
 private fun KtsWriter.appendMainRelease(build: JvmBuild) {
     if (build.testRelease != null) {
@@ -299,13 +237,7 @@ private fun KtsWriter.appendMainRelease(build: JvmBuild) {
     }
 }
 
-/**
- * What a `jvm/lib` or `jvm/app` does with `test-settings.jvm.release`.
- *
- * The test compilation is not published, so nothing ties it to the level the main one targets: a
- * module may compile its tests against a newer JDK API on purpose. Both compilers are told, because
- * the Kotlin Toolchain compiles the Java sources of a module too.
- */
+/** Applies the independent test release to both Kotlin and Java test compilation. */
 private fun KtsWriter.appendTestRelease(release: String) {
     blank()
     block("tasks.compileTestKotlin") {
@@ -345,7 +277,6 @@ private fun KtsWriter.appendTarget(target: KmpTarget) {
     }
 }
 
-/** A target that runs in a browser fits on one line unless it carries compiler options of its own. */
 private fun KtsWriter.appendBrowserTarget(dsl: String, target: KmpTarget) {
     if (target.compilerOptions.isEmpty) {
         line("$dsl { ${if (target.executable) "binaries.executable(); " else ""}browser() }")
@@ -365,8 +296,7 @@ private fun KtsWriter.appendWasmWasiTarget(target: KmpTarget) {
     }
     block("wasmWasi") {
         if (target.executable) line("binaries.executable()")
-        // The wasmWasi target DSL carries no compilerOptions of its own, so the options
-        // have to reach the compile tasks through its compilations.
+        // wasmWasi exposes compiler options only through its compilations.
         block("compilations.configureEach") {
             block("compileTaskProvider.configure") {
                 appendCompilerOptions(target.compilerOptions)
@@ -389,12 +319,7 @@ private fun KtsWriter.appendSourceSet(sourceSet: KmpSourceSet) {
     }
 }
 
-/**
- * The `androidLibrary { }` target of a multiplatform module.
- *
- * `withHostTestBuilder {}` is what registers the unit-test compilation; without it the
- * `androidHostTest` source set the fragments create has nothing to compile into.
- */
+/** `withHostTestBuilder` registers the compilation consumed by `androidHostTest`. */
 private fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, qualifiedOptions: CompilerOptions) {
     block("androidLibrary") {
         line("namespace = ${quote(target.namespace)}")
@@ -412,17 +337,7 @@ private fun KtsWriter.appendAndroidLibraryTarget(target: AndroidLibraryTarget, q
     }
 }
 
-/**
- * The `-Xjdk-release` of a multiplatform target, per compilation rather than target-wide.
- *
- * A target's own `compilerOptions` reach every compilation it has, so a test compilation that needs
- * a different release cannot simply add its own: the inherited flag stays on the list beside it, and
- * the Kotlin compiler warns that the argument was passed twice on every build. Splitting the flag
- * across the two compilations says the same thing once each.
- *
- * Only when the module named a test release. Without one the target-wide flag is the shorter
- * spelling of the same thing, and every baseline that has no test release keeps it.
- */
+/** Splits release flags by compilation only when tests request a distinct release. */
 private fun KtsWriter.appendCompilationReleases(release: String, testRelease: String?, testCompilation: String) {
     if (testRelease == null) return
     appendCompilationRelease("main", release, jvmTarget = null)
@@ -454,26 +369,17 @@ internal fun PluginDecl.declaration(): String = buildString {
     if (!apply) append(" apply false")
 }
 
-/** The only place that knows how a [GradlePlugin] is spelled in the Gradle Kotlin DSL. */
+/** The only Gradle DSL spelling of a [GradlePlugin]. */
 internal fun GradlePlugin.dsl(): String = when (this) {
     is GradlePlugin.Kotlin -> "kotlin(${quote(shortName)})"
-    // `maven-publish` is not a Kotlin identifier, and the accessor Gradle generates for it has to be
-    // escaped. Every other builtin the converter applies is a plain word and stays one.
+    // Hyphenated builtin accessors such as maven-publish require backticks.
     is GradlePlugin.Builtin -> if (id.all { it.isLetterOrDigit() }) id else "`$id`"
     is GradlePlugin.Android,
     is GradlePlugin.Other,
     -> "id(${quote(id)})"
 }
 
-/**
- * A `compilerOptions { }` block, or nothing at all when there is nothing to say.
- *
- * [extra] is emitted after [options] rather than merged into it: Gradle applies the later
- * statement, so that is how a platform-qualified section overrides what it restates.
- *
- * [jdkRelease] is the `-Xjdk-release` every compilation the block covers is given, or `null` when
- * the flag belongs on one compilation rather than on all of them.
- */
+/** Emits [extra] last for overrides; [jdkRelease] applies to every compilation covered by the block. */
 private fun KtsWriter.appendCompilerOptions(
     options: CompilerOptions,
     extra: CompilerOptions = CompilerOptions.EMPTY,
@@ -490,21 +396,11 @@ private fun KtsWriter.appendCompilerOptions(
     }
 }
 
-/**
- * The `-P plugin:<id>:<key>=<value>` pair the compiler takes for every option of one plugin.
- *
- * `-P` and its value are two arguments, not one: the compiler reads the value from the next
- * argument, and a single joined string is passed through as an unknown flag.
- */
+/** Emits `-P` and its plugin option as two compiler arguments, as required by kotlinc. */
 private fun CompilerPlugin.optionArguments(): List<String> =
     options.flatMap { (key, value) -> listOf("-P", "plugin:$id:$key=$value") }
 
-/**
- * The configurations a third-party compiler plugin has to be on to reach the compiler.
- *
- * Kotlin/Native runs a compiler of its own and reads a second configuration, so a module with a
- * native target names the artifact twice.
- */
+/** Native targets need the plugin on both Kotlin and Kotlin/Native configurations. */
 private fun KtsWriter.appendCompilerPluginClasspath(compilerPlugins: List<CompilerPlugin>, native: Boolean) {
     for (plugin in compilerPlugins) {
         line("kotlinCompilerPluginClasspath(${plugin.dependency.expression()})")
@@ -512,7 +408,6 @@ private fun KtsWriter.appendCompilerPluginClasspath(compilerPlugins: List<Compil
     }
 }
 
-/** The body of a `compilerOptions { }` block, for the targets that open the block themselves. */
 private fun KtsWriter.appendCompilerOptionLines(options: CompilerOptions) {
     options.languageVersion?.let {
         line("languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(${quote(it)}))")
@@ -533,10 +428,6 @@ private fun KtsWriter.appendCompilerOptionLines(options: CompilerOptions) {
     }
 }
 
-/**
- * [receiver] prefixes every call, for the blocks whose lambda takes the `Test` task as an argument
- * instead of as `this`: the Android Gradle Plugin's `unitTests.all { }` is one of those.
- */
 private fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings, receiver: String = "") {
     if (settings.freeJvmArgs.isNotEmpty()) {
         line("${receiver}jvmArgs(${settings.freeJvmArgs.joinToString(transform = ::quote)})")
@@ -545,10 +436,6 @@ private fun KtsWriter.appendJvmTestSettings(settings: JvmTestSettings, receiver:
     for ((key, value) in settings.environment) line("${receiver}environment(${quote(key)}, ${quote(value)})")
 }
 
-/**
- * [sourceSet] switches to the Kotlin Multiplatform source-set DSL, which names its configurations
- * without the `test` prefix because the source set already says which compilation it belongs to.
- */
 private fun KtsWriter.appendDependencies(
     dependencies: List<Dependency>,
     test: Boolean,

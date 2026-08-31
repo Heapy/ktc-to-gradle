@@ -18,11 +18,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * What the write stage is allowed to do to a tree that is already there.
- *
- * It needs a real [FileSystem], so it lives here and not in the common suite.
- */
 class FileWriterTest {
     @Test
     fun onlyTheFilesWhoseContentChangedAreReported() {
@@ -130,22 +125,6 @@ class FileWriterTest {
         assertTrue(failure is ConversionException, "A dry run has to report what a real run would refuse")
     }
 
-    /**
-     * A binary file carries no marker, so its ownership is the marker of the companion beside it.
-     *
-     * That is the closest approximation of the marker contract a file which cannot self-report
-     * allows, and it is deliberately weaker than the one a text file gets. A text file is vouched
-     * for by its own bytes, so replacing it wholesale strips the marker and protects it; only an
-     * edit that preserved the header is lost. A jar is vouched for out of band, so a replaced one
-     * is still claimed by the untouched properties beside it and goes on the next run — a
-     * corporate-signed or CVE-patched jar included. Recording our own hash in the properties would
-     * close that gap and is refused on purpose: the wrapper files are Gradle's, and a converter
-     * that kept every jar it did not write could no longer heal a truncated or stale one. The
-     * asymmetry is paid out of band too, in the README. `--force` is the escape hatch.
-     *
-     * The seven tests below are the whole matrix, one per row, plus the `--force` escape and the
-     * sibling rule the companion name is resolved by.
-     */
     @Test
     fun anAbsentJarIsWrittenWithoutConsultingAnyCompanion() {
         val root = temp("jar-absent")
@@ -250,12 +229,6 @@ class FileWriterTest {
         assertEquals("new-jar", root.resolve(JAR).readText(), "--force is the escape hatch out of every refusal row")
     }
 
-    /**
-     * The companion is a file name resolved beside the jar, so only the sibling can vouch for it.
-     *
-     * A marker-carrying file of the same name elsewhere in the tree is not the companion, and the
-     * write stage never reads it.
-     */
     @Test
     fun onlyTheCompanionInTheSameDirectoryVouchesForAJar() {
         val root = temp("jar-sibling")
@@ -275,13 +248,6 @@ class FileWriterTest {
         assertEquals(JAR_REFUSAL, failure.message)
     }
 
-    /**
-     * Every file the converter produces carries the ownership marker [FileWriter] keys on.
-     *
-     * Written once, then written again with changed content: the second run runs the ownership check
-     * over every file on disk, so a generated file that had lost its marker would be refused as
-     * foreign instead of regenerated.
-     */
     @Test
     fun everyGeneratedFileIsOneTheWriterWillRecogniseAsItsOwn() {
         val source = temp("marker")
@@ -299,13 +265,6 @@ class FileWriterTest {
         assertEquals(files.map { notation(it.path.relativeTo(source.okio())) }, rewritten.map(::notation))
     }
 
-    /**
-     * The same file with different content, so a second write has something to do.
-     *
-     * A jar carries no marker and cannot be appended to as text, so its bytes are truncated
-     * instead: what the second run has to prove is that the ownership check passes, not what the
-     * new content is.
-     */
     private fun withChangedContent(file: GeneratedFile): GeneratedFile = GeneratedFile(
         path = file.path,
         content = when (val content = file.content) {
@@ -316,7 +275,6 @@ class FileWriterTest {
 
     private fun writer() = FileWriter(FileSystem.SYSTEM)
 
-    /** The written path with `/` on every host, so the assertion does not depend on the separator. */
     private fun notation(path: OkioPath) = path.segments.joinToString("/")
 
     private fun generated(root: Path, relative: String, content: String) = GeneratedFile(
@@ -324,7 +282,6 @@ class FileWriterTest {
         content = FileContent.Text(content),
     )
 
-    /** The wrapper jar as the converter emits it: bytes, and the name of the companion beside it. */
     private fun jar(root: Path, content: String) = GeneratedFile(
         path = JAR.split('/').fold(root.okio()) { path, segment -> path / segment },
         content = FileContent.Binary(content.encodeUtf8(), ownershipFollows = "gradle-wrapper.properties"),
