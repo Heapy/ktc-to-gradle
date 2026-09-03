@@ -49,3 +49,9 @@ tasks.test {
 application {
     mainClass.set("MainKt")
 }
+
+tasks.jar {
+    manifest {
+        attributes(mapOf("Main-Class" to "MainKt"))
+    }
+}

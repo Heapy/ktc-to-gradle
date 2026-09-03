@@ -92,6 +92,13 @@ private fun renderJvmModule(module: GradleModule, build: JvmBuild): String = Kts
         block("application") {
             line("mainClass.set(${quote(mainClass)})")
         }
+        blank()
+        // The Kotlin Toolchain writes a runnable jar; the `application` plugin alone does not.
+        block("tasks.jar") {
+            block("manifest") {
+                line("attributes(mapOf(\"Main-Class\" to ${quote(mainClass)}))")
+            }
+        }
     }
     module.publication?.let {
         appendPublishing(it)

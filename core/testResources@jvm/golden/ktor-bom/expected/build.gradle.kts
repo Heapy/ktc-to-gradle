@@ -50,3 +50,9 @@ tasks.test {
 application {
     mainClass.set("example.ServerKt")
 }
+
+tasks.jar {
+    manifest {
+        attributes(mapOf("Main-Class" to "example.ServerKt"))
+    }
+}
