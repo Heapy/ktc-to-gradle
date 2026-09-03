@@ -81,9 +81,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-2"
+          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-3"
           staging_dir="$RUNNER_TEMP/mock-staging"
-          fork_release_dir="$RUNNER_TEMP/fork-site/releases/download/v0.12.0-2"
+          fork_release_dir="$RUNNER_TEMP/fork-site/releases/download/v0.12.0-3"
           fork_staging_dir="$RUNNER_TEMP/fork-staging"
           mkdir -p "$release_dir" "$staging_dir" "$fork_release_dir" "$fork_staging_dir"
           cp "${{ matrix.binary }}" "$staging_dir/ktc-to-gradle"
@@ -109,42 +109,42 @@ jobs:
           output="$(
             curl -fsSL "$script_url" |
               env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                  KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                  KTC_TO_GRADLE_VERSION=0.12.0-3 \
                   XDG_CACHE_HOME="$cache_root" \
                   bash -s -- --version
           )"
-          grep -F "ktc-to-gradle 0.12.0-2 (Gradle 9.7.1)" <<<"$output"
+          grep -F "ktc-to-gradle 0.12.0-3 (Gradle 9.7.1)" <<<"$output"
 
           fork_output="$(
             curl -fsSL "$script_url" |
               env KTC_TO_GRADLE_REPOSITORY=Fork/ktc-to-gradle \
                   KTC_TO_GRADLE_DOWNLOAD_ROOT="file://$RUNNER_TEMP/fork-site/releases" \
-                  KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                  KTC_TO_GRADLE_VERSION=0.12.0-3 \
                   XDG_CACHE_HOME="$cache_root" \
                   bash -s -- --version
           )"
           grep -F "fork-cache-test" <<<"$fork_output"
           asset_dir="${{ matrix.asset }}"
           asset_dir="${asset_dir%.tar.gz}"
-          test -x "$cache_root/ktc-to-gradle/Heapy/ktc-to-gradle/v0.12.0-2/$asset_dir/ktc-to-gradle"
-          test -x "$cache_root/ktc-to-gradle/Fork/ktc-to-gradle/v0.12.0-2/$asset_dir/ktc-to-gradle"
+          test -x "$cache_root/ktc-to-gradle/Heapy/ktc-to-gradle/v0.12.0-3/$asset_dir/ktc-to-gradle"
+          test -x "$cache_root/ktc-to-gradle/Fork/ktc-to-gradle/v0.12.0-3/$asset_dir/ktc-to-gradle"
 
           mv "$RUNNER_TEMP/mock-site/releases" "$RUNNER_TEMP/mock-site/releases-offline"
           output="$(
             curl -fsSL "$script_url" |
               env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                  KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                  KTC_TO_GRADLE_VERSION=0.12.0-3 \
                   XDG_CACHE_HOME="$cache_root" \
                   bash -s -- --version
           )"
-          grep -F "ktc-to-gradle 0.12.0-2 (Gradle 9.7.1)" <<<"$output"
+          grep -F "ktc-to-gradle 0.12.0-3 (Gradle 9.7.1)" <<<"$output"
 
           mv "$RUNNER_TEMP/mock-site/releases-offline" "$RUNNER_TEMP/mock-site/releases"
-          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-2/${{ matrix.asset }}.sha256"
+          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-3/${{ matrix.asset }}.sha256"
           printf '%064d  %s\n' 0 "${{ matrix.asset }}" > "$checksum"
           if curl -fsSL "$script_url" |
             env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                KTC_TO_GRADLE_VERSION=0.12.0-3 \
                 XDG_CACHE_HOME="$RUNNER_TEMP/bad-run-cache" \
                 bash -s -- --version; then
             echo "run.sh accepted an invalid checksum" >&2
@@ -180,7 +180,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-2"
+          release_dir="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-3"
           staging_dir="$RUNNER_TEMP/mock-staging"
           mkdir -p "$release_dir" "$staging_dir"
           cp "${{ matrix.binary }}" "$staging_dir/ktc-to-gradle"
@@ -200,24 +200,24 @@ jobs:
 
           curl -fsSL "$script_url" |
             env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                KTC_TO_GRADLE_VERSION=0.12.0-3 \
                 KTC_TO_GRADLE_INSTALL_DIR="$install_dir" \
                 sh
           test -x "$install_dir/ktc-to-gradle"
           "$install_dir/ktc-to-gradle" --version |
-            grep -F "ktc-to-gradle 0.12.0-2 (Gradle 9.7.1)"
+            grep -F "ktc-to-gradle 0.12.0-3 (Gradle 9.7.1)"
 
           curl -fsSL "$script_url" |
             env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                KTC_TO_GRADLE_VERSION=0.12.0-3 \
                 KTC_TO_GRADLE_INSTALL_DIR="$install_dir" \
                 sh
 
-          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-2/${{ matrix.asset }}.sha256"
+          checksum="$RUNNER_TEMP/mock-site/releases/download/v0.12.0-3/${{ matrix.asset }}.sha256"
           printf '%064d  %s\n' 0 "${{ matrix.asset }}" > "$checksum"
           if curl -fsSL "$script_url" |
             env KTC_TO_GRADLE_DOWNLOAD_ROOT="$download_root" \
-                KTC_TO_GRADLE_VERSION=0.12.0-2 \
+                KTC_TO_GRADLE_VERSION=0.12.0-3 \
                 KTC_TO_GRADLE_INSTALL_DIR="$RUNNER_TEMP/bad-install" \
                 sh; then
             echo "install.sh accepted an invalid checksum" >&2
@@ -243,7 +243,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $asset = "ktc-to-gradle-windows-x64.tar.gz"
           $siteRoot = Join-Path $env:RUNNER_TEMP "mock-site"
-          $releaseDir = Join-Path $siteRoot "releases\download\v0.12.0-2"
+          $releaseDir = Join-Path $siteRoot "releases\download\v0.12.0-3"
           $stagingDir = Join-Path $env:RUNNER_TEMP "mock-staging"
           New-Item -ItemType Directory -Force -Path $releaseDir, $stagingDir | Out-Null
           Copy-Item "build\tasks\_windows_linkMingwX64Release\windows.exe" (Join-Path $stagingDir "ktc-to-gradle.exe")
@@ -277,14 +277,14 @@ jobs:
               if (-not $ready) { throw "Mock release server did not start" }
 
               $env:KTC_TO_GRADLE_DOWNLOAD_ROOT = "$serverRoot/releases"
-              $env:KTC_TO_GRADLE_VERSION = "0.12.0-2"
+              $env:KTC_TO_GRADLE_VERSION = "0.12.0-3"
               $env:KTC_TO_GRADLE_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "install"
               Invoke-RestMethod "$serverRoot/install.ps1" | Invoke-Expression
 
               $destination = Join-Path $env:KTC_TO_GRADLE_INSTALL_DIR "ktc-to-gradle.exe"
               if (-not (Test-Path $destination)) { throw "install.ps1 did not install the executable" }
               $output = & $destination --version
-              if ($output -notcontains "ktc-to-gradle 0.12.0-2 (Gradle 9.7.1)") {
+              if ($output -notcontains "ktc-to-gradle 0.12.0-3 (Gradle 9.7.1)") {
                   throw "Unexpected installed binary output: $output"
               }
 
