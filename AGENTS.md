@@ -42,7 +42,7 @@ Place coverage at the narrowest layer that states the intended behavior:
 5. Golden snapshots in `core/testResources@jvm/golden/`: exercise `Converter.generateFiles()` and
    compare every generated file, the file list, and diagnostics byte for byte.
 6. `integration-tests/`: build a fixture with the Kotlin Toolchain, convert it, and build the result
-   with the generated Gradle wrapper.
+   with the generated Gradle wrapper, then compare the two builds.
 
 Do not use substring assertions over generated build scripts. Use equality-based binder or
 interpreter tests, or a golden case. `StaticAssetsTest` is the deliberate exception: its substring
@@ -58,9 +58,14 @@ edit changes that baseline too.
 
 Every fixture under `integration-tests/fixtures/` must be a project the Kotlin Toolchain itself
 builds. The suite runs `kotlin test` on it before converting anything, and then requires the
-converted Gradle build to run every JVM and Android test the Toolchain ran. A fixture the Toolchain refuses says
-nothing about the converter, so write the fixture against real coordinates and passing tests rather
-than against the converter's parser.
+converted Gradle build to run every JVM and Android test method the Toolchain ran, to package the
+same jar entries and manifest, and to resolve every runtime and test dependency the Toolchain
+resolves. A fixture the Toolchain refuses says nothing about the converter, so write the fixture
+against real coordinates and passing tests rather than against the converter's parser.
+
+Where Gradle cannot reproduce a Toolchain resolution, state the allowance on that fixture's
+`Fixture` entry in `ConversionIntegrationTest` with the reason, rather than relaxing a check for
+every fixture.
 
 ### Updating golden baselines
 

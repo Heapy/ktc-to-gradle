@@ -22,13 +22,8 @@ class HostNativeTestExecutionTest {
 
         Converter().convert(destination.absolutePathString().toPath())
 
-        val processBuilder = ProcessBuilder("sh", destination.resolve("gradlew").toString(), "--no-daemon", "build")
-            .directory(destination.toFile())
-            .redirectErrorStream(true)
-        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-        val process = processBuilder.start()
-        val output = process.inputStream.bufferedReader().readText()
-        assertEquals(0, process.waitFor(), "Host native tests for '$hostTarget' failed:\n$output")
+        val build = gradle(destination, "build")
+        assertEquals(0, build.exitCode, "Host native tests for '$hostTarget' failed:\n${build.text}")
         assertGradleRanEveryToolchainTest(destination, "kmp-library@$hostTarget", toolchainTests)
     }
 

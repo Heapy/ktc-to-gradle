@@ -11,28 +11,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConversionIntegrationTest {
-    private val androidFixtures = setOf("android-app", "kmp-android", "android-junit-none")
-
     @Test
     fun fixturesBuildWithTheToolchainAndWithGradleAfterConversion() {
-        for (fixture in listOf(
-            "jvm-single",
-            "jvm-multi",
-            "mixed-modules",
-            "kmp-library",
-            "junit-none",
-            "test-release",
-            "compiler-plugin",
-            "android-app",
-            "android-junit-none",
-            "kmp-android",
-        )) {
-            val destination = copyFixture(fixture)
-            val androidSdkFound = fixture !in androidFixtures || configureAndroidSdk(destination)
+        for (fixture in FIXTURES) {
+            val name = fixture.name
+            val destination = copyFixture(name)
+            val androidSdkFound = !fixture.android || configureAndroidSdk(destination)
 
             // The fixture is only evidence about the converter while the Kotlin Toolchain itself
             // builds it and runs its tests, so that is the first step and the reference set.
-            val toolchainTests = if (androidSdkFound) buildWithKotlinToolchain(destination, fixture) else emptySet()
+            val toolchainTests = if (androidSdkFound) buildWithKotlinToolchain(destination, name) else emptySet()
 
             val result = Converter().convert(destination.absolutePathString().toPath())
             assertTrue(result.writtenFiles.contains("settings.gradle.kts"))
@@ -40,34 +28,43 @@ class ConversionIntegrationTest {
             assertEquals(Versions.GRADLE, wrapperVersion(destination))
 
             if (!androidSdkFound) {
-                println("Skipping the builds for '$fixture': no Android SDK found (set ANDROID_HOME).")
+                println("Skipping the builds for '$name': no Android SDK found (set ANDROID_HOME).")
                 continue
             }
 
-            val processBuilder = ProcessBuilder(gradleCommand(destination))
-                .directory(destination.toFile())
-                .redirectErrorStream(true)
-            processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-            if (fixture in androidFixtures) {
+            val environment = if (fixture.android) {
                 val androidUserHome = destination.resolve(".android").also(Files::createDirectories)
-                processBuilder.environment()["ANDROID_USER_HOME"] = androidUserHome.toString()
-                processBuilder.environment()["ANDROID_SDK_HOME"] = destination.toString()
+                mapOf(
+                    "ANDROID_USER_HOME" to androidUserHome.toString(),
+                    "ANDROID_SDK_HOME" to destination.toString(),
+                )
+            } else {
+                emptyMap()
             }
-            val process = processBuilder.start()
-            val output = process.inputStream.bufferedReader().readText()
-            val exitCode = process.waitFor()
-            assertEquals(0, exitCode, "Converted fixture '$fixture' failed:\n$output")
+            val build = gradle(destination, "build", environment = environment)
+            assertEquals(0, build.exitCode, "Converted fixture '$name' failed:\n${build.text}")
             // A generated build that compiles is not enough: the same flag written twice still
             // compiles, and warns once per compilation of every build the user ever runs.
             assertFalse(
-                "is passed multiple times" in output,
-                "Converted fixture '$fixture' passed a compiler argument twice:\n$output",
+                "is passed multiple times" in build.text,
+                "Converted fixture '$name' passed a compiler argument twice:\n${build.text}",
             )
-            assertGradleRanEveryToolchainTest(destination, fixture, toolchainTests)
-            if (fixture == "kmp-library") {
+            assertGradleRanEveryToolchainTest(destination, name, toolchainTests)
+            assertGradleJarsMatchToolchainJars(
+                destination,
+                name,
+                kotlinModuleNamesDiffer = fixture.kotlinModuleNamesDiffer,
+            )
+            assertGradleRuntimeClasspathCoversToolchain(
+                destination,
+                name,
+                environment = environment,
+                allowedMissingDependencies = fixture.allowedMissingDependencies,
+            )
+            if (name == "kmp-library") {
                 assertJvmRelease(destination, expectedMajorVersion = 61)
             }
-            if (fixture == "test-release") {
+            if (name == "test-release") {
                 // The test sources read a JDK 24 API the module's own release of 21 hides, so the
                 // build only compiles when test-settings.jvm.release reached both test compilations.
                 assertClassFileVersion(
@@ -79,7 +76,7 @@ class ConversionIntegrationTest {
                     69,
                 )
             }
-            if (fixture == "kmp-android") {
+            if (name == "kmp-android") {
                 assertTargetsAgreeOnBytecodeLevel(destination)
             }
         }
@@ -127,6 +124,49 @@ class ConversionIntegrationTest {
     }
 
     @Test
+    fun theGeneratedPomSaysWhatTheKotlinToolchainPomSays() {
+        val destination = copyFixture("publishing")
+        // The Kotlin Toolchain ships no transport for a file repository, so `publish` always stops
+        // at the deploy step. The POM it prepared before that is the only copy of its publication.
+        val prepared = runKotlinToolchain(destination, "publish", "localFile", "-m", "kmp-lib")
+        val toolchainPom = destination.resolve(
+            "build/tasks/_kmp-lib_prepareMavenPublishables/published-multiplatform-jvm.pom",
+        )
+        assertTrue(
+            Files.isRegularFile(toolchainPom),
+            "The Kotlin Toolchain prepared no POM for 'kmp-lib':\n${prepared.text}",
+        )
+
+        Converter().convert(destination.absolutePathString().toPath())
+        val published = gradle(destination, ":kmp-lib:publish")
+        assertEquals(0, published.exitCode, "Converted fixture 'publishing' failed to publish:\n${published.text}")
+
+        val gradlePom = destination.resolve(
+            "kmp-lib/build/repo/example/publishing/published-multiplatform-jvm/1.2.3/" +
+                "published-multiplatform-jvm-1.2.3.pom",
+        )
+        assertEquals(
+            // The Toolchain records a runtime dependency at `runtime` scope, while the Maven publish
+            // plugin writes `compile` for the same dependency of the JVM target.
+            canonicalPom(toolchainPom).map { it.replace("<scope>runtime</scope>", "<scope>compile</scope>") },
+            canonicalPom(gradlePom),
+            "The published POM says something else than the Kotlin Toolchain POM",
+        )
+    }
+
+    // Both writers wrap and order the `project` attributes their own way and pad the Gradle metadata
+    // comment differently, so only the elements below it carry a statement to compare.
+    private fun canonicalPom(pom: Path): List<String> =
+        Files.readString(pom)
+            .replace(XML_DECLARATION, "")
+            .replace(XML_COMMENT, "")
+            .replace(PROJECT_TAG, "<project>")
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toList()
+
+    @Test
     fun signArtifactsWithoutAKeyFailsThePublishInsteadOfPublishingUnsigned() {
         val destination = convertedPublishingFixture()
 
@@ -161,18 +201,6 @@ class ConversionIntegrationTest {
         return destination
     }
 
-    private data class GradleRun(val exitCode: Int, val text: String)
-
-    private fun gradle(directory: Path, vararg tasks: String): GradleRun {
-        val command = gradleCommand(directory).dropLast(1) + tasks
-        val processBuilder = ProcessBuilder(command).directory(directory.toFile()).redirectErrorStream(true)
-        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-        processBuilder.environment().remove("KOTLIN_TOOLCHAIN_SIGNING_KEY")
-        val process = processBuilder.start()
-        val text = process.inputStream.bufferedReader().readText()
-        return GradleRun(process.waitFor(), text)
-    }
-
     @Test
     fun aProjectWithAPluginModuleConvertsAndBuildsWithoutIt() {
         val destination = copyFixture("plugin-module")
@@ -196,14 +224,22 @@ class ConversionIntegrationTest {
         assertTrue(result.writtenFiles.contains("app/build.gradle.kts"))
         assertTrue(result.writtenFiles.contains("libs/messages/build.gradle.kts"))
 
-        val processBuilder = ProcessBuilder(gradleCommand(destination))
-            .directory(destination.toFile())
-            .redirectErrorStream(true)
-        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-        val process = processBuilder.start()
-        val output = process.inputStream.bufferedReader().readText()
-        assertEquals(0, process.waitFor(), "Converted fixture 'plugin-module' failed:\n$output")
+        val build = gradle(destination, "build")
+        assertEquals(0, build.exitCode, "Converted fixture 'plugin-module' failed:\n${build.text}")
         assertGradleRanEveryToolchainTest(destination, "plugin-module", toolchainTests)
+        // The build plugin module is left out of the generated build on purpose, so the Kotlin
+        // Toolchain jar and dependency graph it still has have no Gradle counterpart to match.
+        assertGradleJarsMatchToolchainJars(
+            destination,
+            "plugin-module",
+            skippedModules = setOf("greeting"),
+            kotlinModuleNamesDiffer = true,
+        )
+        assertGradleRuntimeClasspathCoversToolchain(
+            destination,
+            "plugin-module",
+            skippedModules = setOf("greeting"),
+        )
     }
 
     @Test
@@ -228,13 +264,8 @@ class ConversionIntegrationTest {
         )
         Converter().convert(destination.absolutePathString().toPath())
 
-        val processBuilder = ProcessBuilder(gradleCommand(destination, "help"))
-            .directory(destination.toFile())
-            .redirectErrorStream(true)
-        processBuilder.environment()["JAVA_HOME"] = System.getProperty("java.home")
-        val process = processBuilder.start()
-        val output = process.inputStream.bufferedReader().readText()
-        assertEquals(0, process.waitFor(), "Generated credential repository DSL failed:\n$output")
+        val help = gradle(destination, "help")
+        assertEquals(0, help.exitCode, "Generated credential repository DSL failed:\n${help.text}")
     }
 
     @Test
@@ -312,15 +343,69 @@ class ConversionIntegrationTest {
         return true
     }
 
-    private fun gradleCommand(directory: Path, task: String = "build"): List<String> =
-        if (isWindows) {
-            listOf("cmd", "/c", directory.resolve("gradlew.bat").toString(), "--no-daemon", "--stacktrace", task)
-        } else {
-            listOf("sh", directory.resolve("gradlew").toString(), "--no-daemon", "--stacktrace", task)
-        }
-
     private fun wrapperVersion(directory: Path): String {
         val properties = Files.readString(directory.resolve("gradle/wrapper/gradle-wrapper.properties"))
         return Regex("gradle-([0-9.]+)-bin\\.zip").find(properties)!!.groupValues[1]
     }
 }
+
+private val XML_DECLARATION = Regex("""<\?xml[^>]*\?>""")
+
+private val XML_COMMENT = Regex("""<!--[^>]*-->""")
+
+private val PROJECT_TAG = Regex("""<project\b[^>]*>""")
+
+private data class Fixture(
+    val name: String,
+    val android: Boolean = false,
+    // The Kotlin Toolchain names the Kotlin module after the module, Gradle after the project path,
+    // so a module that is not the root project writes a differently named `.kotlin_module` entry.
+    val kotlinModuleNamesDiffer: Boolean = false,
+    val allowedMissingDependencies: Set<String> = emptySet(),
+)
+
+// A common test source set asks for the `kotlin-test` annotations that only exist as a metadata
+// artifact, and the Kotlin Gradle Plugin resolves them away on a platform runtime classpath.
+private const val COMMON_TEST_ANNOTATIONS = "org.jetbrains.kotlin:kotlin-test-annotations-common"
+
+private val FIXTURES = listOf(
+    Fixture("jvm-single"),
+    Fixture("jvm-multi", kotlinModuleNamesDiffer = true),
+    Fixture(
+        "mixed-modules",
+        kotlinModuleNamesDiffer = true,
+        // `libs/core` declares annotations 26.0.2 as compile-only. The Kotlin Toolchain still lets
+        // that version win in the runtime graph; a Gradle `compileOnly` constrains nothing there.
+        allowedMissingDependencies = setOf(COMMON_TEST_ANNOTATIONS, "org.jetbrains:annotations:26.0.2"),
+    ),
+    Fixture("kmp-library", allowedMissingDependencies = setOf(COMMON_TEST_ANNOTATIONS)),
+    Fixture(
+        "junit-none",
+        kotlinModuleNamesDiffer = true,
+        allowedMissingDependencies = setOf(COMMON_TEST_ANNOTATIONS),
+    ),
+    Fixture(
+        "test-release",
+        kotlinModuleNamesDiffer = true,
+        allowedMissingDependencies = setOf(COMMON_TEST_ANNOTATIONS),
+    ),
+    Fixture("compiler-plugin"),
+    Fixture("android-app", android = true),
+    Fixture("android-junit-none", android = true),
+    Fixture(
+        "kmp-android",
+        android = true,
+        // `test-dependencies@android` asks for Jupiter 5.14.1. The Kotlin Toolchain lets that
+        // version reach the JVM test scope too; the Gradle targets resolve one classpath each, so
+        // the JVM tests keep the 5.10.1 that kotlin-test-junit5 brings.
+        allowedMissingDependencies = setOf(
+            COMMON_TEST_ANNOTATIONS,
+            "org.junit:junit-bom:5.14.1",
+            "org.junit.jupiter:junit-jupiter-api:5.14.1",
+            "org.junit.jupiter:junit-jupiter-engine:5.14.1",
+            "org.junit.platform:junit-platform-commons:1.14.1",
+            "org.junit.platform:junit-platform-engine:1.14.1",
+            "org.junit.platform:junit-platform-launcher:1.14.1",
+        ),
+    ),
+)
