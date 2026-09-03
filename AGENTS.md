@@ -41,6 +41,8 @@ Place coverage at the narrowest layer that states the intended behavior:
    temporary directory.
 5. Golden snapshots in `core/testResources@jvm/golden/`: exercise `Converter.generateFiles()` and
    compare every generated file, the file list, and diagnostics byte for byte.
+6. `integration-tests/`: build a fixture with the Kotlin Toolchain, convert it, and build the result
+   with the generated Gradle wrapper.
 
 Do not use substring assertions over generated build scripts. Use equality-based binder or
 interpreter tests, or a golden case. `StaticAssetsTest` is the deliberate exception: its substring
@@ -48,6 +50,17 @@ assertions document asset-level invariants that a byte-for-byte baseline does no
 
 Add a golden case for a new product type, setting, or emitted file. An existing case that merely
 grows a line does not need another case.
+
+A golden case with no `input/` tree reads `integration-tests/fixtures/<case>` instead, so a fixture
+edit changes that baseline too.
+
+### Integration fixtures
+
+Every fixture under `integration-tests/fixtures/` must be a project the Kotlin Toolchain itself
+builds. The suite runs `kotlin test` on it before converting anything, and then requires the
+converted Gradle build to run every JVM and Android test the Toolchain ran. A fixture the Toolchain refuses says
+nothing about the converter, so write the fixture against real coordinates and passing tests rather
+than against the converter's parser.
 
 ### Updating golden baselines
 

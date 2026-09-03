@@ -26,9 +26,6 @@ settings:
     publishSources: false
     # Gradle writes its own checksum set and offers no way to choose one.
     checksums: [md5, sha1, sha256]
-    mavenCentral:
-      enabled: true
-      publishingMode: manual
     pom:
       name: published-multiplatform
       url: https://example.invalid/published-multiplatform

@@ -2,11 +2,7 @@ package io.heapy.ktctogradle
 
 import okio.Path.Companion.toPath
 import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import kotlin.io.path.absolutePathString
-import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -14,15 +10,15 @@ class HostNativeTestExecutionTest {
     @Test
     fun commonTestsPassOnTheHostNativeTarget() {
         val hostTarget = hostNativeTarget() ?: return
-        val source = projectRoot().resolve("integration-tests/fixtures/kmp-library")
-        val destination = Files.createTempDirectory("ktc-to-gradle-host-native-")
-        copyRecursively(source, destination)
+        val destination = copyFixture("kmp-library")
 
         val moduleYaml = destination.resolve("module.yaml")
         Files.writeString(
             moduleYaml,
             Files.readString(moduleYaml).replace("platforms: [jvm, linuxX64]", "platforms: [jvm, $hostTarget]"),
         )
+
+        val toolchainTests = buildWithKotlinToolchain(destination, "kmp-library@$hostTarget")
 
         Converter().convert(destination.absolutePathString().toPath())
 
@@ -33,6 +29,7 @@ class HostNativeTestExecutionTest {
         val process = processBuilder.start()
         val output = process.inputStream.bufferedReader().readText()
         assertEquals(0, process.waitFor(), "Host native tests for '$hostTarget' failed:\n$output")
+        assertGradleRanEveryToolchainTest(destination, "kmp-library@$hostTarget", toolchainTests)
     }
 
     private fun hostNativeTarget(): String? {
@@ -42,33 +39,6 @@ class HostNativeTestExecutionTest {
             !os.startsWith("Mac", ignoreCase = true) -> null
             arch == "aarch64" -> "macosArm64"
             else -> "macosX64"
-        }
-    }
-
-    private fun projectRoot(): Path {
-        var current = Path.of("").toAbsolutePath().normalize()
-        while (true) {
-            if (
-                Files.isRegularFile(current.resolve("project.yaml")) &&
-                Files.isDirectory(current.resolve("integration-tests/fixtures"))
-            ) {
-                return current
-            }
-            current = current.parent
-                ?: error("Could not locate the ktc-to-gradle project root from ${Path.of("").toAbsolutePath()}")
-        }
-    }
-
-    private fun copyRecursively(source: Path, destination: Path) {
-        Files.walk(source).use { paths ->
-            paths.forEach { path ->
-                val target = destination.resolve(source.relativize(path).toString())
-                if (path.isDirectory()) target.createDirectories()
-                else {
-                    target.parent.createDirectories()
-                    Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-                }
-            }
         }
     }
 }

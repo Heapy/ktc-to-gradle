@@ -3,24 +3,22 @@ package io.heapy.ktctogradle
 import okio.Path.Companion.toPath
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConversionIntegrationTest {
-    private val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
     private val androidFixtures = setOf("android-app", "kmp-android", "android-junit-none")
 
     @Test
-    fun convertedJvmFixturesBuildWithPinnedGradle() {
+    fun fixturesBuildWithTheToolchainAndWithGradleAfterConversion() {
         for (fixture in listOf(
             "jvm-single",
             "jvm-multi",
+            "mixed-modules",
             "kmp-library",
             "junit-none",
             "test-release",
@@ -29,17 +27,20 @@ class ConversionIntegrationTest {
             "android-junit-none",
             "kmp-android",
         )) {
-            val source = projectRoot().resolve("integration-tests/fixtures/$fixture")
-            val destination = Files.createTempDirectory("ktc-to-gradle-$fixture-")
-            copyRecursively(source, destination)
+            val destination = copyFixture(fixture)
+            val androidSdkFound = fixture !in androidFixtures || configureAndroidSdk(destination)
+
+            // The fixture is only evidence about the converter while the Kotlin Toolchain itself
+            // builds it and runs its tests, so that is the first step and the reference set.
+            val toolchainTests = if (androidSdkFound) buildWithKotlinToolchain(destination, fixture) else emptySet()
 
             val result = Converter().convert(destination.absolutePathString().toPath())
             assertTrue(result.writtenFiles.contains("settings.gradle.kts"))
             if (!isWindows) assertTrue(Files.isExecutable(destination.resolve("gradlew")))
             assertEquals(Versions.GRADLE, wrapperVersion(destination))
 
-            if (fixture in androidFixtures && !configureAndroidSdk(destination)) {
-                println("Skipping the Gradle build for '$fixture': no Android SDK found (set ANDROID_HOME).")
+            if (!androidSdkFound) {
+                println("Skipping the builds for '$fixture': no Android SDK found (set ANDROID_HOME).")
                 continue
             }
 
@@ -62,39 +63,13 @@ class ConversionIntegrationTest {
                 "is passed multiple times" in output,
                 "Converted fixture '$fixture' passed a compiler argument twice:\n$output",
             )
+            assertGradleRanEveryToolchainTest(destination, fixture, toolchainTests)
             if (fixture == "kmp-library") {
                 assertJvmRelease(destination, expectedMajorVersion = 61)
-                assertUnitTestsRan(destination, "jvmTest", "example.multiplatform.JupiterOnlyTest")
             }
-            if (fixture == "android-app") {
-                assertUnitTestsRan(destination, "testDebugUnitTest", "example.android.PayloadTest")
-            }
-            // `settings.junit: none` adds no JUnit adapter and still runs the JUnit platform, so
-            // both modules discover a suite written against the engine they brought themselves.
-            if (fixture == "junit-none") {
-                assertUnitTestsRan(destination.resolve("jvm-lib"), "test", "example.junitnone.JupiterOnlyTest")
-                assertUnitTestsRan(
-                    destination.resolve("kmp-lib"),
-                    "jvmTest",
-                    "example.junitnone.multiplatform.JupiterOnlyTest",
-                )
-                // The junit-5 module of the same project: one root gradle.properties serves both,
-                // and the adapter still reaches the module that did not bring an engine of its own.
-                assertUnitTestsRan(destination.resolve("junit5-lib"), "test", "example.junit5.KotlinTestTest")
-            }
-            // The test sources read a JDK 24 API the module's own release of 21 hides, so the build
-            // only compiles when test-settings.jvm.release reached both test compilations.
             if (fixture == "test-release") {
-                assertUnitTestsRan(
-                    destination.resolve("jvm-lib"),
-                    "test",
-                    "example.testrelease.NewApiTest",
-                )
-                assertUnitTestsRan(
-                    destination.resolve("kmp-lib"),
-                    "jvmTest",
-                    "example.testrelease.multiplatform.NewApiTest",
-                )
+                // The test sources read a JDK 24 API the module's own release of 21 hides, so the
+                // build only compiles when test-settings.jvm.release reached both test compilations.
                 assertClassFileVersion(
                     destination.resolve("jvm-lib/build/classes/kotlin/main/example/testrelease/GreetingKt.class"),
                     65,
@@ -104,11 +79,7 @@ class ConversionIntegrationTest {
                     69,
                 )
             }
-            if (fixture == "android-junit-none") {
-                assertUnitTestsRan(destination, "testDebugUnitTest", "example.androidjunitnone.JupiterOnlyTest")
-            }
             if (fixture == "kmp-android") {
-                assertAndroidUnitTestsRan(destination)
                 assertTargetsAgreeOnBytecodeLevel(destination)
             }
         }
@@ -169,26 +140,19 @@ class ConversionIntegrationTest {
     }
 
     private fun convertedPublishingFixture(): Path {
-        val source = projectRoot().resolve("integration-tests/fixtures/publishing")
-        val destination = Files.createTempDirectory("ktc-to-gradle-publishing-")
-        copyRecursively(source, destination)
+        val destination = copyFixture("publishing")
+
+        val toolchain = runKotlinToolchain(destination, "build")
+        assertEquals(
+            0,
+            toolchain.exitCode,
+            "Fixture 'publishing' does not build with the Kotlin Toolchain:\n${toolchain.text}",
+        )
 
         val result = Converter().convert(destination.absolutePathString().toPath())
 
         assertEquals(
             listOf(
-                "kmp-lib: settings.publishing.mavenCentral has no Gradle equivalent (publishingMode " +
-                    "'manual' included); the generated build publishes to the repositories it declares " +
-                    "and uploads no Central Portal bundle",
-                "kmp-lib: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
-                    "publication missing settings.publishing.signArtifacts, " +
-                    "settings.publishing.publishSources, settings.publishing.pom.description, " +
-                    "settings.publishing.pom.licenses, settings.publishing.pom.developers; the Kotlin " +
-                    "Toolchain checks the same requirements before it uploads",
-                "kmp-lib: settings.publishing.mavenCentral is enabled, and Maven Central refuses a " +
-                    "publication without a javadoc jar; the generated build has none, because the " +
-                    "Kotlin Gradle Plugin builds no javadoc per target and the 'withJavadocJar()' a " +
-                    "jvm/lib gets has no multiplatform equivalent",
                 "kmp-lib: settings.publishing.checksums md5, sha1, sha256 was dropped; Gradle writes " +
                     "its own set next to every artifact and offers no way to choose one",
             ),
@@ -211,9 +175,8 @@ class ConversionIntegrationTest {
 
     @Test
     fun aProjectWithAPluginModuleConvertsAndBuildsWithoutIt() {
-        val source = projectRoot().resolve("integration-tests/fixtures/plugin-module")
-        val destination = Files.createTempDirectory("ktc-to-gradle-plugin-module-")
-        copyRecursively(source, destination)
+        val destination = copyFixture("plugin-module")
+        val toolchainTests = buildWithKotlinToolchain(destination, "plugin-module")
 
         val result = Converter().convert(destination.absolutePathString().toPath())
 
@@ -240,6 +203,7 @@ class ConversionIntegrationTest {
         val process = processBuilder.start()
         val output = process.inputStream.bufferedReader().readText()
         assertEquals(0, process.waitFor(), "Converted fixture 'plugin-module' failed:\n$output")
+        assertGradleRanEveryToolchainTest(destination, "plugin-module", toolchainTests)
     }
 
     @Test
@@ -337,27 +301,6 @@ class ConversionIntegrationTest {
         assertEquals(expectedMajorVersion, majorVersion, "Unexpected JVM class-file version in $classFile")
     }
 
-    private fun assertAndroidUnitTestsRan(directory: Path) {
-        assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.AndroidOnlyTest")
-        // Annotated with Jupiter rather than kotlin.test, so it is discovered only when the task
-        // actually runs the JUnit platform. A kotlin.test class runs under JUnit 4 just as happily.
-        assertUnitTestsRan(directory, "testAndroidHostTest", "io.heapy.ktctogradle.fixture.JupiterOnlyTest")
-    }
-
-    private fun assertUnitTestsRan(directory: Path, task: String, testClass: String) {
-        val report = directory.resolve("build/test-results/$task/TEST-$testClass.xml")
-        assertTrue(Files.isRegularFile(report), "$report was never written, so those unit tests never ran")
-        val summary = Files.readString(report).substringAfter("<testsuite").substringBefore(">")
-        assertTrue(
-            Regex("""tests="([1-9]\d*)"""").containsMatchIn(summary),
-            "No test of $testClass executed: $summary",
-        )
-        assertTrue(
-            """failures="0"""" in summary && """errors="0"""" in summary,
-            "$testClass did not pass: $summary",
-        )
-    }
-
     private fun configureAndroidSdk(directory: Path): Boolean {
         val sdk = listOfNotNull(
             System.getenv("ANDROID_HOME"),
@@ -376,36 +319,8 @@ class ConversionIntegrationTest {
             listOf("sh", directory.resolve("gradlew").toString(), "--no-daemon", "--stacktrace", task)
         }
 
-    private fun projectRoot(): Path {
-        var current = Path.of("").toAbsolutePath().normalize()
-        while (true) {
-            if (
-                Files.isRegularFile(current.resolve("project.yaml")) &&
-                Files.isDirectory(current.resolve("integration-tests/fixtures"))
-            ) {
-                return current
-            }
-            current = current.parent
-                ?: error("Could not locate the ktc-to-gradle project root from ${Path.of("").toAbsolutePath()}")
-        }
-    }
-
     private fun wrapperVersion(directory: Path): String {
         val properties = Files.readString(directory.resolve("gradle/wrapper/gradle-wrapper.properties"))
         return Regex("gradle-([0-9.]+)-bin\\.zip").find(properties)!!.groupValues[1]
-    }
-
-    private fun copyRecursively(source: Path, destination: Path) {
-        Files.walk(source).use { paths ->
-            paths.forEach { path ->
-                val relative = source.relativize(path)
-                val target = destination.resolve(relative.toString())
-                if (path.isDirectory()) target.createDirectories()
-                else {
-                    target.parent.createDirectories()
-                    Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-                }
-            }
-        }
     }
 }

@@ -1,6 +1,6 @@
 # Manual test cases
 
-The integration-test module converts seven synthetic fixtures. These cases convert **real Kotlin
+The integration-test module builds, converts, and rebuilds twelve synthetic fixtures. These cases convert **real Kotlin
 Toolchain projects** from the [Heapy organization](https://github.com/orgs/Heapy/repositories)
 instead. They cover module counts, platform sets, templates, catalogs, and build plugins that no
 fixture reproduces.

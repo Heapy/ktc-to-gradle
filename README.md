@@ -75,7 +75,7 @@ Run the Kotlin Toolchain integration-test module separately:
 ./kotlin test -m integration-tests -p jvm
 ```
 
-The suite copies seven Toolchain fixtures, converts them, and executes `build` on every generated Gradle 9.7.1 project; the two Android fixtures are skipped when no Android SDK is available. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.
+The suite copies twelve Toolchain fixtures. Each one is first built and tested by the Kotlin Toolchain itself, then converted, then built with the generated Gradle 9.7.1 wrapper; every JVM and Android test the Toolchain ran has to run again under Gradle. A fixture the Toolchain refuses is not evidence about the converter, so that step fails the case. The three Android fixtures are skipped when no Android SDK is available. GitHub Actions also smoke-tests `run.sh` and `install.sh` on Linux/macOS and `install.ps1` on Windows, including checksum-failure paths. Native archives with SHA-256 checksum files are published for `v*` tags.
 
 ## Licence
 
