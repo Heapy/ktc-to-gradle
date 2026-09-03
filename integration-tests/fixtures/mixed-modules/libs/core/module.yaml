@@ -1,0 +1,13 @@
+product: jvm/lib
+
+apply:
+  - //common.module-template.yaml
+
+dependencies:
+  # `exported` is what lets app read okio without declaring it.
+  - $libs.okio: exported
+  - org.jetbrains:annotations:26.0.2: compile-only
+
+test-dependencies:
+  - bom: $libs.junit.bom
+  - org.junit.jupiter:junit-jupiter

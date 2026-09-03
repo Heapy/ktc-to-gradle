@@ -18,6 +18,8 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun jvmMulti() = assertCase("jvm-multi")
 
+    @Test fun mixedModules() = assertCase("mixed-modules")
+
     @Test fun kmpLibrary() = assertCase("kmp-library")
 
     @Test fun kmpAndroid() = assertCase("kmp-android")

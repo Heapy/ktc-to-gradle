@@ -1,0 +1,14 @@
+product: jvm/app
+
+apply:
+  - //common.module-template.yaml
+
+layout: maven-like
+
+dependencies:
+  - //libs/core
+  - //libs/shared
+
+settings:
+  jvm:
+    mainClass: example.mixed.app.MainKt

@@ -1,0 +1,13 @@
+product:
+  type: kmp/lib
+  platforms: [jvm, linuxX64]
+
+apply:
+  - //common.module-template.yaml
+
+aliases:
+  - desktop: [jvm, linuxX64]
+
+settings:
+  kotlin:
+    serialization: json

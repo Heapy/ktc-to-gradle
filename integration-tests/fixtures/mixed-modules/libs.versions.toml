@@ -1,0 +1,7 @@
+[versions]
+okio = "3.17.0"
+junit = "5.14.1"
+
+[libraries]
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
