@@ -8,9 +8,9 @@ product:
     - mingwX64
 
 dependencies:
-  - com.squareup.okio:okio:3.17.0: exported
-  - io.heapy.kotaml:kotaml:0.110.0
+  - com.squareup.okio:okio:3.18.2: exported
+  - io.heapy.kotaml:kotaml:0.111.0
 
 settings:
   kotlin:
-    version: 2.4.10
+    version: 2.4.20
