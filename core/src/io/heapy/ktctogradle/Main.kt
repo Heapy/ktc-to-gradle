@@ -76,7 +76,7 @@ private data class Options(
 }
 
 private fun helpText(): String = """
-    Convert a Kotlin Toolchain 0.12 project to Gradle Kotlin DSL.
+    Convert a Kotlin Toolchain 0.13 project to Gradle Kotlin DSL.
 
     Usage: ktc-to-gradle [convert] [project-directory] [options]
 

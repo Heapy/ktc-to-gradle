@@ -839,7 +839,7 @@ class ProjectInterpreterTest {
             val project = project(
                 module(
                     "app",
-                    "product: $product\n\nsettings:\n  publishing:\n    enabled: true\n" +
+                    "product: $product\n\nsettings:\n  android:\n    namespace: example.app\n  publishing:\n    enabled: true\n" +
                         "    group: example\n    version: 1.0.0\n",
                 ),
             )
@@ -878,7 +878,7 @@ class ProjectInterpreterTest {
         }
 
         val dropped = listOf(
-            "product: android/app",
+            "product: android/app\nsettings:\n  android:\n    namespace: example.app",
             "product:\n  type: kmp/lib\n  platforms: [linuxX64]",
             "product: js/app",
         )

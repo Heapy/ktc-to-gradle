@@ -267,7 +267,7 @@ class PluginResolutionTest {
         serialization: Boolean,
     ): ToolchainModel = ToolchainModel(
         product = ProductSpec(product, platforms),
-        layout = Layout.AMPER,
+        layout = Layout.DEFAULT,
         aliases = emptyMap(),
         dependencies = emptyMap(),
         testDependencies = emptyMap(),

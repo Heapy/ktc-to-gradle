@@ -27,11 +27,11 @@ import kotlin.test.assertTrue
 
 class AndroidInterpreterTest {
     @Test
-    fun anApplicationWithNoSettingsGetsTheConverterDefaults() {
+    fun anApplicationWithOnlyANamespaceGetsTheToolchainDefaults() {
         assertEquals(
             AndroidBuild(
-                namespace = "org.example.namespace",
-                applicationId = "org.example.namespace",
+                namespace = "example.app",
+                applicationId = "example.app",
                 compileSdk = "37",
                 minSdk = "24",
                 targetSdk = "37",
@@ -44,14 +44,14 @@ class AndroidInterpreterTest {
                 testFramework = TestFramework.JUNIT_5,
                 testSettings = JvmTestSettings(),
             ),
-            interpret(module("app", "product: android/app\n")),
+            interpret(module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n")),
         )
     }
 
     @Test
     fun onlyJunitNoneNamesThePlatformLauncher() {
         fun testDependenciesOf(junit: String) =
-            interpret(module("app", "product: android/app\nsettings:\n  junit: $junit\n")).testDependencies
+            interpret(module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  junit: $junit\n")).testDependencies
 
         assertEquals(emptyList(), testDependenciesOf("junit-5"))
         assertEquals(emptyList(), testDependenciesOf("junit-4"))
@@ -115,6 +115,7 @@ class AndroidInterpreterTest {
             product: android/app
             settings:
               android:
+                namespace: example.app
                 compileSdk:
                   apiLevel: 36
             """.trimIndent(),
@@ -128,11 +129,11 @@ class AndroidInterpreterTest {
     fun theTargetSdkFollowsTheCompileSdkTheModuleAskedFor() {
         val app = module(
             "app",
-            "product: android/app\nsettings:\n  android:\n    compileSdk: 35\n",
+            "product: android/app\nsettings:\n  android:\n    namespace: example.app\n    compileSdk: 35\n",
         )
 
         assertEquals("35", interpret(app).targetSdk)
-        assertEquals("37", interpret(module("app", "product: android/app\n")).targetSdk)
+        assertEquals("37", interpret(module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n")).targetSdk)
     }
 
     @Test
@@ -148,7 +149,7 @@ class AndroidInterpreterTest {
     @Test
     fun aPinnedKotlinVersionIsReportedAsIneffective() {
         val diagnostics = DiagnosticCollector()
-        val app = module("app", "product: android/app\nsettings:\n  kotlin:\n    version: 2.4.10\n")
+        val app = module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  kotlin:\n    version: 2.4.10\n")
         AndroidInterpreter.interpret(ModuleIndex.of(listOf(app)), app, diagnostics)
 
         assertEquals(
@@ -166,7 +167,7 @@ class AndroidInterpreterTest {
 
     @Test
     fun anAndroidApplicationNeverAppliesTheKotlinPlugin() {
-        val app = module("app", "product: android/app\nsettings:\n  kotlin:\n    version: 2.4.10\n")
+        val app = module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  kotlin:\n    version: 2.4.10\n")
         val plugins = PluginResolution.pluginsOf(app.model)
 
         assertEquals(listOf(GradlePlugin.Android.APPLICATION), plugins)
@@ -177,7 +178,7 @@ class AndroidInterpreterTest {
     fun serializationContributesItsPluginAndItsRuntime() {
         val app = module(
             "app",
-            "product: android/app\nsettings:\n  kotlin:\n    serialization: json\n",
+            "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  kotlin:\n    serialization: json\n",
         )
 
         assertEquals(
@@ -199,6 +200,9 @@ class AndroidInterpreterTest {
             "app",
             """
             product: android/app
+            settings:
+              android:
+                namespace: example.app
             dependencies:
               - org.example:common:1.0
             dependencies@android:
@@ -224,7 +228,7 @@ class AndroidInterpreterTest {
 
     @Test
     fun aMalformedSettingsSectionRaisesItsDeferredMessage() {
-        val app = module("app", "product: android/app\nsettings:\n  kotlin:\n    optIns: nope\n")
+        val app = module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  kotlin:\n    optIns: nope\n")
 
         assertTrue("settings" in app.model.errors)
         assertEquals(
@@ -249,23 +253,15 @@ class AndroidInterpreterTest {
     }
 
     @Test
-    fun aLibraryTargetWithoutANamespaceDerivesOneFromTheModulePath() {
+    fun aLibraryTargetWithoutANamespaceUsesTheToolchainModuleNameHash() {
         val diagnostics = DiagnosticCollector()
         val library = module("libs/messages", "product:\n  type: kmp/lib\n  platforms: [jvm, android]\n")
 
         assertEquals(
-            AndroidLibraryTarget(namespace = "ktc.generated.libs.messages", compileSdk = "37", minSdk = "24", release = "25"),
+            AndroidLibraryTarget(namespace = "org.jetbrains.ktc.mangled.p462094004", compileSdk = "37", minSdk = "24", release = "25"),
             AndroidInterpreter.libraryTarget(library, JvmTestSettings.EMPTY, diagnostics),
         )
-        assertEquals(
-            listOf(
-                Diagnostic(
-                    Diagnostic.Severity.WARNING,
-                    "libs/messages: settings.android.namespace is not set; using 'ktc.generated.libs.messages'",
-                ),
-            ),
-            diagnostics.collected(),
-        )
+        assertEquals(emptyList<Diagnostic>(), diagnostics.collected())
     }
 
     @Test
@@ -286,11 +282,27 @@ class AndroidInterpreterTest {
     }
 
     @Test
-    fun aDerivedNamespaceSanitisesEverySegmentIntoAnIdentifier() {
-        assertEquals(
-            "ktc.generated.my_app._2nd_ui",
-            AndroidInterpreter.derivedNamespace(module("My-App/2nd.ui", "product: jvm/lib\n")),
-        )
+    fun aDerivedNamespaceUsesThePublishingGroupAndSanitizedEffectiveArtifactId() {
+        for ((artifact, expected) in listOf("2nd-ui" to "_2nd_ui", "My-App" to "My_App", null to "messages")) {
+            val artifactSetting = artifact?.let { "    artifactId: $it\n" }.orEmpty()
+            val library = module(
+                "libs/messages",
+                "product: kmp/lib\nsettings:\n  publishing:\n    group: example.library\n$artifactSetting",
+            )
+            assertEquals("example.library.$expected", AndroidInterpreter.derivedNamespace(library))
+        }
+    }
+
+    @Test
+    fun anApplicationRequiresANamespaceEvenWithAnApplicationId() {
+        for (settings in listOf("", "settings:\n  android:\n    applicationId: example.app\n", "settings:\n  android:\n    namespace: '  '\n")) {
+            assertEquals(
+                "app: settings.android.namespace is required for android/app",
+                assertFailsWith<ConversionException> {
+                    interpret(module("app", "product: android/app\n$settings"))
+                }.message,
+            )
+        }
     }
 
     @Test
@@ -358,7 +370,7 @@ class AndroidInterpreterTest {
 
     @Test
     fun aMalformedJvmTestArgumentListFailsAnAndroidModule() {
-        val app = module("app", "product: android/app\nsettings:\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
+        val app = module("app", "product: android/app\nsettings:\n  android:\n    namespace: example.app\n  jvm:\n    test:\n      freeJvmArgs: nope\n")
 
         assertEquals(
             "Expected a list at settings.jvm.test.freeJvmArgs",
@@ -373,6 +385,8 @@ class AndroidInterpreterTest {
             """
             product: android/app
             settings:
+              android:
+                namespace: example.app
               jvm:
                 test:
                   freeJvmArgs: [-Xmx512m]

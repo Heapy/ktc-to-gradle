@@ -278,7 +278,7 @@ class ConversionIntegrationTest {
 
             settings:
               kotlin:
-                version: 2.4.10
+                version: 2.4.20
               jvm:
                 jdk:
                   version: 25

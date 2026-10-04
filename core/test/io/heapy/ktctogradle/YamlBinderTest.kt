@@ -84,10 +84,23 @@ class YamlBinderTest {
     }
 
     @Test
-    fun bindsTheLayoutKeyAndTreatsEveryOtherValueAsTheDefault() {
+    fun bindsTheDefaultAndMavenLikeLayouts() {
         assertEquals(Layout.MAVEN_LIKE, bind("product: jvm/lib\nlayout: maven-like\n").layout)
-        assertEquals(Layout.AMPER, bind("product: jvm/lib").layout)
-        assertEquals(Layout.AMPER, bind("product: jvm/lib\nlayout: nonsense\n").layout)
+        assertEquals(Layout.DEFAULT, bind("product: jvm/lib").layout)
+        assertEquals(Layout.DEFAULT, bind("product: jvm/lib\nlayout: default\n").layout)
+        assertEquals(emptyMap(), bind("product: jvm/lib\nlayout: default\n").errors)
+    }
+
+    @Test
+    fun rejectsTheObsoleteAndUnknownLayoutNames() {
+        assertEquals(
+            mapOf("settings" to "layout: amper is obsolete; use layout: default"),
+            bind("product: jvm/lib\nlayout: amper\n").errors,
+        )
+        assertEquals(
+            mapOf("settings" to "Unsupported layout 'nonsense'"),
+            bind("product: jvm/lib\nlayout: nonsense\n").errors,
+        )
     }
 
     @Test
@@ -1290,7 +1303,7 @@ class YamlBinderTest {
         assertEquals(
             ToolchainModel(
                 product = ProductSpec("jvm/lib", listOf("jvm")),
-                layout = Layout.AMPER,
+                layout = Layout.DEFAULT,
                 aliases = emptyMap(),
                 dependencies = emptyMap(),
                 testDependencies = emptyMap(),
