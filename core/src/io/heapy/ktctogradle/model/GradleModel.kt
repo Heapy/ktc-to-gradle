@@ -139,7 +139,7 @@ internal data class CompilerPlugin(
     val options: Map<String, String> = emptyMap(),
 )
 
-internal enum class Layout { AMPER, MAVEN_LIKE }
+internal enum class Layout { DEFAULT, MAVEN_LIKE }
 
 internal enum class Scope { ALL, COMPILE_ONLY, RUNTIME_ONLY }
 

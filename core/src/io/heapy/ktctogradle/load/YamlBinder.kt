@@ -8,7 +8,14 @@ internal object YamlBinder {
         val errors = mutableMapOf<String, String>()
         return ToolchainModel(
             product = deferred(errors, Region.PRODUCT, ProductSpec("", emptyList())) { product(config) },
-            layout = if (config.string("layout") == "maven-like") Layout.MAVEN_LIKE else Layout.AMPER,
+            layout = deferred(errors, Region.SETTINGS, Layout.DEFAULT) {
+                when (val layout = config.string("layout")) {
+                    null, "default" -> Layout.DEFAULT
+                    "maven-like" -> Layout.MAVEN_LIKE
+                    "amper" -> throw ConversionException("layout: amper is obsolete; use layout: default")
+                    else -> throw ConversionException("Unsupported layout '$layout'")
+                }
+            },
             description = config.string("description"),
             aliases = deferred(errors, Region.ALIASES, emptyMap()) { bindAliases(config) },
             dependencies = bindDependencies(config, "dependencies", displayName, errors),

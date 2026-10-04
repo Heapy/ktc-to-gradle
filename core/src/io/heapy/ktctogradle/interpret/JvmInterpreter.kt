@@ -41,7 +41,7 @@ internal object JvmInterpreter {
             testRelease = model.settings.test?.release,
             compilerOptions = compilerOptions(model.settings.kotlin, jvmTarget = release),
             qualifiedCompilerOptions = qualified.options,
-            layout = if (model.layout == RawLayout.MAVEN_LIKE) GradleLayout.MAVEN_LIKE else GradleLayout.AMPER,
+            layout = if (model.layout == RawLayout.MAVEN_LIKE) GradleLayout.MAVEN_LIKE else GradleLayout.DEFAULT,
             dependencies = declared + implied(model, serialization),
             testDependencies = testDependencies,
             testFramework = testFramework,

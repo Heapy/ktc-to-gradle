@@ -44,8 +44,10 @@ jobs:
             case "$VERSION" in
               *[!0-9.]*|""|.*|*.) echo "Not a Gradle version: '$VERSION'" >&2; exit 1 ;;
             esac
+            tools/update-gradle-wrapper.sh "$VERSION"
+          else
+            tools/update-gradle-wrapper.sh
           fi
-          tools/update-gradle-wrapper.sh $VERSION
 
       - name: Stop early when nothing moved
         id: changes

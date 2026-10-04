@@ -94,7 +94,7 @@ internal data class UnsupportedKey(
     }
 }
 
-internal enum class Layout { AMPER, MAVEN_LIKE }
+internal enum class Layout { DEFAULT, MAVEN_LIKE }
 
 internal data class ProductSpec(val type: String, val platforms: List<String>)
 

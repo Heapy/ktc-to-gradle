@@ -1,5 +1,6 @@
 package io.heapy.ktctogradle.interpret
 
+import io.heapy.ktctogradle.ConversionException
 import io.heapy.ktctogradle.DiagnosticCollector
 import io.heapy.ktctogradle.Versions
 import io.heapy.ktctogradle.load.ModuleIndex
@@ -9,6 +10,7 @@ import io.heapy.ktctogradle.load.raiseDeferred
 import io.heapy.ktctogradle.model.AndroidBuild
 import io.heapy.ktctogradle.model.AndroidLibraryTarget
 import io.heapy.ktctogradle.model.JvmTestSettings
+import kotlin.math.absoluteValue
 
 internal object AndroidInterpreter {
     fun interpret(index: ModuleIndex, module: ToolchainModule, diagnostics: DiagnosticCollector): AndroidBuild {
@@ -24,8 +26,10 @@ internal object AndroidInterpreter {
         val serialization = Serialization.of(model)
         val android = model.settings.android
         val release = model.settings.jvm?.release ?: Defaults.ANDROID_RELEASE
-        val namespace = android?.namespace ?: Defaults.ANDROID_NAMESPACE_FALLBACK
-        val compileSdk = android?.compileSdk ?: Defaults.ANDROID_COMPILE_SDK
+        val namespace = android?.namespace?.takeIf(String::isNotBlank) ?: throw ConversionException(
+            "${module.displayName}: settings.android.namespace is required for android/app",
+        )
+        val compileSdk = android.compileSdk ?: Defaults.ANDROID_COMPILE_SDK
         val dependencies = Dependencies.of(index, module, test = false, qualifiers = QUALIFIERS) +
             JvmInterpreter.implied(model, serialization)
         val testFramework = JvmInterpreter.testFramework(model)
@@ -38,13 +42,13 @@ internal object AndroidInterpreter {
         return AndroidBuild(
             namespace = namespace,
             // Kotlin Toolchain defaults an omitted application id to the namespace.
-            applicationId = android?.applicationId ?: namespace,
+            applicationId = android.applicationId ?: namespace,
             compileSdk = compileSdk,
-            minSdk = android?.minSdk ?: Defaults.ANDROID_MIN_SDK,
+            minSdk = android.minSdk ?: Defaults.ANDROID_MIN_SDK,
             // Kotlin Toolchain defaults the target SDK to the compile SDK.
-            targetSdk = android?.targetSdk ?: compileSdk,
-            versionCode = android?.versionCode ?: Defaults.ANDROID_VERSION_CODE,
-            versionName = android?.versionName ?: Defaults.ANDROID_VERSION_NAME,
+            targetSdk = android.targetSdk ?: compileSdk,
+            versionCode = android.versionCode ?: Defaults.ANDROID_VERSION_CODE,
+            versionName = android.versionName ?: Defaults.ANDROID_VERSION_NAME,
             release = release,
             compilerOptions = JvmInterpreter.compilerOptions(model.settings.kotlin, jvmTarget = release),
             qualifiedCompilerOptions = qualified.options,
@@ -63,9 +67,7 @@ internal object AndroidInterpreter {
         val model = module.model
         model.raiseDeferred(Region.SETTINGS)
         val android = model.settings.android
-        val namespace = android?.namespace ?: derivedNamespace(module).also {
-            diagnostics.warn("${module.displayName}: settings.android.namespace is not set; using '$it'")
-        }
+        val namespace = android?.namespace ?: derivedNamespace(module)
         return AndroidLibraryTarget(
             namespace = namespace,
             compileSdk = android?.compileSdk ?: Defaults.ANDROID_COMPILE_SDK,
@@ -76,14 +78,19 @@ internal object AndroidInterpreter {
         )
     }
 
-    /** Derives a stable package because AGP requires a namespace while Kotlin Toolchain does not. */
+    /** Mirrors AndroidSettings.effectiveNamespace in Kotlin Toolchain 0.13.0. */
     fun derivedNamespace(module: ToolchainModule): String {
-        val segments = module.path.segments.ifEmpty { listOf(module.displayName) }
-        val packageSegments = segments.map { segment ->
-            val sanitized = segment.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
-            if (sanitized.firstOrNull()?.isDigit() != false) "_$sanitized" else sanitized
+        val publishing = module.model.settings.publishing
+        if (publishing?.group != null) {
+            val artifactId = (publishing.artifactId ?: module.directory.name).replace('-', '_')
+            val identifier = if (artifactId.firstOrNull()?.let { it == '_' || it == '$' || it.isLetter() } == true) {
+                artifactId
+            } else {
+                "_$artifactId"
+            }
+            return "${publishing.group}.$identifier"
         }
-        return (Defaults.ANDROID_NAMESPACE_PREFIX + packageSegments).joinToString(".")
+        return "org.jetbrains.ktc.mangled.p${module.directory.name.hashCode().absoluteValue}"
     }
 
     private val QUALIFIERS = listOf("", "android")

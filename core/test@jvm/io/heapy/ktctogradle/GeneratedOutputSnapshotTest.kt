@@ -30,6 +30,8 @@ class GeneratedOutputSnapshotTest {
 
     @Test fun androidJunit4() = assertCase("android-junit4")
 
+    @Test fun kmpAndroidNamespace() = assertCase("kmp-android-namespace")
+
     @Test fun kmpAndroidOnly() = assertCase("kmp-android-only")
 
     @Test fun repoCredentials() = assertCase("repo-credentials")

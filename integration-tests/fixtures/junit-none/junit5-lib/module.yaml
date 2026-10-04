@@ -5,7 +5,7 @@ product: jvm/lib
 # this module is what proves the adapter still reaches a module that did not ask to bring its own.
 settings:
   kotlin:
-    version: 2.4.10
+    version: 2.4.20
   jvm:
     jdk:
       version: 25

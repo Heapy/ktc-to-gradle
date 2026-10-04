@@ -1,0 +1,1 @@
+WARNING: The kotlin plugin is requested at more than one version (2.4.10, 2.4.20); Gradle loads it once for the whole build, so the generated build uses 2.4.10 for every module

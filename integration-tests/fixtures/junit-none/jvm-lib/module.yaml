@@ -2,7 +2,7 @@ product: jvm/lib
 
 settings:
   kotlin:
-    version: 2.4.10
+    version: 2.4.20
   # "Add no JUnit adapter", not "do not run the JUnit platform": the module brings its own engine
   # below, and the converted build still has to discover the tests written against it.
   junit: none

@@ -48,9 +48,10 @@ rm -rf "$SCRATCH"
 Run these five steps for each project. Stop at the first step that disagrees with the expected
 result in that project's case below, and record the exact output.
 
-1. **Record the Toolchain version the project pins.** The converter targets 0.12. A project pinning
-   0.11.x may use syntax the converter does not model; a failure there is a version mismatch to be
-   confirmed before it is filed as a defect.
+1. **Record the Toolchain version the project pins.** The converter targets 0.13. A project pinning
+   0.12.x or earlier may use syntax the converter does not model; confirm a version mismatch
+   before filing a defect. In a scratch checkout, migrate `layout: amper` to `layout: default`
+   and add explicit Android application namespaces before testing against 0.13.
 
    ```shell
    grep -m1 '^kotlin_cli_version=' "$SCRATCH/<repo>/kotlin"
@@ -101,7 +102,9 @@ result in that project's case below, and record the exact output.
 ## Projects
 
 Expected results below were observed with converter 0.12.0 against the repository state of
-2026-08-27. When an expectation no longer holds, that is the finding — update this file with it.
+2026-08-27. They are historical observations, not current release checks. Toolchain 0.13 changed
+Android namespace defaults: missing library namespaces now match Toolchain without a warning;
+applications without a namespace are rejected. Record the current results below when rerunning.
 
 | Project | Shape | Exercises | Expected result |
 | --- | --- | --- | --- |
@@ -132,7 +135,7 @@ Check in `build.gradle.kts`:
 - `testImplementation(kotlin("test-junit5"))` **and** `useJUnitPlatform()` — both, not one;
 - `libs.junit.jupiter` and the other `$libs.*` coordinates resolved through the catalog;
 - `mainClass` set to `io.heapy.kotlm.Application`;
-- the `maven-like` source directories, not the `amper` ones.
+- the `maven-like` source directories, not the `default` ones.
 
 Then confirm the tests executed. Six result files with non-zero `tests=` counts were observed.
 
@@ -181,15 +184,10 @@ Toolchain 0.11.0. *Needs Android SDK.*
 ./kotlin run -m macos -- --dry-run "$SCRATCH/kotmark"
 ```
 
-Expect 19 generated files and eleven warnings of the form:
-
-```text
-warning: kotmark: settings.android.namespace is not set; using 'ktc.generated.kotmark'
-```
-
-That warning is correct behavior — Toolchain does not require a namespace and AGP does. Check that
-each generated namespace is a valid Java package: the converter replaces `-` with `_`, so
-`commonmark-ext-gfm-alerts` must become `ktc.generated.commonmark_ext_gfm_alerts`.
+For Toolchain 0.13 input, an omitted Android library namespace follows `publishing.group`
+and the effective artifact ID (hyphens become underscores and a leading digit gets an underscore).
+Without a publishing group it is `org.jetbrains.ktc.mangled.p<absolute module-name hash>`, matching
+the Toolchain implementation. No missing-namespace warning is expected.
 
 Then check that `../kotmark` and the other relative dependencies became `project(":kotmark")`
 rather than a Maven coordinate, and that `$kotlin.test` resolved to `kotlin("test")`.
@@ -201,10 +199,11 @@ Because of the platform count, run structure checks before a full build:
 (cd "$SCRATCH/kotmark" && ./gradlew --console=plain :kotmark:jvmTest)
 ```
 
-## Case 4 — kwasm: the collision refusal
+## Case 4 — kwasm: the historical collision refusal
 
-`kwasm` carries a `project.yaml` **and** a hand-written Gradle build. It is the test case for the
-overwrite guard.
+The historical `kwasm` checkout carried a `project.yaml` **and** a hand-written Gradle build.
+The current checkout is Gradle-only, so it stops at project discovery. Use an older commit
+with both builds to reproduce the overwrite-guard case below; the core write suite also tests it.
 
 ```shell
 ./kotlin run -m macos -- --dry-run "$SCRATCH/kwasm"
@@ -283,6 +282,49 @@ The three still differ in a way worth checking:
 
 For each, check that the reported set matches what the project actually uses, and that a generated
 module still references nothing that was left out.
+
+## Latest verification: 2026-10-02
+
+Converter 0.13.0, Kotlin Toolchain 0.13.0, Kotlin 2.4.20, Gradle 9.8.0. All eight
+repositories were shallow-cloned into scratch directories. Automated verification passed:
+
+- `./kotlin test -m core -p jvm`: 401 tests, including all 40 golden cases.
+- `./kotlin test -m core -p macosArm64`: 288 tests.
+- `./kotlin test -m integration-tests -p jvm --build-dir build/integration-013`: all 8 tests,
+  including all three Android fixtures and the host-native fixture. A separate build directory
+  prevents another local compilation from replacing classes while the long suite is running.
+- `./kotlin build -m macos -p macosArm64 -v release`: successful.
+- Local macOS `run.sh` and `install.sh` CI scripts: install, cache reuse, fork cache separation,
+  reinstall, and checksum rejection passed. `actionlint` passed.
+
+The dry runs used
+`build/tasks/_macos_linkMacosArm64Release/macos.kexe --dry-run <clone>`; original pins were
+retained, so only `kotgent` already used Toolchain 0.13.0. Other wrappers pinned 0.12.x.
+
+| Project | Commit | Dry-run result |
+| --- | --- | --- |
+| kotlm | `6d3d0bad8c4c` | 7 files; warnings for JUnit Platform version and JDK distributions |
+| krogu-time | `74768bee15a0` | 7 files; Central Portal and missing-javadoc warnings |
+| kotmark | `728afa7ab7f6` | 20 files; mixed Kotlin plugin versions warned; no namespace warnings |
+| kwasm | `ce5effd8bd32` | No Toolchain project remains; this checkout is Gradle-only |
+| kinetica | `f1bfdae7295b` | Stops on Compose; also diagnoses dropped Android-qualified settings |
+| kotgent | `9c98f3e33dce` | 16 files; build-plugin sections/modules reported as errors |
+| harmon | `7333ba27487f` | 17 files; build-plugin section/module reported as errors |
+| kotbusta | `4803807dd140` | 9 files; Maven/build plugins reported as errors; JDK/JUnit warnings |
+
+The older cases above retain their historical context. In particular, `kwasm` no longer
+exercises the overwrite refusal; the core write tests cover that behavior. These are
+conversion checks; full upstream builds were run only for `kotlm`. Both its original Toolchain 0.12.2 build
+and generated Gradle 9.8.0 build passed; Gradle executed 62 tests in six result files.
+
+## PR #2 verification: 2026-10-04
+
+The combined upgrade retains Renovate's Okio 3.18.2 and kotaml 0.111.0 updates. The failed CI
+comparison for `kmp-android` came from Toolchain resolving Kotlin 2.4.20 while the converter
+still defaulted to 2.4.10. Updating the converter default fixes the dependency mismatch without
+relaxing the comparison. The combined branch passed 401 JVM core tests, 288 native core tests,
+all 8 integration tests (including Android), the macOS release build, launcher/install smoke
+checks, and workflow lint.
 
 ## Record what you find
 

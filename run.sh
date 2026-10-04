@@ -20,7 +20,7 @@ esac
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) ASSET="ktc-to-gradle-macos-arm64.tar.gz" ;;
   Darwin-x86_64)
-    echo "ktc-to-gradle: macOS Intel is not supported by Kotlin Toolchain 0.12 native apps" >&2
+    echo "ktc-to-gradle: macOS Intel is not supported by Kotlin Toolchain native apps" >&2
     exit 1
     ;;
   Linux-x86_64) ASSET="ktc-to-gradle-linux-x64.tar.gz" ;;

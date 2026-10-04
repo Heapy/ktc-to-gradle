@@ -30,7 +30,7 @@ class JvmInterpreterTest {
                 jdk = "25",
                 release = "25",
                 compilerOptions = CompilerOptions(jvmTarget = "25"),
-                layout = Layout.AMPER,
+                layout = Layout.DEFAULT,
                 dependencies = emptyList(),
                 testDependencies = emptyList(),
                 testFramework = TestFramework.JUNIT_5,
@@ -68,7 +68,7 @@ class JvmInterpreterTest {
                 jdk = "21",
                 release = "17",
                 compilerOptions = CompilerOptions(jvmTarget = "17"),
-                layout = Layout.AMPER,
+                layout = Layout.DEFAULT,
                 dependencies = listOf(Dependency(DependencyTarget.Maven("org.example:library:1.0"))),
                 testDependencies = listOf(Dependency(DependencyTarget.Maven("org.example:harness:1.0"))),
                 testFramework = TestFramework.JUNIT_5,
@@ -224,7 +224,7 @@ class JvmInterpreterTest {
     @Test
     fun aMavenLikeModuleKeepsTheGradleSourceLayout() {
         assertEquals(Layout.MAVEN_LIKE, interpret(module("app", "product: jvm/lib\nlayout: maven-like\n")).layout)
-        assertEquals(Layout.AMPER, interpret(module("app", "product: jvm/lib\nlayout: default\n")).layout)
+        assertEquals(Layout.DEFAULT, interpret(module("app", "product: jvm/lib\nlayout: default\n")).layout)
     }
 
     @Test
@@ -463,6 +463,16 @@ class JvmInterpreterTest {
         assertEquals(
             "app: built-in catalog dependency '\$compose.foundation' needs technology-specific manual conversion",
             assertFailsWith<ConversionException> { interpret(app) }.message,
+        )
+    }
+
+    @Test
+    fun ktorWithoutAVersionUsesTheToolchain013Default() {
+        val library = module("library", "product: jvm/lib\nsettings:\n  ktor: enabled\n")
+
+        assertEquals(
+            listOf(Dependency(DependencyTarget.Maven("io.ktor:ktor-bom:3.6.0"), bom = true)),
+            interpret(library).dependencies,
         )
     }
 
