@@ -90,3 +90,13 @@ The converter binary embeds the Gradle wrapper — `gradle-wrapper.jar`, `gradle
 are licensed under the Apache License 2.0. `tools/update-gradle-wrapper.sh` verifies the jar
 against the `wrapperChecksum` that services.gradle.org publishes for the release before embedding
 it, and refuses to write it when they differ.
+
+## Running verification scripts
+
+The `.main.kts` scripts require JDK 25 and Kotlin 2.4.21+ (`kotlinr` on `PATH`).
+Run them with `kotlinr scripts/<name>.main.kts` from the repository root (the HTTP fixture server lives in `tools/`).
+The Kotlin Toolchain `./kotlin` command is a separate executable. CI installs the script runner
+through [Heapy/setup-main-kts](https://github.com/Heapy/setup-main-kts), pinned to v1.0.1's
+commit SHA. The action caches the compiler, Maven dependencies, and compiled scripts between
+eligible CI runs. The first script run compiles the script and resolves any pinned Maven
+dependencies; later runs reuse the script cache.
