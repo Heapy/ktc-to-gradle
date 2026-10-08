@@ -232,6 +232,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-kotlin-script
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -260,22 +261,29 @@ jobs:
           $hash = (Get-FileHash $releaseArchive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $asset" | Set-Content -Encoding ascii $releaseChecksum
 
-          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-          $listener.Start()
-          $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
-          $listener.Stop()
-          $server = Start-Process python -ArgumentList "-m", "http.server", "$port", "--bind", "127.0.0.1" -WorkingDirectory $siteRoot -PassThru
-          $serverRoot = "http://127.0.0.1:$port"
+          $readyFile = Join-Path $env:RUNNER_TEMP "mock-server-ready"
+          $stopFile = Join-Path $env:RUNNER_TEMP "mock-server-stop"
+          $serverScript = Join-Path $PWD "tools/http-server.main.kts"
+          $runnerArgs = @(
+              "`"-Dkotlin.home=$env:KOTLIN_SCRIPT_HOME`"",
+              "-cp", "`"$env:KOTLIN_SCRIPT_HOME\lib\kotlin-runner.jar`"",
+              "org.jetbrains.kotlin.runner.Main",
+              "`"$serverScript`"", "`"$siteRoot`"", "`"$readyFile`"", "`"$stopFile`""
+          )
+          $server = Start-Process -FilePath "$env:JAVA_HOME\bin\java.exe" -ArgumentList $runnerArgs -PassThru
+          $serverRoot = $null
 
           try {
               $ready = $false
-              for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              for ($attempt = 0; $attempt -lt 120; $attempt++) {
+                  if ($server.HasExited) { throw "Mock release server exited: $($server.ExitCode)" }
                   try {
+                      $serverRoot = Get-Content $readyFile -Raw -ErrorAction Stop
                       Invoke-WebRequest -UseBasicParsing "$serverRoot/install.ps1" | Out-Null
                       $ready = $true
                       break
                   } catch {
-                      Start-Sleep -Milliseconds 200
+                      Start-Sleep -Milliseconds 500
                   }
               }
               if (-not $ready) { throw "Mock release server did not start" }
@@ -308,5 +316,6 @@ jobs:
                   throw "install.ps1 installed an executable after checksum failure"
               }
           } finally {
-              Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+              New-Item -ItemType File -Path $stopFile -Force | Out-Null
+              if (-not $server.WaitForExit(5000)) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
           }
