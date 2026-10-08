@@ -232,11 +232,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-kotlin-script
-      - uses: actions/setup-java@v6
+      - uses: Heapy/setup-main-kts@b0858237748f325b825e752bbac2ec2eb1fb9419 # v1.0.1
         with:
+          kotlin-version: '2.4.21'
+          kotlin-sha256: '7cc140e76daf416a0424a5557f99afd7ca89ebd463ea1101261e3e01c33e75cd'
+          java-version: '25'
           distribution: temurin
-          java-version: "25"
       - name: Build native executable
         shell: bash
         run: ./kotlin build -m windows -p mingwX64 -v release
@@ -265,8 +266,8 @@ jobs:
           $stopFile = Join-Path $env:RUNNER_TEMP "mock-server-stop"
           $serverScript = Join-Path $PWD "tools/http-server.main.kts"
           $runnerArgs = @(
-              "`"-Dkotlin.home=$env:KOTLIN_SCRIPT_HOME`"",
-              "-cp", "`"$env:KOTLIN_SCRIPT_HOME\lib\kotlin-runner.jar`"",
+              "`"-Dkotlin.home=$env:KOTLIN_HOME`"",
+              "-cp", "`"$env:KOTLIN_HOME\lib\kotlin-runner.jar`"",
               "org.jetbrains.kotlin.runner.Main",
               "`"$serverScript`"", "`"$siteRoot`"", "`"$readyFile`"", "`"$stopFile`""
           )
